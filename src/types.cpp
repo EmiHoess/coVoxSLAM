@@ -6,21 +6,28 @@
 namespace covoxslam {
 
 float length(vec3f value) noexcept {
-    return std::sqrt(dot(value, value));
+    return std::hypot(value.x, value.y, value.z);
 }
 
 vec3f normalized(vec3f value) noexcept {
-     const float magnitude = length(value);
-    return magnitude > 1.0e-20F && std::isfinite(magnitude)
-        ? value / magnitude : vec3f{};
+     const double magnitude = std::hypot(static_cast<double>(value.x),
+                                         static_cast<double>(value.y),
+                                         static_cast<double>(value.z));
+    if (!(magnitude > 1.0e-20) || !std::isfinite(magnitude)) return {};
+    return {static_cast<float>(value.x / magnitude),
+            static_cast<float>(value.y / magnitude),
+            static_cast<float>(value.z / magnitude)};
 }
 
 quaternion normalized(quaternion value) noexcept {
-    const float magnitude = std::sqrt(value.x * value.x + value.y * value.y +
-                                      value.z * value.z + value.w * value.w);
-    if (!(magnitude > 0.0F) || !std::isfinite(magnitude)) return {};
-    return {value.x / magnitude, value.y / magnitude,
-             value.z / magnitude, value.w / magnitude};
+    const double magnitude = std::hypot(
+        std::hypot(static_cast<double>(value.x), static_cast<double>(value.y)),
+         std::hypot(static_cast<double>(value.z), static_cast<double>(value.w)));
+    if (!(magnitude > 0.0) || !std::isfinite(magnitude)) return {};
+    return {static_cast<float>(value.x / magnitude),
+            static_cast<float>(value.y / magnitude),
+            static_cast<float>(value.z / magnitude),
+            static_cast<float>(value.w / magnitude)};
 }
 
 quaternion multiply(quaternion a, quaternion b) noexcept {
@@ -31,6 +38,8 @@ quaternion multiply(quaternion a, quaternion b) noexcept {
 }
 
 quaternion quaternion_from_yaw(double yaw) noexcept {
+    if (!std::isfinite(yaw)) return {};
+    yaw = wrap_yaw(yaw);
    return {0.0F, 0.0F, static_cast<float>(std::sin(0.5 * yaw)),
             static_cast<float>(std::cos(0.5 * yaw))};
 }
@@ -54,18 +63,19 @@ vec3f inverse_transform_point(const pose& transform, vec3f point) noexcept {
 
 double yaw_of(quaternion rotation) noexcept {
     const quaternion q = normalized(rotation);
-    return std::atan2(2.0 * (static_cast<double>(q.w) * q.z +
+    return wrap_yaw(std::atan2(2.0 * (static_cast<double>(q.w) * q.z +
                               static_cast<double>(q.x) * q.y),
                       1.0 - 2.0 * (static_cast<double>(q.y) * q.y +
-                                   static_cast<double>(q.z) * q.z));
+                                   static_cast<double>(q.z) * q.z)));
 }
 
 double wrap_yaw(double yaw) noexcept {
     if (!std::isfinite(yaw)) return yaw;
     const double pi = std::numbers::pi;
-    double result = std::fmod(yaw + pi, 2.0 * pi);
-    if (result < 0.0) result += 2.0 * pi;
-     return result - pi;
+    double result = std::fmod(yaw, 2.0 * pi);
+    if (result >= pi) result -= 2.0 * pi;
+    if (result < -pi) result += 2.0 * pi;
+     return result == 0.0 ? 0.0 : result;
 }
 
 }
