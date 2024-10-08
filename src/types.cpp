@@ -78,4 +78,39 @@ double wrap_yaw(double yaw) noexcept {
      return result == 0.0 ? 0.0 : result;
 }
 
+pose4 to_pose4(const pose& value) noexcept {
+    return {value.translation.x, value.translation.y, value.translation.z,
+            yaw_of(value.rotation)};
+}
+
+pose to_pose(const pose4& value) noexcept {
+    return {{static_cast<float>(value.x), static_cast<float>(value.y),
+             static_cast<float>(value.z)}, quaternion_from_yaw(value.yaw)};
+}
+
+vec3f world_to_local(const pose4& anchor, vec3f world) noexcept {
+     const double dx = static_cast<double>(world.x) - anchor.x;
+    const double dy = static_cast<double>(world.y) - anchor.y;
+    const double cosine = std::cos(wrap_yaw(anchor.yaw));
+    const double sine = std::sin(wrap_yaw(anchor.yaw));
+    return {static_cast<float>(cosine * dx + sine * dy),
+            static_cast<float>(-sine * dx + cosine * dy),
+            static_cast<float>(static_cast<double>(world.z) - anchor.z)};
+}
+
+pose local_pose(const pose4& anchor, const pose& world_pose) noexcept {
+    return {world_to_local(anchor, world_pose.translation),
+              normalized(multiply(quaternion_from_yaw(-anchor.yaw),
+                                  normalized(world_pose.rotation)))};
+}
+
+pose4 relative_pose(const pose4& left, const pose4& right) noexcept {
+    const double dx = right.x - left.x;
+    const double dy = right.y - left.y;
+    const double cosine = std::cos(wrap_yaw(left.yaw));
+    const double sine = std::sin(wrap_yaw(left.yaw));
+    return {cosine * dx + sine * dy, -sine * dx + cosine * dy,
+             right.z - left.z, wrap_yaw(wrap_yaw(right.yaw) - wrap_yaw(left.yaw))};
+}
+
 }

@@ -12,4 +12,5 @@ add_library(covoxslam_core STATIC src/types.cpp)
 target_include_directories(covoxslam_core PUBLIC include)
 
 add_executable(covoxslam apps/main.cpp)
+ target_link_libraries(covoxslam PRIVATE covoxslam_core)
 target_compile_definitions(covoxslam PRIVATE covoxslam_version="${PROJECT_VERSION}")

@@ -70,5 +70,10 @@ vec3f transform_point(const pose& transform, vec3f point) noexcept;
 vec3f inverse_transform_point(const pose& transform, vec3f point) noexcept;
 double yaw_of(quaternion rotation) noexcept;
 double wrap_yaw(double yaw) noexcept;
+pose4 to_pose4(const pose& value) noexcept;
+pose to_pose(const pose4& value) noexcept;
+vec3f world_to_local(const pose4& anchor, vec3f world) noexcept;
+pose local_pose(const pose4& anchor, const pose& world_pose) noexcept;
+ pose4 relative_pose(const pose4& left, const pose4& right) noexcept;
 
 }
