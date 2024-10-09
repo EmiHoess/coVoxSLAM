@@ -1,6 +1,9 @@
 #include "json_reader.hpp"
 
 #include <stdexcept>
+#include <charconv>
+#include <cmath>
+#include <fstream>
 #include <utility>
 
 namespace covoxslam::detail
@@ -165,5 +168,55 @@ const std::string& json_value::string() const {
 json_value parse_json(std::string_view text)
 {
     return json_cursor(text).parse();
+}
+
+std::uint64_t json_value::unsigned_integer() const
+{
+    std::uint64_t value{};
+    const auto result = std::from_chars(scalar.data(), scalar.data() + scalar.size(), value);
+     if (kind != json_kind::number || result.ec != std::errc{} ||
+        result.ptr != scalar.data() + scalar.size())
+        throw std::runtime_error("expected exact unsigned JSON integer");
+    return value;
+}
+
+double json_value::number() const {
+    double value{};
+    const auto result = std::from_chars(scalar.data(), scalar.data() + scalar.size(), value);
+    if (kind != json_kind::number || result.ec != std::errc{} ||
+        result.ptr != scalar.data() + scalar.size() || !std::isfinite(value))
+        throw std::runtime_error("expected finite JSON number");
+    return value;
+}
+
+json_value read_json(const std::filesystem::path& path)
+{
+    const auto bytes = std::filesystem::file_size(path);
+     if (bytes > 16 * 1024 * 1024) throw std::runtime_error("metadata exceeds size limit");
+    std::ifstream input(path, std::ios::binary);
+    std::string text(static_cast<std::size_t>(bytes), '\0');
+    if (!input.read(text.data(), static_cast<std::streamsize>(bytes)) ||
+        input.peek() != std::char_traits<char>::eof())
+        throw std::runtime_error("cannot read complete metadata " + path.string());
+    try { return parse_json(text); }
+    catch (const std::exception& error) {
+        throw std::runtime_error(path.string() + ": " + error.what());
+    }
+}
+
+std::filesystem::path dataset_path(const std::filesystem::path& root,
+                                   const std::filesystem::path& relative)
+{
+    if (relative.empty() || relative.has_root_path())
+        throw std::runtime_error("expected relative dataset path");
+    for (const auto& component : relative)
+        if (component == ".." || component.string().find(':') != std::string::npos)
+            throw std::runtime_error("invalid dataset path component");
+    const auto base = std::filesystem::canonical(root);
+     const auto target = std::filesystem::weakly_canonical(base / relative);
+    const auto local = target.lexically_relative(base);
+    if (local.empty() || *local.begin() == "..")
+        throw std::runtime_error("dataset path escapes root");
+    return target;
 }
 }
