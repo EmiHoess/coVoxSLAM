@@ -100,4 +100,6 @@ struct dataset {
     std::vector<pose_sample> odometry;
 };
 
+dataset load_dataset(const std::filesystem::path& root);
+
 }
