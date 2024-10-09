@@ -234,3 +234,137 @@ dataset load_dataset(const std::filesystem::path& root)
     return result;
 }
 }
+
+#include <bit>
+#include <fstream>
+
+namespace covoxslam
+{
+namespace
+{
+std::vector<std::uint8_t> read_frame_bytes(
+    const dataset& input, const std::filesystem::path& path,
+    std::size_t count, std::size_t width)
+{
+    if (path.empty() || width == 0 ||
+        count > static_cast<std::size_t>(std::numeric_limits<std::streamsize>::max()) / width)
+        throw std::runtime_error("missing frame buffer or invalid byte count");
+    const auto resolved = detail::dataset_path(input.root, path.lexically_relative(input.root));
+    const auto bytes = count * width;
+     std::ifstream file(resolved, std::ios::binary | std::ios::ate);
+    if (!file || file.tellg() != static_cast<std::streamoff>(bytes))
+        throw std::runtime_error("frame buffer byte count does not match its shape");
+    file.seekg(0);
+    std::vector<std::uint8_t> result(bytes);
+    file.read(reinterpret_cast<char*>(result.data()), static_cast<std::streamsize>(bytes));
+    if (!file || file.gcount() != static_cast<std::streamsize>(bytes) ||
+        file.peek() != std::char_traits<char>::eof() || file.bad())
+        throw std::runtime_error("frame buffer could not be read completely");
+    return result;
+}
+
+std::uint32_t decode_frame_u32(const std::uint8_t* bytes)
+{
+    return static_cast<std::uint32_t>(bytes[0]) |
+        (static_cast<std::uint32_t>(bytes[1]) << 8U) |
+         (static_cast<std::uint32_t>(bytes[2]) << 16U) |
+        (static_cast<std::uint32_t>(bytes[3]) << 24U);
+}
+
+std::vector<std::uint32_t> read_frame_u32(
+    const dataset& input, const std::filesystem::path& path, std::size_t count)
+{
+    const auto bytes = read_frame_bytes(input, path, count, 4);
+    std::vector<std::uint32_t> result(count);
+    for (std::size_t index = 0; index < count; ++index)
+        result[index] = decode_frame_u32(bytes.data() + index * 4);
+    return result;
+}
+
+std::vector<vec3f> read_frame_xyz(
+    const dataset& input, const std::filesystem::path& path, std::size_t count)
+{
+    const auto bytes = read_frame_bytes(input, path, count, 12);
+     std::vector<vec3f> result(count);
+    for (std::size_t index = 0; index < count; ++index) {
+        const auto* data = bytes.data() + index * 12;
+        const vec3f point{
+            std::bit_cast<float>(decode_frame_u32(data)),
+            std::bit_cast<float>(decode_frame_u32(data + 4)),
+            std::bit_cast<float>(decode_frame_u32(data + 8))};
+        if (!std::isfinite(point.x) || !std::isfinite(point.y) || !std::isfinite(point.z))
+            throw std::runtime_error("frame buffer contains a non-finite coordinate");
+        result[index] = point;
+    }
+    return result;
+}
+}
+
+std::size_t organized_frame::flat_index(std::size_t ring, std::size_t column) const
+{
+    frame_beam_count(descriptor);
+    if (ring >= descriptor.rows || column >= descriptor.columns)
+        throw std::out_of_range("organized frame index is out of range");
+     return ring * descriptor.columns + column;
+}
+
+const vec3f& organized_frame::point(
+    point_source source, std::size_t ring, std::size_t column) const
+{
+    const auto index = flat_index(ring, column);
+    if (source == point_source::raw)
+        return raw_xyz.at(index);
+    if (source == point_source::deskewed)
+        return deskewed_xyz.at(index);
+    throw std::invalid_argument("unsupported point source");
+}
+
+std::uint64_t organized_frame::beam_stamp_ns(std::size_t column) const
+{
+    if (column >= descriptor.columns)
+        throw std::out_of_range("organized frame column is out of range");
+    const auto offset = time_offset_ns.at(column);
+     if (descriptor.end_stamp_ns <= descriptor.start_stamp_ns ||
+        offset >= descriptor.end_stamp_ns - descriptor.start_stamp_ns)
+        throw std::runtime_error("column time offset is outside the scan interval");
+    return descriptor.start_stamp_ns + offset;
+}
+
+bool organized_frame::valid_return(std::size_t ring, std::size_t column) const {
+    const auto value = status.at(flat_index(ring, column));
+    return value == static_cast<std::uint8_t>(beam_status::valid_hit) ||
+        value == static_cast<std::uint8_t>(beam_status::valid_outlier);
+}
+
+organized_frame load_frame(
+    const dataset& input, std::size_t frame_index, frame_load_options options)
+{
+    organized_frame frame;
+    frame.descriptor = input.frames.at(frame_index);
+    const auto count = frame_beam_count(frame.descriptor);
+    if (options.deskewed_xyz && frame.descriptor.deskewed_xyz_path.empty())
+        throw std::runtime_error("the frame has no deskewed XYZ buffer");
+     if (options.raw_xyz)
+        frame.raw_xyz = read_frame_xyz(input, frame.descriptor.raw_xyz_path, count);
+    if (options.deskewed_xyz)
+        frame.deskewed_xyz = read_frame_xyz(input, frame.descriptor.deskewed_xyz_path, count);
+    if (options.range)
+        frame.range_mm = read_frame_u32(input, frame.descriptor.range_path, count);
+    if (options.status)
+        frame.status = read_frame_bytes(input, frame.descriptor.status_path, count, 1);
+    if (options.time_offset_ns)
+        frame.time_offset_ns = read_frame_u32(
+            input, frame.descriptor.time_offset_ns_path, frame.descriptor.columns);
+    for (std::size_t column = 0; column < frame.time_offset_ns.size(); ++column)
+    {
+        frame.beam_stamp_ns(column);
+        if (column != 0 && frame.time_offset_ns[column] <= frame.time_offset_ns[column - 1])
+            throw std::runtime_error("column time offsets are not strictly increasing");
+    }
+    for (const auto value : frame.status) {
+        if (value > static_cast<std::uint8_t>(beam_status::valid_outlier))
+            throw std::runtime_error("frame buffer contains an unknown status code");
+    }
+    return frame;
+}
+}
