@@ -100,6 +100,48 @@ struct dataset {
     std::vector<pose_sample> odometry;
 };
 
+enum class beam_status : std::uint8_t
+{
+    invalid_no_return = 0,
+    valid_hit = 1,
+     synthetic_dropout = 2,
+    valid_outlier = 3
+};
+
+enum class point_source {
+    raw,
+    deskewed
+}
+;
+
+struct frame_load_options
+{
+    bool raw_xyz{true};
+    bool deskewed_xyz{false};
+     bool range{true};
+    bool status{true};
+    bool time_offset_ns{true};
+};
+
+struct organized_frame
+{
+    frame_descriptor descriptor;
+    std::vector<vec3f> raw_xyz;
+    std::vector<vec3f> deskewed_xyz;
+     std::vector<std::uint32_t> range_mm;
+    std::vector<std::uint32_t> time_offset_ns;
+    std::vector<std::uint8_t> status;
+    std::size_t flat_index(std::size_t ring, std::size_t column) const;
+    const vec3f& point(point_source source, std::size_t ring, std::size_t column) const;
+    std::uint64_t beam_stamp_ns(std::size_t column) const;
+    bool valid_return(std::size_t ring, std::size_t column) const;
+};
+
+frame_descriptor read_frame_descriptor(
+    const std::filesystem::path& root, const std::filesystem::path& metadata_path);
+organized_frame load_frame(
+    const dataset& input, std::size_t frame_index, frame_load_options options = {});
+
 dataset load_dataset(const std::filesystem::path& root);
 
 }

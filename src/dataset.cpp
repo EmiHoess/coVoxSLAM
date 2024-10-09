@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <initializer_list>
 #include <limits>
 #include <stdexcept>
 
@@ -33,6 +34,109 @@ pose read_pose(const json_value& value)
     result.rotation = normalized(result.rotation);
      return result;
 }
+}
+
+namespace
+{
+std::filesystem::path frame_buffer_path(
+    const detail::json_value& buffers, std::string_view name,
+    std::string_view dtype, std::string_view layout,
+    std::initializer_list<std::size_t> shape,
+    const std::filesystem::path& root,
+    std::string_view unit = {}, std::string_view encoding = {})
+{
+    const auto& buffer = buffers.at(name);
+    const auto& shape_value = buffer.at("shape");
+    const auto& dimensions = shape_value.items;
+    if (shape_value.kind != detail::json_kind::array || buffer.at("dtype").string() != dtype ||
+        buffer.at("layout").string() != layout ||
+         buffer.at("byte_order").string() != "little_endian" ||
+        dimensions.size() != shape.size())
+        throw std::runtime_error("unsupported organized buffer format");
+    if (!unit.empty() && buffer.at("unit").string() != unit)
+        throw std::runtime_error("unsupported frame buffer unit");
+    if (!encoding.empty() && buffer.members.contains("invalid_encoding") &&
+        buffer.at("invalid_encoding").string() != encoding)
+        throw std::runtime_error("unsupported frame zero encoding");
+    std::size_t index{};
+    for (const auto extent : shape) {
+        if (dimensions[index++].unsigned_integer() != extent)
+            throw std::runtime_error("buffer shape does not match the frame");
+    }
+    return detail::dataset_path(root, buffer.at("file").string());
+}
+
+std::size_t frame_beam_count(const frame_descriptor& frame)
+{
+    constexpr std::size_t maximum = 16U * 1024U * 1024U;
+    if (frame.rows == 0 || frame.columns == 0 ||
+        frame.rows > maximum / frame.columns)
+        throw std::runtime_error("frame dimensions exceed the supported bounds");
+    const auto count = frame.rows * frame.columns;
+    if (frame.beam_count != count || frame.end_stamp_ns <= frame.start_stamp_ns)
+        throw std::runtime_error("invalid frame beam count or scan interval");
+     return count;
+}
+}
+
+frame_descriptor read_frame_descriptor(
+    const std::filesystem::path& root, const std::filesystem::path& metadata_path)
+{
+    frame_descriptor frame;
+    frame.metadata_path = detail::dataset_path(root, metadata_path.lexically_relative(root));
+    const auto value = detail::read_json(frame.metadata_path);
+    if (value.at("schema_version").string() != "covox.spinning_lidar.v2")
+        throw std::runtime_error("unsupported frame schema");
+    if (value.at("document_type").string() != "spinning_lidar_frame")
+        throw std::runtime_error("unexpected frame document type");
+    const auto id = value.at("frame_id").unsigned_integer();
+    if (id > static_cast<std::uint64_t>(std::numeric_limits<int>::max()))
+        throw std::runtime_error("frame identifier exceeds the integer range");
+     frame.frame_id = static_cast<int>(id);
+    if (value.members.contains("submap_id")) {
+        const double id_value = value.at("submap_id").number();
+        if (id_value < -1 || id_value > std::numeric_limits<int>::max() ||
+            std::trunc(id_value) != id_value)
+            throw std::runtime_error("invalid submap identifier");
+        frame.submap_id = static_cast<int>(id_value);
+    }
+    frame.start_stamp_ns = value.at("header_stamp_ns").unsigned_integer();
+    frame.end_stamp_ns = value.at("scan_end_stamp_ns").unsigned_integer();
+    frame.rows = value.at("organized_rows").unsigned_integer();
+    frame.columns = value.at("organized_cols").unsigned_integer();
+     frame.beam_count = value.at("beam_count").unsigned_integer();
+    frame.hit_count = value.at("hit_count").unsigned_integer();
+    frame.dropout_count = value.at("dropout_count").unsigned_integer();
+    frame.invalid_count = value.at("invalid_count").unsigned_integer();
+    frame.outlier_count = value.at("outlier_count").unsigned_integer();
+    const auto count = frame_beam_count(frame);
+    if (frame.hit_count > count || frame.dropout_count > count - frame.hit_count ||
+        frame.invalid_count != count - frame.hit_count - frame.dropout_count ||
+        frame.outlier_count > frame.hit_count)
+        throw std::runtime_error("inconsistent frame counters");
+    frame.ground_truth_start = detail::read_pose(value.at("pose_world_lidar_start"));
+    frame.ground_truth_end = detail::read_pose(value.at("pose_world_lidar_end"));
+    frame.odometry_start = value.members.contains("odometry_pose_world_lidar_start")
+        ? detail::read_pose(value.at("odometry_pose_world_lidar_start"))
+        : frame.ground_truth_start;
+     frame.odometry_end = value.members.contains("odometry_pose_world_lidar_end")
+        ? detail::read_pose(value.at("odometry_pose_world_lidar_end"))
+        : frame.ground_truth_end;
+    const auto& buffers = value.at("buffers");
+    const auto rows = frame.rows;
+    const auto columns = frame.columns;
+    frame.raw_xyz_path = frame_buffer_path(
+        buffers, "raw_xyz", "float32", "ring_major", {rows, columns, 3}, root, {}, "zero_xyz");
+    if (buffers.members.contains("deskewed_xyz"))
+        frame.deskewed_xyz_path = frame_buffer_path(
+            buffers, "deskewed_xyz", "float32", "ring_major", {rows, columns, 3}, root, {}, "zero_xyz");
+    frame.range_path = frame_buffer_path(
+        buffers, "range", "uint32", "ring_major", {rows, columns}, root, "millimeters", "zero");
+    frame.status_path = frame_buffer_path(
+        buffers, "status", "uint8", "ring_major", {rows, columns}, root);
+    frame.time_offset_ns_path = frame_buffer_path(
+        buffers, "time_offset_ns", "uint32", "one_per_column", {columns}, root, "nanoseconds");
+    return frame;
 }
 
 dataset load_dataset(const std::filesystem::path& root)
@@ -112,16 +216,21 @@ dataset load_dataset(const std::filesystem::path& root)
         if (entry.is_regular_file() && name.starts_with(filename.substr(0, wildcard)) &&
             name.ends_with(filename.substr(wildcard + 1)))
         {
-            frame_descriptor frame;
-            frame.metadata_path = dataset_path(result.root, pattern.parent_path() / entry.path().filename());
+            auto frame = read_frame_descriptor(result.root,
+                dataset_path(result.root, pattern.parent_path() / entry.path().filename()));
+            if (frame.rows != sensor.rings || frame.columns != sensor.columns)
+                throw std::runtime_error("frame dimensions differ from the sensor calibration");
             result.frames.push_back(std::move(frame));
         }
     }
      if (result.frames.size() != metadata.at("num_frames").unsigned_integer())
         throw std::runtime_error("frame metadata count mismatch");
     std::sort(result.frames.begin(), result.frames.end(), [](const auto& left, const auto& right) {
-        return left.metadata_path < right.metadata_path;
+        return left.frame_id < right.frame_id;
     });
+    for (std::size_t index = 1; index < result.frames.size(); ++index)
+        if (result.frames[index - 1].frame_id == result.frames[index].frame_id)
+            throw std::runtime_error("duplicate frame identifier");
     return result;
 }
 }
