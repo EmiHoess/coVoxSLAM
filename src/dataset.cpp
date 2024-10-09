@@ -2,6 +2,7 @@
 #include "json_reader.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <initializer_list>
 #include <limits>
@@ -336,12 +337,81 @@ bool organized_frame::valid_return(std::size_t ring, std::size_t column) const {
         value == static_cast<std::uint8_t>(beam_status::valid_outlier);
 }
 
+namespace
+{
+struct frame_buffer_request {
+    const std::filesystem::path* path;
+    std::size_t count;
+    std::size_t width;
+     bool requested;
+}
+;
+
+void validate_frame_payload_bounds(
+    const dataset& input, const frame_descriptor& frame, const frame_load_options& options)
+{
+    if (options.max_payload_bytes == 0)
+        throw std::invalid_argument("frame payload byte limit must be positive");
+    const auto count = frame_beam_count(frame);
+    const std::array<frame_buffer_request, 5> requests{{
+        {&frame.raw_xyz_path, count, 12, options.raw_xyz},
+        {&frame.deskewed_xyz_path, count, 12, options.deskewed_xyz},
+        {&frame.range_path, count, 4, options.range},
+         {&frame.status_path, count, 1, options.status},
+        {&frame.time_offset_ns_path, frame.columns, 4, options.time_offset_ns}}};
+    std::size_t total{};
+    for (const auto& request : requests)
+    {
+        if (!request.requested)
+            continue;
+        if (request.count > (options.max_payload_bytes - total) / request.width)
+            throw std::runtime_error("requested frame buffers exceed the payload byte limit");
+        const auto bytes = request.count * request.width;
+        total += bytes;
+        if (request.path->empty())
+            throw std::runtime_error("a requested frame buffer is absent");
+        const auto path = detail::dataset_path(
+            input.root, request.path->lexically_relative(input.root));
+        if (!std::filesystem::is_regular_file(path) || std::filesystem::file_size(path) != bytes)
+            throw std::runtime_error("requested frame buffer has an invalid path or size");
+    }
+}
+
+void validate_frame_contents(const organized_frame& frame)
+{
+    if (frame.status.empty())
+        return;
+    std::array<std::size_t, 4> counts{};
+    const auto valid_point = [](vec3f point) {
+        return point.x != 0 || point.y != 0 || point.z != 0;
+    };
+    for (std::size_t index = 0; index < frame.status.size(); ++index)
+    {
+        const auto status = frame.status[index];
+        if (status >= counts.size())
+            throw std::runtime_error("frame buffer contains an unknown status code");
+        ++counts[status];
+        const bool valid = status == static_cast<std::uint8_t>(beam_status::valid_hit) ||
+             status == static_cast<std::uint8_t>(beam_status::valid_outlier);
+        if ((!frame.range_mm.empty() && (frame.range_mm[index] != 0) != valid) ||
+            (!frame.raw_xyz.empty() && valid_point(frame.raw_xyz[index]) != valid) ||
+            (!frame.deskewed_xyz.empty() && valid_point(frame.deskewed_xyz[index]) != valid))
+            throw std::runtime_error("frame status disagrees with zero return encoding");
+    }
+    const auto& descriptor = frame.descriptor;
+    if (counts[0] != descriptor.invalid_count || counts[2] != descriptor.dropout_count ||
+        counts[1] + counts[3] != descriptor.hit_count || counts[3] != descriptor.outlier_count)
+        throw std::runtime_error("binary status counts disagree with the frame metadata");
+}
+}
+
 organized_frame load_frame(
     const dataset& input, std::size_t frame_index, frame_load_options options)
 {
     organized_frame frame;
     frame.descriptor = input.frames.at(frame_index);
     const auto count = frame_beam_count(frame.descriptor);
+    validate_frame_payload_bounds(input, frame.descriptor, options);
     if (options.deskewed_xyz && frame.descriptor.deskewed_xyz_path.empty())
         throw std::runtime_error("the frame has no deskewed XYZ buffer");
      if (options.raw_xyz)
@@ -365,6 +435,7 @@ organized_frame load_frame(
         if (value > static_cast<std::uint8_t>(beam_status::valid_outlier))
             throw std::runtime_error("frame buffer contains an unknown status code");
     }
+    validate_frame_contents(frame);
     return frame;
 }
 }

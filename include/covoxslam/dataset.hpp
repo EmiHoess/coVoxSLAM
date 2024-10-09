@@ -121,6 +121,7 @@ struct frame_load_options
      bool range{true};
     bool status{true};
     bool time_offset_ns{true};
+    std::size_t max_payload_bytes{256U * 1024U * 1024U};
 };
 
 struct organized_frame
