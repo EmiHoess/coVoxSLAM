@@ -140,6 +140,12 @@ frame_descriptor read_frame_descriptor(
     return frame;
 }
 
+namespace
+{
+void load_json_trajectories(dataset& input, const detail::json_value& metadata);
+void validate_trajectory_coverage(const dataset& input);
+}
+
 dataset load_dataset(const std::filesystem::path& root)
 {
     using namespace detail;
@@ -232,6 +238,8 @@ dataset load_dataset(const std::filesystem::path& root)
     for (std::size_t index = 1; index < result.frames.size(); ++index)
         if (result.frames[index - 1].frame_id == result.frames[index].frame_id)
             throw std::runtime_error("duplicate frame identifier");
+    load_json_trajectories(result, metadata);
+    validate_trajectory_coverage(result);
     return result;
 }
 }
@@ -572,5 +580,140 @@ void write_cache_bytes(const std::filesystem::path& root, cache_buffer& buffer)
     std::filesystem::remove(temporary, error);
     std::filesystem::remove(directory, error);
 }
+}
+}
+
+namespace covoxslam
+{
+namespace
+{
+void validate_pose_sample(const pose_sample& sample)
+{
+    const auto& position = sample.pose.translation;
+    const auto& rotation = sample.pose.rotation;
+    const double norm = std::hypot(std::hypot(double(rotation.x), double(rotation.y)),
+                                  std::hypot(double(rotation.z), double(rotation.w)));
+    if (!std::isfinite(position.x) || !std::isfinite(position.y) || !std::isfinite(position.z) ||
+         !std::isfinite(norm) || std::abs(norm - 1) > 0.001)
+        throw std::runtime_error("invalid trajectory pose");
+}
+
+std::vector<pose_sample> read_trajectory(
+    const std::filesystem::path& path, std::string_view kind, const detail::json_value& convention)
+{
+    const auto before = file_identity(path);
+    std::ifstream file(path, std::ios::binary);
+    if (!file) throw std::runtime_error("cannot open trajectory");
+    std::vector<pose_sample> result;
+    std::vector<char> line(1024U * 1024U + 2);
+    while (file.getline(line.data(), static_cast<std::streamsize>(line.size())))
+    {
+        const auto count = static_cast<std::size_t>(file.gcount()) - (file.eof() ? 0 : 1);
+        if (count == 0 || (count == 1 && line[0] == '\r')) continue;
+        if (count > 1024U * 1024U || result.size() >= maximum_trajectory_samples)
+            throw std::length_error("trajectory exceeds its line or sample limit");
+        const auto value = detail::parse_json(std::string_view(line.data(), count));
+        if (value.at("schema_version").string() != "covox.spinning_lidar.v2" ||
+             value.at("document_type").string() != "spinning_lidar_trajectory_record")
+            throw std::runtime_error("unsupported trajectory record schema");
+        if (value.at("trajectory_kind").string() != kind)
+            throw std::runtime_error("trajectory kind does not match its descriptor");
+        if (value.at("parent_frame").string() != convention.at("world_frame").string() ||
+            value.at("child_frame").string() != convention.at("sensor_frame").string())
+            throw std::runtime_error("trajectory coordinate frames disagree with the manifest");
+        pose_sample sample{value.at("stamp_ns").unsigned_integer(), detail::read_pose(value)};
+        if (!result.empty() && sample.stamp_ns <= result.back().stamp_ns)
+            throw std::runtime_error("trajectory timestamps are not strictly increasing");
+        result.push_back(sample);
+    }
+    if (!file.eof() || file.bad() || result.empty() || file_identity(path) != before)
+        throw std::runtime_error("trajectory is empty, changed or could not be read");
+    return result;
+}
+
+void load_json_trajectories(dataset& input, const detail::json_value& metadata)
+{
+    if (input.type != "recorded_spinning_lidar" && input.type != "synthetic_spinning_lidar")
+        throw std::runtime_error("unsupported spinning lidar dataset type");
+    const auto& convention = metadata.at("frame_convention");
+    if (metadata.members.contains("trajectory_ground_truth_file"))
+        input.ground_truth = read_trajectory(detail::dataset_path(input.root,
+            metadata.at("trajectory_ground_truth_file").string()), "ground_truth", convention);
+    else if (input.type != "recorded_spinning_lidar")
+        throw std::runtime_error("synthetic recording requires a ground truth trajectory");
+     input.odometry = read_trajectory(detail::dataset_path(input.root,
+        metadata.at("odometry_file").string()), "odometry", convention);
+}
+
+void validate_trajectory_coverage(const dataset& input)
+{
+    if (input.frames.empty()) throw std::runtime_error("recording has no frames");
+    const auto begin = input.frames.front().start_stamp_ns;
+    auto minimum_stamp = begin;
+    std::uint64_t end{};
+    for (const auto& frame : input.frames) {
+        minimum_stamp = std::min(minimum_stamp, frame.start_stamp_ns);
+        end = std::max(end, frame.end_stamp_ns);
+    }
+    for (const auto* trajectory : {&input.ground_truth, &input.odometry})
+    {
+        if (trajectory->empty() && trajectory == &input.ground_truth && input.type == "recorded_spinning_lidar") continue;
+        if (trajectory->empty() || trajectory->front().stamp_ns > minimum_stamp || trajectory->back().stamp_ns < end)
+            throw std::runtime_error("trajectory does not cover every scan");
+    }
+}
+}
+
+pose sample_pose(std::span<const pose_sample> trajectory, std::uint64_t stamp_ns)
+{
+    if (trajectory.empty()) throw std::invalid_argument("cannot sample an empty trajectory");
+    if (stamp_ns < trajectory.front().stamp_ns || stamp_ns > trajectory.back().stamp_ns)
+        throw std::out_of_range("pose timestamp is outside trajectory coverage");
+    const auto upper = std::lower_bound(trajectory.begin(), trajectory.end(), stamp_ns,
+        [](const auto& sample, std::uint64_t stamp) { return sample.stamp_ns < stamp; });
+    if (upper == trajectory.end()) throw std::invalid_argument("invalid trajectory ordering");
+    validate_pose_sample(*upper);
+     if (upper == trajectory.begin() || upper->stamp_ns == stamp_ns) return upper->pose;
+    const auto& left = *(upper - 1);
+    validate_pose_sample(left);
+    if (left.stamp_ns >= upper->stamp_ns)
+        throw std::invalid_argument("invalid trajectory interval");
+    const double alpha = static_cast<double>(stamp_ns - left.stamp_ns) /
+                         static_cast<double>(upper->stamp_ns - left.stamp_ns);
+    const auto a = normalized(left.pose.rotation);
+    auto b = normalized(upper->pose.rotation);
+    double cosine = double(a.x) * b.x + double(a.y) * b.y + double(a.z) * b.z + double(a.w) * b.w;
+    if (cosine < 0) {
+        b = {-b.x, -b.y, -b.z, -b.w};
+        cosine = -cosine;
+    }
+    double left_weight = 1 - alpha;
+     double right_weight = alpha;
+    if (cosine < 0.9995)
+    {
+        const auto angle = std::acos(std::clamp(cosine, 0.0, 1.0));
+        const auto sine = std::sin(angle);
+        left_weight = std::sin((1 - alpha) * angle) / sine;
+        right_weight = std::sin(alpha * angle) / sine;
+    }
+    const auto& first = left.pose.translation;
+    const auto& last = upper->pose.translation;
+    pose result;
+    result.translation = {static_cast<float>(std::lerp(double(first.x), double(last.x), alpha)),
+                          static_cast<float>(std::lerp(double(first.y), double(last.y), alpha)),
+                           static_cast<float>(std::lerp(double(first.z), double(last.z), alpha))};
+    result.rotation = normalized({static_cast<float>(left_weight * a.x + right_weight * b.x),
+                                  static_cast<float>(left_weight * a.y + right_weight * b.y),
+                                  static_cast<float>(left_weight * a.z + right_weight * b.z),
+                                  static_cast<float>(left_weight * a.w + right_weight * b.w)});
+    return result;
+}
+
+std::span<const pose_sample> pose_stream(const dataset& input, pose_source source)
+{
+    const auto* result = source == pose_source::ground_truth ? &input.ground_truth : &input.odometry;
+    if ((source != pose_source::ground_truth && source != pose_source::odometry) || result->empty())
+        throw std::invalid_argument("requested trajectory is unavailable");
+     return *result;
 }
 }
