@@ -5,6 +5,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <map>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -88,6 +90,35 @@ struct frame_descriptor {
     std::filesystem::path status_path;
 };
 
+enum class pose_source { ground_truth, odometry };
+
+enum class dataset_verification_mode
+{
+    prefer_cache,
+     force_full
+};
+
+enum class dataset_input_source { full_scan, validated_cache };
+
+struct dataset_load_options
+{
+    dataset_verification_mode verification{dataset_verification_mode::prefer_cache};
+    bool update_cache{true};
+};
+
+struct cache_file_identity {
+    std::uint64_t size{};
+    std::int64_t modified{};
+     bool operator==(const cache_file_identity&) const noexcept = default;
+}
+;
+
+struct payload_cache_descriptor
+{
+    cache_file_identity identity;
+    std::uint64_t content_hash{};
+};
+
 struct dataset {
     std::filesystem::path root;
     std::string schema_version;
@@ -98,6 +129,9 @@ struct dataset {
      std::vector<frame_descriptor> frames;
     std::vector<pose_sample> ground_truth;
     std::vector<pose_sample> odometry;
+    std::map<std::filesystem::path, payload_cache_descriptor> payload_index;
+    dataset_input_source input_source{dataset_input_source::full_scan};
+    std::string content_fingerprint;
 };
 
 enum class beam_status : std::uint8_t
@@ -144,5 +178,7 @@ organized_frame load_frame(
     const dataset& input, std::size_t frame_index, frame_load_options options = {});
 
 dataset load_dataset(const std::filesystem::path& root);
+pose sample_pose(std::span<const pose_sample> trajectory, std::uint64_t stamp_ns);
+std::span<const pose_sample> pose_stream(const dataset& input, pose_source source);
 
 }

@@ -439,3 +439,138 @@ organized_frame load_frame(
     return frame;
 }
 }
+
+#include <array>
+#include <cstring>
+#include <fstream>
+#include <span>
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
+namespace covoxslam
+{
+namespace
+{
+constexpr std::uint64_t hash_basis = 14695981039346656037ULL;
+constexpr std::uint64_t cache_magic = 0x31584449434f5658ULL;
+constexpr std::size_t maximum_cache_bytes = 1024U * 1024U * 1024U;
+ constexpr std::size_t maximum_trajectory_samples = 16U * 1024U * 1024U;
+
+std::uint64_t hash_bytes(std::span<const std::uint8_t> bytes, std::uint64_t hash = hash_basis)
+{
+    for (const auto byte : bytes) {
+        hash ^= byte;
+        hash *= 1099511628211ULL;
+    }
+    return hash;
+}
+
+cache_file_identity file_identity(const std::filesystem::path& path)
+{
+    if (!std::filesystem::is_regular_file(path))
+        throw std::runtime_error("recording input is not a regular file");
+    const auto modified = std::filesystem::last_write_time(path).time_since_epoch().count();
+    return {std::filesystem::file_size(path), static_cast<std::int64_t>(modified)};
+}
+
+payload_cache_descriptor hash_file(const std::filesystem::path& path)
+{
+    const auto before = file_identity(path);
+    std::ifstream file(path, std::ios::binary);
+    if (!file) throw std::runtime_error("cannot open recording input");
+    std::array<std::uint8_t, 65536> bytes;
+    std::uint64_t hash = hash_basis;
+     std::uint64_t count{};
+    while (file)
+    {
+        file.read(reinterpret_cast<char*>(bytes.data()), bytes.size());
+        const auto size = static_cast<std::size_t>(file.gcount());
+        hash = hash_bytes(std::span(bytes).first(size), hash);
+        count += size;
+    }
+    if (!file.eof() || file.bad() || count != before.size || file_identity(path) != before)
+        throw std::runtime_error("recording input changed or could not be read");
+    return {before, hash};
+}
+
+class cache_buffer
+{
+    std::size_t position{};
+public:
+    std::vector<std::uint8_t> bytes;
+    template<class value_type>
+    void append(value_type value)
+    {
+        if (bytes.size() > maximum_cache_bytes - sizeof(value_type))
+            throw std::length_error("input cache exceeds byte limit");
+        const auto* first = reinterpret_cast<const std::uint8_t*>(&value);
+         bytes.insert(bytes.end(), first, first + sizeof(value_type));
+    }
+    template<class value_type>
+    value_type take() {
+        if (sizeof(value_type) > bytes.size() - position)
+            throw std::runtime_error("truncated input cache");
+        value_type value;
+        std::memcpy(&value, bytes.data() + position, sizeof(value_type));
+        position += sizeof(value_type);
+        return value;
+    }
+    std::size_t remaining() const
+    {
+        return bytes.size() - position;
+    }
+}
+;
+
+cache_buffer read_cache_bytes(const std::filesystem::path& path)
+{
+    const auto size = std::filesystem::file_size(path);
+    if (size < 16 || size > maximum_cache_bytes)
+        throw std::runtime_error("invalid input cache length");
+    cache_buffer result;
+     result.bytes.resize(static_cast<std::size_t>(size));
+    std::ifstream file(path, std::ios::binary);
+    if (!file.read(reinterpret_cast<char*>(result.bytes.data()), static_cast<std::streamsize>(size)) ||
+        file.peek() != std::char_traits<char>::eof() || file.bad())
+        throw std::runtime_error("cannot read complete input cache");
+    std::uint64_t checksum;
+    std::memcpy(&checksum, result.bytes.data() + size - 8, 8);
+    result.bytes.resize(static_cast<std::size_t>(size) - 8);
+    if (hash_bytes(result.bytes) != checksum || result.take<std::uint64_t>() != cache_magic)
+        throw std::runtime_error("input cache checksum or native format mismatch");
+    return result;
+}
+
+void write_cache_bytes(const std::filesystem::path& root, cache_buffer& buffer)
+{
+    const auto directory = root / ".covox_input_cache_write";
+    std::error_code error;
+    if (!std::filesystem::create_directory(directory, error)) return;
+    const auto temporary = directory / "input.bin";
+    const auto destination = root / ".covox_input_cache_v1.bin";
+    try {
+        buffer.append(hash_bytes(buffer.bytes));
+        std::ofstream file(temporary, std::ios::binary);
+        file.write(reinterpret_cast<const char*>(buffer.bytes.data()),
+                    static_cast<std::streamsize>(buffer.bytes.size()));
+        file.close();
+        if (file)
+        {
+#ifdef _WIN32
+            MoveFileExW(temporary.c_str(), destination.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH);
+#else
+             std::filesystem::rename(temporary, destination, error);
+#endif
+        }
+    }
+    catch (const std::exception&)
+    {}
+    std::filesystem::remove(temporary, error);
+    std::filesystem::remove(directory, error);
+}
+}
+}
