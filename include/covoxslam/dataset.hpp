@@ -178,7 +178,7 @@ frame_descriptor read_frame_descriptor(
 organized_frame load_frame(
     const dataset& input, std::size_t frame_index, frame_load_options options = {});
 
-dataset load_dataset(const std::filesystem::path& root);
+dataset load_dataset(const std::filesystem::path& root, dataset_load_options options = {});
 pose sample_pose(std::span<const pose_sample> trajectory, std::uint64_t stamp_ns);
 std::span<const pose_sample> pose_stream(const dataset& input, pose_source source);
 

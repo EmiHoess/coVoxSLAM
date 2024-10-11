@@ -146,13 +146,16 @@ namespace
 {
 void load_json_trajectories(dataset& input, const detail::json_value& metadata);
 void validate_trajectory_coverage(const dataset& input);
+void load_dataset_inputs(dataset& input, const detail::json_value& metadata,
+                         dataset_load_options options);
 std::uint64_t input_structure_hash(const dataset& input, const detail::json_value& metadata);
 void index_dataset_payloads(dataset& input, std::uint64_t structure_hash);
+void write_input_cache(const dataset& input, std::uint64_t structure_hash);
 void verify_frame_bytes(const dataset& input, const std::filesystem::path& path,
                         std::span<const std::uint8_t> bytes);
 }
 
-dataset load_dataset(const std::filesystem::path& root)
+dataset load_dataset(const std::filesystem::path& root, dataset_load_options options)
 {
     using namespace detail;
     dataset result;
@@ -247,14 +250,12 @@ dataset load_dataset(const std::filesystem::path& root)
     for (std::size_t index = 1; index < result.frames.size(); ++index)
         if (result.frames[index - 1].frame_id == result.frames[index].frame_id)
             throw std::runtime_error("duplicate frame identifier");
-    load_json_trajectories(result, metadata);
-    const auto structure_hash = input_structure_hash(result, metadata);
-    index_dataset_payloads(result, structure_hash);
-    if (input_structure_hash(result, metadata) != structure_hash ||
-        manifest_hash != hash_file(dataset_path(result.root, "dataset.json")).content_hash ||
+    load_dataset_inputs(result, metadata, options);
+    if (manifest_hash != hash_file(dataset_path(result.root, "dataset.json")).content_hash ||
         sensor_hash != hash_file(sensor_path).content_hash)
         throw std::runtime_error("recording metadata changed while inputs were loaded");
-    validate_trajectory_coverage(result);
+    if (options.update_cache && result.input_source == dataset_input_source::full_scan)
+        write_input_cache(result, input_structure_hash(result, metadata));
     return result;
 }
 }
@@ -882,6 +883,85 @@ void write_input_cache(const dataset& input, std::uint64_t structure_hash)
     }
     catch (const std::exception&)
     {}
+}
+}
+}
+
+namespace covoxslam
+{
+namespace
+{
+std::vector<pose_sample> read_cached_trajectory(cache_buffer& buffer)
+{
+    const auto count = buffer.take<std::uint64_t>();
+    if (count > maximum_trajectory_samples || count > buffer.remaining() / 36)
+        throw std::runtime_error("invalid trajectory cache sample count");
+    std::vector<pose_sample> result;
+     result.reserve(static_cast<std::size_t>(count));
+    for (std::uint64_t index = 0; index < count; ++index)
+    {
+        pose_sample sample;
+        sample.stamp_ns = buffer.take<std::uint64_t>();
+        auto& p = sample.pose.translation;
+        auto& q = sample.pose.rotation;
+        for (float* component : {&p.x, &p.y, &p.z, &q.x, &q.y, &q.z, &q.w})
+            *component = buffer.take<float>();
+        validate_pose_sample(sample);
+        if (!result.empty() && sample.stamp_ns <= result.back().stamp_ns)
+            throw std::runtime_error("cached trajectory timestamps are not strictly increasing");
+         result.push_back(sample);
+    }
+    return result;
+}
+
+bool read_input_cache(dataset& input, std::uint64_t structure_hash, bool ground_truth_expected)
+{
+    try {
+        auto buffer = read_cache_bytes(detail::dataset_path(input.root, ".covox_input_cache_v1.bin"));
+        if (buffer.take<std::uint64_t>() != structure_hash ||
+            buffer.take<std::uint64_t>() != input.payload_index.size()) return false;
+        auto payloads = input.payload_index;
+        for (auto& [path, payload] : payloads)
+        {
+            const cache_file_identity saved{buffer.take<std::uint64_t>(), buffer.take<std::int64_t>()};
+            if (saved != payload.identity) return false;
+             payload.content_hash = buffer.take<std::uint64_t>();
+        }
+        auto ground_truth = read_cached_trajectory(buffer);
+        auto odometry = read_cached_trajectory(buffer);
+        if (buffer.remaining() != 0 || odometry.empty() || ground_truth_expected == ground_truth.empty()) return false;
+        for (const auto& [path, payload] : payloads)
+            if (file_identity(path) != payload.identity) return false;
+        input.payload_index = std::move(payloads);
+        input.ground_truth = std::move(ground_truth);
+        input.odometry = std::move(odometry);
+        return true;
+    }
+    catch (const std::exception&)
+    {
+        return false;
+    }
+}
+
+void load_dataset_inputs(dataset& input, const detail::json_value& metadata,
+                          dataset_load_options options)
+{
+    if (options.verification != dataset_verification_mode::prefer_cache &&
+        options.verification != dataset_verification_mode::force_full)
+        throw std::invalid_argument("unsupported input verification mode");
+    const auto structure_hash = input_structure_hash(input, metadata);
+    prepare_payload_index(input);
+    const bool cached = options.verification == dataset_verification_mode::prefer_cache &&
+                        read_input_cache(input, structure_hash, metadata.members.contains("trajectory_ground_truth_file"));
+    if (!cached) {
+        load_json_trajectories(input, metadata);
+         index_dataset_payloads(input, structure_hash);
+    }
+    if (input_structure_hash(input, metadata) != structure_hash)
+        throw std::runtime_error("recording metadata changed while inputs were loaded");
+    validate_trajectory_coverage(input);
+    input.input_source = cached ? dataset_input_source::validated_cache : dataset_input_source::full_scan;
+    update_content_fingerprint(input, structure_hash);
 }
 }
 }

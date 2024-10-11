@@ -32,6 +32,7 @@ void usage()
               << "  --ring-stride N          Positive ring stride, default 1\n"
               << "  --column-stride N        Positive column stride, default 1\n"
               << "  --point-source raw|deskewed  Default raw\n"
+              << "  --verification cached|full  Default cached\n"
                << "  --frame INDEX            Zero based frame index\n"
               << "  --help | --version\n";
 }
@@ -51,6 +52,7 @@ int main(int argc, char** argv)
              return 0;
         }
         std::filesystem::path dataset_path;
+        covoxslam::dataset_load_options input_options;
         std::size_t frame_index{}, ring_stride{1}, column_stride{1};
         bool frame_selected{}, sampling_selected{};
         auto source = covoxslam::point_source::raw;
@@ -58,12 +60,19 @@ int main(int argc, char** argv)
         {
             const std::string_view option = argv[index];
             if (option != "--dataset" && option != "--frame" && option != "--ring-stride" &&
-                option != "--column-stride" && option != "--point-source")
+                option != "--column-stride" && option != "--point-source" && option != "--verification")
                 throw std::invalid_argument("unknown option: " + std::string(option));
             if (++index >= argc)
                 throw std::invalid_argument(std::string(option) + " needs a value");
              const std::string_view value = argv[index];
             if (option == "--dataset") dataset_path = std::string(value);
+            else if (option == "--verification")
+            {
+                if (value != "cached" && value != "full")
+                    throw std::invalid_argument("--verification needs cached or full");
+                input_options.verification = value == "cached" ? covoxslam::dataset_verification_mode::prefer_cache
+                    : covoxslam::dataset_verification_mode::force_full;
+            }
             else if (option == "--frame") {
                 frame_index = parse_index(value, option);
                 frame_selected = true;
@@ -87,10 +96,12 @@ int main(int argc, char** argv)
         if (dataset_path.empty()) throw std::invalid_argument("--dataset is required");
         if (sampling_selected && !frame_selected)
             throw std::invalid_argument("frame sampling options require --frame");
-         const auto dataset = covoxslam::load_dataset(dataset_path);
+         const auto dataset = covoxslam::load_dataset(dataset_path, input_options);
         std::cout << "dataset " << dataset.name << '\n'
                   << "frames " << dataset.frames.size() << '\n'
                   << "sensor shape " << dataset.sensor.rings << ' ' << dataset.sensor.columns << '\n';
+        std::cout << "input source " << (dataset.input_source == covoxslam::dataset_input_source::validated_cache
+            ? "validated_cache" : "full_scan") << '\n' << "input hash " << dataset.content_fingerprint << '\n';
         if (!frame_selected) return 0;
         if (frame_index >= dataset.frames.size()) throw std::out_of_range("frame index is out of range");
         covoxslam::frame_load_options options{};
