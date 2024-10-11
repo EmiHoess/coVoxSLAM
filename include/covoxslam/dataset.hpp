@@ -67,6 +67,7 @@ struct world_description {
 };
 
 struct frame_descriptor {
+    std::uint64_t metadata_content_hash{};
     int frame_id{};
      int submap_id{-1};
     std::uint64_t start_stamp_ns{};

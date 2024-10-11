@@ -39,6 +39,7 @@ pose read_pose(const json_value& value)
 
 namespace
 {
+payload_cache_descriptor hash_file(const std::filesystem::path& path);
 std::filesystem::path frame_buffer_path(
     const detail::json_value& buffers, std::string_view name,
     std::string_view dtype, std::string_view layout,
@@ -85,6 +86,7 @@ frame_descriptor read_frame_descriptor(
 {
     frame_descriptor frame;
     frame.metadata_path = detail::dataset_path(root, metadata_path.lexically_relative(root));
+    frame.metadata_content_hash = hash_file(frame.metadata_path).content_hash;
     const auto value = detail::read_json(frame.metadata_path);
     if (value.at("schema_version").string() != "covox.spinning_lidar.v2")
         throw std::runtime_error("unsupported frame schema");
@@ -144,6 +146,10 @@ namespace
 {
 void load_json_trajectories(dataset& input, const detail::json_value& metadata);
 void validate_trajectory_coverage(const dataset& input);
+std::uint64_t input_structure_hash(const dataset& input, const detail::json_value& metadata);
+void index_dataset_payloads(dataset& input, std::uint64_t structure_hash);
+void verify_frame_bytes(const dataset& input, const std::filesystem::path& path,
+                        std::span<const std::uint8_t> bytes);
 }
 
 dataset load_dataset(const std::filesystem::path& root)
@@ -151,6 +157,7 @@ dataset load_dataset(const std::filesystem::path& root)
     using namespace detail;
     dataset result;
     result.root = std::filesystem::canonical(root);
+    const auto manifest_hash = hash_file(dataset_path(result.root, "dataset.json")).content_hash;
     const auto metadata = read_json(dataset_path(result.root, "dataset.json"));
     result.schema_version = metadata.at("schema_version").string();
     if (result.schema_version != "covox.spinning_lidar.v2" ||
@@ -162,7 +169,9 @@ dataset load_dataset(const std::filesystem::path& root)
     if (units.at("distance").string() != "meters" || units.at("angle").string() != "radians" ||
         units.at("timestamp").string() != "nanoseconds" || units.at("range").string() != "millimeters")
         throw std::runtime_error("unsupported dataset units");
-    const auto calibration = read_json(dataset_path(result.root, metadata.at("sensor_file").string()));
+    const auto sensor_path = dataset_path(result.root, metadata.at("sensor_file").string());
+    const auto sensor_hash = hash_file(sensor_path).content_hash;
+    const auto calibration = read_json(sensor_path);
     if (calibration.at("schema_version").string() != result.schema_version ||
         calibration.at("document_type").string() != "spinning_lidar_sensor")
         throw std::runtime_error("unsupported sensor schema");
@@ -239,6 +248,12 @@ dataset load_dataset(const std::filesystem::path& root)
         if (result.frames[index - 1].frame_id == result.frames[index].frame_id)
             throw std::runtime_error("duplicate frame identifier");
     load_json_trajectories(result, metadata);
+    const auto structure_hash = input_structure_hash(result, metadata);
+    index_dataset_payloads(result, structure_hash);
+    if (input_structure_hash(result, metadata) != structure_hash ||
+        manifest_hash != hash_file(dataset_path(result.root, "dataset.json")).content_hash ||
+        sensor_hash != hash_file(sensor_path).content_hash)
+        throw std::runtime_error("recording metadata changed while inputs were loaded");
     validate_trajectory_coverage(result);
     return result;
 }
@@ -269,6 +284,7 @@ std::vector<std::uint8_t> read_frame_bytes(
     if (!file || file.gcount() != static_cast<std::streamsize>(bytes) ||
         file.peek() != std::char_traits<char>::eof() || file.bad())
         throw std::runtime_error("frame buffer could not be read completely");
+    verify_frame_bytes(input, resolved, result);
     return result;
 }
 
@@ -715,5 +731,157 @@ std::span<const pose_sample> pose_stream(const dataset& input, pose_source sourc
     if ((source != pose_source::ground_truth && source != pose_source::odometry) || result->empty())
         throw std::invalid_argument("requested trajectory is unavailable");
      return *result;
+}
+}
+
+#include <charconv>
+
+namespace covoxslam
+{
+namespace
+{
+std::size_t frame_beam_count(const frame_descriptor& frame);
+
+std::uint64_t input_structure_hash(const dataset& input, const detail::json_value& metadata)
+{
+    std::vector<std::filesystem::path> paths{input.root / "dataset.json"};
+    for (const auto key : {"sensor_file", "world_file", "timeline_file"})
+    {
+        if (metadata.members.contains(key))
+            paths.push_back(detail::dataset_path(input.root, metadata.at(key).string()));
+    }
+    for (const auto& frame : input.frames)
+    {
+        if (hash_file(frame.metadata_path).content_hash != frame.metadata_content_hash)
+            throw std::runtime_error("frame metadata changed after parsing");
+        paths.push_back(frame.metadata_path);
+    }
+    cache_buffer structure;
+    for (const auto& path : paths) {
+        const auto relative = path.lexically_relative(input.root).generic_string();
+         const auto source = hash_file(path);
+        structure.append(static_cast<std::uint64_t>(relative.size()));
+        structure.append(hash_bytes({reinterpret_cast<const std::uint8_t*>(relative.data()), relative.size()}));
+        structure.append(source.identity.size);
+        structure.append(source.content_hash);
+    }
+    for (const auto key : {"trajectory_ground_truth_file", "odometry_file"})
+    {
+        if (!metadata.members.contains(key)) continue;
+        const auto identity = file_identity(detail::dataset_path(input.root, metadata.at(key).string()));
+        structure.append(identity.size);
+        structure.append(identity.modified);
+    }
+    return hash_bytes(structure.bytes);
+}
+
+void prepare_payload_index(dataset& input)
+{
+    input.payload_index.clear();
+    for (const auto& frame : input.frames)
+    {
+        const auto count = frame_beam_count(frame);
+        const std::array<std::pair<std::filesystem::path, std::uint64_t>, 5> payloads{{
+            {frame.raw_xyz_path, count * 12ULL}, {frame.deskewed_xyz_path, count * 12ULL},
+             {frame.range_path, count * 4ULL}, {frame.status_path, count},
+            {frame.time_offset_ns_path, frame.columns * 4ULL}}};
+        for (const auto& [path, size] : payloads) {
+            if (path.empty()) continue;
+            const auto resolved = detail::dataset_path(input.root, path.lexically_relative(input.root));
+            const auto identity = file_identity(resolved);
+            if (identity.size != size)
+                throw std::runtime_error("indexed payload size disagrees with frame metadata");
+            input.payload_index.emplace(resolved, payload_cache_descriptor{identity, 0});
+        }
+    }
+}
+
+void update_content_fingerprint(dataset& input, std::uint64_t structure_hash)
+{
+    auto hash = hash_basis;
+    const auto append = [&hash](const auto& value) {
+        hash = hash_bytes({reinterpret_cast<const std::uint8_t*>(&value), sizeof(value)}, hash);
+    };
+    append(structure_hash);
+    for (const auto& [path, payload] : input.payload_index)
+    {
+        append(payload.identity.size);
+         append(payload.content_hash);
+    }
+    for (const auto* trajectory : {&input.ground_truth, &input.odometry})
+    {
+        append(static_cast<std::uint64_t>(trajectory->size()));
+        for (const auto& sample : *trajectory) {
+            append(sample.stamp_ns);
+            const auto& p = sample.pose.translation;
+            const auto& q = sample.pose.rotation;
+            for (const float value : {p.x, p.y, p.z, q.x, q.y, q.z, q.w}) append(value);
+        }
+    }
+    std::array<char, 16> hexadecimal;
+    const auto result = std::to_chars(hexadecimal.data(), hexadecimal.data() + hexadecimal.size(),
+                                     hash, 16);
+    input.content_fingerprint = "dataset-native-v1-" + std::string(hexadecimal.data(), result.ptr);
+}
+
+void index_dataset_payloads(dataset& input, std::uint64_t structure_hash)
+{
+    prepare_payload_index(input);
+    for (auto& [path, payload] : input.payload_index)
+    {
+        const auto verified = hash_file(path);
+        if (verified.identity != payload.identity)
+            throw std::runtime_error("payload changed while the input index was built");
+         payload = verified;
+    }
+    update_content_fingerprint(input, structure_hash);
+}
+
+void verify_frame_bytes(const dataset& input, const std::filesystem::path& path,
+                         std::span<const std::uint8_t> bytes)
+{
+    if (input.payload_index.empty()) return;
+    const auto entry = input.payload_index.find(path);
+    if (entry == input.payload_index.end() || entry->second.identity.size != bytes.size() ||
+        entry->second.content_hash != hash_bytes(bytes))
+        throw std::runtime_error("frame payload does not match the verified input index");
+}
+
+void append_cached_trajectory(cache_buffer& buffer, std::span<const pose_sample> trajectory)
+{
+    if (trajectory.size() > maximum_trajectory_samples)
+        throw std::length_error("trajectory cache exceeds sample limit");
+     buffer.append(static_cast<std::uint64_t>(trajectory.size()));
+    for (const auto& sample : trajectory) {
+        validate_pose_sample(sample);
+        buffer.append(sample.stamp_ns);
+        const auto& p = sample.pose.translation;
+        const auto& q = sample.pose.rotation;
+        for (const float component : {p.x, p.y, p.z, q.x, q.y, q.z, q.w})
+            buffer.append(component);
+    }
+}
+
+void write_input_cache(const dataset& input, std::uint64_t structure_hash)
+{
+    try
+    {
+        cache_buffer buffer;
+        buffer.append(cache_magic);
+        buffer.append(structure_hash);
+        buffer.append(static_cast<std::uint64_t>(input.payload_index.size()));
+        for (const auto& [path, payload] : input.payload_index) {
+            if (file_identity(path) != payload.identity) return;
+            buffer.append(payload.identity.size);
+             buffer.append(payload.identity.modified);
+            buffer.append(payload.content_hash);
+        }
+        append_cached_trajectory(buffer, input.ground_truth);
+        append_cached_trajectory(buffer, input.odometry);
+        write_cache_bytes(input.root, buffer);
+    }
+    catch (const std::exception&)
+    {}
+}
 }
 }
