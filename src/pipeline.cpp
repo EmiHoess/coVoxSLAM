@@ -31,13 +31,13 @@ std::vector<ray> deskew_frame(
         const auto column = selected_column * column_stride;
          const auto stamp = frame.beam_stamp_ns(column);
         const auto world_from_lidar = sample_pose(trajectory, stamp);
-        const auto origin = world_to_local(anchor, world_from_lidar.translation);
+        const auto local_from_lidar = local_pose(anchor, world_from_lidar);
+        const auto origin = local_from_lidar.translation;
         for (std::size_t selected_ring = 0; selected_ring < rows; ++selected_ring) {
             const auto ring = selected_ring * ring_stride;
             if (!frame.valid_return(ring, column)) continue;
             const auto point = frame.point(point_source::raw, ring, column);
-            const auto world_point = transform_point(world_from_lidar, point);
-            const auto endpoint = world_to_local(anchor, world_point);
+            const auto endpoint = transform_point(local_from_lidar, point);
             if (!std::isfinite(endpoint.x) || !std::isfinite(endpoint.y) ||
                  !std::isfinite(endpoint.z))
                 throw std::runtime_error("deskew produced a non-finite endpoint");
