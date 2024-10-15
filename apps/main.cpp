@@ -1,4 +1,5 @@
 #include <covoxslam/dataset.hpp>
+#include "frame_pipeline_cli.hpp"
 
 #include <charconv>
 #include <cmath>
@@ -33,6 +34,10 @@ void usage()
               << "  --column-stride N        Positive column stride, default 1\n"
               << "  --point-source raw|deskewed  Default raw\n"
               << "  --verification cached|full  Default cached\n"
+              << "  --submaps --dataset PATH  Deskew scans and report submap metadata\n"
+              << "    --maximum-frames N | --maximum-submaps N  Zero means unlimited\n"
+              << "    --submap-duration-ns N  Default 10000000000\n"
+              << "    --pose-source odometry|ground_truth  Default odometry\n"
                << "  --frame INDEX            Zero based frame index\n"
               << "  --help | --version\n";
 }
@@ -42,6 +47,8 @@ int main(int argc, char** argv)
 {
     try
     {
+        if (argc >= 2 && std::string_view(argv[1]) == "--submaps")
+            return covoxslam::run_submap_cli(argc, argv);
         if (argc == 1 || (argc == 2 && std::string_view(argv[1]) == "--help")) {
             usage();
             return 0;
