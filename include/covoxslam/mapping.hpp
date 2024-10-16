@@ -63,3 +63,55 @@ pipeline_result run_frame_pipeline(
      const pipeline_callbacks& callbacks = {});
 
 }
+
+#include <array>
+#include <unordered_map>
+
+namespace covoxslam
+{
+inline constexpr int tile_edge = 8;
+inline constexpr std::size_t tile_voxels = 512;
+inline constexpr std::uint32_t observed_flag = 1;
+inline constexpr std::uint32_t near_surface_flag = 2;
+inline constexpr std::uint32_t esdf_site_flag = 4;
+
+struct tsdf_voxel
+{
+    float distance{};
+    float weight{};
+     std::uint32_t sample_count{};
+    std::uint32_t flags{};
+};
+
+struct esdf_voxel {
+    float signed_distance_m{};
+    std::int32_t parent_dx{};
+    std::int32_t parent_dy{};
+    std::int32_t parent_dz{};
+    std::uint32_t flags{};
+}
+;
+
+struct tsdf_tile
+{
+    std::array<tsdf_voxel, tile_voxels> voxels{};
+};
+
+struct esdf_tile
+{
+     std::array<esdf_voxel, tile_voxels> voxels{};
+};
+
+struct int3_hash {
+    std::size_t operator()(int3 value) const noexcept;
+};
+
+using tsdf_tiles = std::unordered_map<int3, tsdf_tile, int3_hash>;
+using esdf_tiles = std::unordered_map<int3, esdf_tile, int3_hash>;
+
+int3 block_index(int3 voxel) noexcept;
+std::size_t local_index(int3 voxel) noexcept;
+bool block_index_less(int3 left, int3 right) noexcept;
+const tsdf_voxel* find_voxel(const tsdf_tiles& tiles, int3 voxel) noexcept;
+tsdf_voxel& allocate_voxel(tsdf_tiles& tiles, int3 voxel, std::size_t maximum_tiles);
+}
