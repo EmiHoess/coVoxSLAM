@@ -8,9 +8,10 @@ GPU-accelerated volumetric SLAM system for globally consistent maps for small an
 - [Why coVoxSLAM?]
 - [How to use nvblox soon]
   - [C++ Interface soon]
-- [Installation] <a id='installation'></a>
-  - [Compilers] <a id='compilers'></a>
-  - [Dependencies] <a id='deps'></a>
+- [Installation] (#installation)
+  - [Compilers] (#compilers)
+  - [Dependencies] (#deps)
+  - [Build] (#build)
   - [Jetson soon]
 - [License soon]
 - [Paper soon]
@@ -32,5 +33,13 @@ To build coVoxSLAM you need a compiler capable of C++20. It has been tested on:
 
 Dependencies are managed by CMake
 
-Ceres for the CPU version
-CUDA 12 for the GPU version
+  Ceres for the CPU version
+  CUDA 12 for the GPU version
+
+## Build
+
+```
+mkdir build
+cd build
+cmake .
+```
