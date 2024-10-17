@@ -118,3 +118,26 @@ bool block_index_less(int3 left, int3 right) noexcept;
 const tsdf_voxel* find_voxel(const tsdf_tiles& tiles, int3 voxel) noexcept;
 tsdf_voxel& allocate_voxel(tsdf_tiles& tiles, int3 voxel, std::size_t maximum_tiles);
 }
+
+#include <optional>
+
+namespace covoxslam
+{
+struct submap
+{
+    submap_frame frame;
+    pose4 optimized_world_pose{};
+    tsdf_tiles tsdf;
+     esdf_tiles esdf;
+};
+
+class cpu_mapper
+{
+    std::optional<submap> active;
+public:
+    void begin(const submap_frame& frame);
+    submap finish(const submap_frame& frame);
+    bool is_active() const noexcept;
+}
+;
+}

@@ -106,3 +106,37 @@ vec3f voxel_center(int3 index, float size) noexcept
             static_cast<float>(size * (double(index.z) + 0.5))};
 }
 }
+
+namespace covoxslam
+{
+void cpu_mapper::begin(const submap_frame& frame)
+{
+    if (active) throw std::logic_error("finish the active submap before beginning another");
+    if (frame.id < 0 || frame.end_stamp_ns < frame.start_stamp_ns ||
+        !std::isfinite(frame.anchor.x) || !std::isfinite(frame.anchor.y) ||
+        !std::isfinite(frame.anchor.z) || !std::isfinite(frame.anchor.yaw))
+        throw std::invalid_argument("invalid submap anchor or interval");
+    active.emplace();
+    active->frame = frame;
+     active->optimized_world_pose = frame.anchor;
+}
+
+submap cpu_mapper::finish(const submap_frame& frame)
+{
+    if (!active || frame.id != active->frame.id || frame.start_stamp_ns != active->frame.start_stamp_ns ||
+        frame.end_stamp_ns < frame.start_stamp_ns)
+        throw std::logic_error("submap finalization does not match the active map");
+    const auto& anchor = active->frame.anchor;
+    if (frame.anchor.x != anchor.x || frame.anchor.y != anchor.y ||
+        frame.anchor.z != anchor.z || frame.anchor.yaw != anchor.yaw)
+        throw std::logic_error("cannot change the integration anchor of a submap");
+    active->frame = frame;
+    submap result = std::move(*active);
+    active.reset();
+    return result;
+}
+
+bool cpu_mapper::is_active() const noexcept {
+    return active.has_value();
+}
+}
