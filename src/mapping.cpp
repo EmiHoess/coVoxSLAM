@@ -64,3 +64,45 @@ tsdf_voxel& allocate_voxel(tsdf_tiles& tiles, int3 voxel, std::size_t maximum_ti
     return found->second.voxels[local_index(voxel)];
 }
 }
+
+#include <cmath>
+#include <limits>
+
+namespace covoxslam
+{
+int3 voxel_index(vec3f point, float voxel_size)
+{
+    if (!std::isfinite(voxel_size) || voxel_size <= 0)
+        throw std::invalid_argument("voxel size must be finite and positive");
+    const auto index = [voxel_size](float coordinate)
+    {
+        const double value = std::floor(double(coordinate) / voxel_size);
+        if (!std::isfinite(value) || value < std::numeric_limits<int>::min() ||
+            value > std::numeric_limits<int>::max())
+            throw std::out_of_range("voxel coordinate exceeds integer range");
+         return static_cast<int>(value);
+    };
+    return {index(point.x), index(point.y), index(point.z)};
+}
+
+int3 global_index(int3 block, std::size_t local)
+{
+    if (local >= tile_voxels) throw std::out_of_range("tile voxel index out of bounds");
+    const auto coordinate = [](int value, int offset) {
+        const auto result = std::int64_t(value) * tile_edge + offset;
+        if (result < std::numeric_limits<int>::min() || result > std::numeric_limits<int>::max())
+            throw std::out_of_range("block coordinate exceeds voxel range");
+        return static_cast<int>(result);
+    };
+     return {coordinate(block.x, static_cast<int>(local % tile_edge)),
+             coordinate(block.y, static_cast<int>((local / tile_edge) % tile_edge)),
+             coordinate(block.z, static_cast<int>(local / (tile_edge * tile_edge)))};
+}
+
+vec3f voxel_center(int3 index, float size) noexcept
+{
+    return {static_cast<float>(size * (double(index.x) + 0.5)),
+            static_cast<float>(size * (double(index.y) + 0.5)),
+            static_cast<float>(size * (double(index.z) + 0.5))};
+}
+}
