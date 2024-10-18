@@ -117,6 +117,7 @@ void cpu_mapper::begin(const submap_frame& frame)
         !std::isfinite(frame.anchor.z) || !std::isfinite(frame.anchor.yaw))
         throw std::invalid_argument("invalid submap anchor or interval");
     active.emplace();
+    active->config = config;
     active->frame = frame;
      active->optimized_world_pose = frame.anchor;
 }
@@ -138,5 +139,24 @@ submap cpu_mapper::finish(const submap_frame& frame)
 
 bool cpu_mapper::is_active() const noexcept {
     return active.has_value();
+}
+}
+
+namespace covoxslam
+{
+bool mapping_config::valid() const noexcept
+{
+    for (const auto value : {voxel_size, truncation_distance, extraction_distance,
+                            maximum_weight, minimum_ray_length_m, maximum_ray_length_m})
+        if (!std::isfinite(value) || value <= 0) return false;
+    return maximum_tiles > 0 && minimum_ray_length_m <= maximum_ray_length_m &&
+        extraction_distance <= truncation_distance &&
+        double(maximum_ray_length_m) + truncation_distance <= std::numeric_limits<float>::max() &&
+        (double(maximum_ray_length_m) + truncation_distance) / voxel_size < 10000000;
+}
+
+cpu_mapper::cpu_mapper(mapping_config options) : config(options)
+{
+     if (!config.valid()) throw std::invalid_argument("invalid CPU mapping configuration");
 }
 }

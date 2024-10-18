@@ -123,18 +123,45 @@ tsdf_voxel& allocate_voxel(tsdf_tiles& tiles, int3 voxel, std::size_t maximum_ti
 
 namespace covoxslam
 {
+struct mapping_config
+{
+    float voxel_size{0.20F};
+    float truncation_distance{0.60F};
+    float extraction_distance{0.20F};
+     float maximum_weight{10000.0F};
+    float minimum_ray_length_m{0.10F};
+    float maximum_ray_length_m{16.0F};
+    std::size_t maximum_tiles{32768};
+    bool valid() const noexcept;
+};
+
+struct mapping_statistics {
+    std::uint64_t rays_submitted{};
+    std::uint64_t rays_integrated{};
+    std::uint64_t rays_rejected{};
+    std::uint64_t voxel_updates{};
+     std::uint64_t allocated_tiles{};
+    double integration_ms{};
+}
+;
+
 struct submap
 {
     submap_frame frame;
     pose4 optimized_world_pose{};
     tsdf_tiles tsdf;
      esdf_tiles esdf;
+    mapping_config config;
+    mapping_statistics statistics;
 };
 
 class cpu_mapper
 {
     std::optional<submap> active;
+    mapping_config config;
 public:
+    explicit cpu_mapper(mapping_config options = {});
+    void integrate_scan(std::span<const ray> rays);
     void begin(const submap_frame& frame);
     submap finish(const submap_frame& frame);
     bool is_active() const noexcept;
