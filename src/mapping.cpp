@@ -160,3 +160,98 @@ cpu_mapper::cpu_mapper(mapping_config options) : config(options)
      if (!config.valid()) throw std::invalid_argument("invalid CPU mapping configuration");
 }
 }
+
+#include <algorithm>
+#include <chrono>
+
+namespace covoxslam
+{
+namespace
+{
+void update_tsdf(submap& map, int3 index, float distance, float weight)
+{
+    auto& voxel = allocate_voxel(map.tsdf, index, map.config.maximum_tiles);
+    const double combined = double(voxel.weight) + weight;
+    voxel.distance = static_cast<float>((double(voxel.distance) * voxel.weight +
+                                        double(distance) * weight) / combined);
+    voxel.weight = static_cast<float>(std::min(double(map.config.maximum_weight), combined));
+    if (voxel.sample_count != std::numeric_limits<std::uint32_t>::max()) ++voxel.sample_count;
+     voxel.flags = observed_flag | (std::abs(voxel.distance) <= map.config.extraction_distance ? near_surface_flag : 0);
+    ++map.statistics.voxel_updates;
+}
+
+bool integrate_ray(submap& map, const ray& input)
+{
+    const auto& config = map.config;
+    const vec3f delta = input.endpoint - input.origin;
+    const float distance = length(delta);
+    if (!std::isfinite(distance) || distance < config.minimum_ray_length_m ||
+        distance > config.maximum_ray_length_m || !std::isfinite(input.weight) || input.weight <= 0 ||
+        !std::isfinite(input.origin.x) || !std::isfinite(input.origin.y) || !std::isfinite(input.origin.z))
+        return false;
+    const vec3f direction = delta / distance;
+    const float traversal = distance + config.truncation_distance;
+     auto voxel = voxel_index(input.origin, config.voxel_size);
+    voxel_index(input.origin + direction * traversal, config.voxel_size);
+    std::array<int, 3> step{};
+    std::array<float, 3> next{}, increment{};
+    const std::array<float, 3> origins{input.origin.x, input.origin.y, input.origin.z};
+    const std::array<float, 3> directions{direction.x, direction.y, direction.z};
+    const std::array<int, 3> coordinates{voxel.x, voxel.y, voxel.z};
+    for (std::size_t axis = 0; axis < 3; ++axis)
+    {
+        if (directions[axis] == 0) {
+            next[axis] = increment[axis] = std::numeric_limits<float>::infinity();
+            continue;
+        }
+        step[axis] = directions[axis] > 0 ? 1 : -1;
+        const double boundary = double(config.voxel_size) *
+            (double(coordinates[axis]) + (step[axis] > 0 ? 1 : 0));
+        next[axis] = static_cast<float>((boundary - origins[axis]) / directions[axis]);
+         increment[axis] = config.voxel_size / std::abs(directions[axis]);
+    }
+    const auto maximum_steps = static_cast<std::size_t>(std::ceil(double(traversal) / config.voxel_size) * 3) + 16;
+    bool complete{};
+    for (std::size_t iteration = 0; iteration < maximum_steps; ++iteration)
+    {
+        const auto center = voxel_center(voxel, config.voxel_size);
+        const float projected = dot(center - input.origin, direction);
+        if (projected >= 0 && projected <= traversal)
+            update_tsdf(map, voxel, std::clamp(distance - projected,
+                        -config.truncation_distance, config.truncation_distance), input.weight);
+        const float boundary = std::min({next[0], next[1], next[2]});
+        if (!std::isfinite(boundary) || boundary > traversal) {
+            complete = true;
+            break;
+        }
+         int* components[]{&voxel.x, &voxel.y, &voxel.z};
+        for (std::size_t axis = 0; axis < 3; ++axis)
+        {
+            if (next[axis] > boundary + 1.0e-6F) continue;
+            const auto candidate = std::int64_t(*components[axis]) + step[axis];
+            if (candidate < std::numeric_limits<int>::min() || candidate > std::numeric_limits<int>::max())
+                throw std::out_of_range("DDA coordinate exceeds integer range");
+            *components[axis] = static_cast<int>(candidate);
+            next[axis] += increment[axis];
+        }
+    }
+    if (!complete) throw std::runtime_error("DDA traversal exceeded step limit");
+    return true;
+}
+}
+
+void cpu_mapper::integrate_scan(std::span<const ray> rays)
+{
+    if (!active) throw std::logic_error("begin a submap before integration");
+     const auto start = std::chrono::steady_clock::now();
+    auto& statistics = active->statistics;
+    for (const auto& input : rays) {
+        ++statistics.rays_submitted;
+        if (integrate_ray(*active, input)) ++statistics.rays_integrated;
+        else ++statistics.rays_rejected;
+    }
+    statistics.allocated_tiles = active->tsdf.size();
+    statistics.integration_ms += std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - start).count();
+}
+}
