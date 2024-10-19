@@ -147,10 +147,13 @@ namespace covoxslam
 bool mapping_config::valid() const noexcept
 {
     for (const auto value : {voxel_size, truncation_distance, extraction_distance,
-                            maximum_weight, minimum_ray_length_m, maximum_ray_length_m})
+                            maximum_weight, minimum_ray_length_m, maximum_ray_length_m,
+                            esdf_site_band_m, esdf_maximum_distance_m, esdf_minimum_weight})
         if (!std::isfinite(value) || value <= 0) return false;
     return maximum_tiles > 0 && minimum_ray_length_m <= maximum_ray_length_m &&
         extraction_distance <= truncation_distance &&
+        esdf_site_band_m <= truncation_distance && esdf_site_band_m <= esdf_maximum_distance_m &&
+        double(esdf_maximum_distance_m) / voxel_size < 10000000 &&
         double(maximum_ray_length_m) + truncation_distance <= std::numeric_limits<float>::max() &&
         (double(maximum_ray_length_m) + truncation_distance) / voxel_size < 10000000;
 }

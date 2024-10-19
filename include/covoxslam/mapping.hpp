@@ -132,6 +132,9 @@ struct mapping_config
     float minimum_ray_length_m{0.10F};
     float maximum_ray_length_m{16.0F};
     std::size_t maximum_tiles{32768};
+    float esdf_site_band_m{0.20F};
+    float esdf_maximum_distance_m{8.0F};
+     float esdf_minimum_weight{1.0F};
     bool valid() const noexcept;
 };
 
@@ -142,6 +145,7 @@ struct mapping_statistics {
     std::uint64_t voxel_updates{};
      std::uint64_t allocated_tiles{};
     double integration_ms{};
+    double esdf_ms{};
 }
 ;
 
@@ -154,6 +158,8 @@ struct submap
     mapping_config config;
     mapping_statistics statistics;
 };
+
+void build_cpu_esdf(const tsdf_tiles& tsdf, esdf_tiles& esdf, const mapping_config& config);
 
 class cpu_mapper
 {
