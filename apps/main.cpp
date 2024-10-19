@@ -34,6 +34,8 @@ void usage()
               << "  --column-stride N        Positive column stride, default 1\n"
               << "  --point-source raw|deskewed  Default raw\n"
               << "  --verification cached|full  Default cached\n"
+              << "  --submaps --dataset PATH --backend cpu-ray  Build local TSDF maps\n"
+              << "  --voxel-size M --truncation-distance M --maximum-ray-length M\n"
               << "  --submaps --dataset PATH  Deskew scans and report submap metadata\n"
               << "    --maximum-frames N | --maximum-submaps N  Zero means unlimited\n"
               << "    --submap-duration-ns N  Default 10000000000\n"

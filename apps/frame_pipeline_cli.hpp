@@ -1,6 +1,7 @@
 #pragma once
 
 #include <covoxslam/mapping.hpp>
+#include "mapping_cli.hpp"
 
 #include <charconv>
 #include <iomanip>
@@ -16,6 +17,8 @@ inline int run_submap_cli(int argc, char** argv)
 {
     try {
         pipeline_options options;
+        mapping_config mapping_options;
+        bool mapping_enabled{};
         dataset_load_options input_options;
         std::filesystem::path root;
          const auto integer = [](std::string_view text) {
@@ -54,13 +57,16 @@ inline int run_submap_cli(int argc, char** argv)
                 else if (value == "ground_truth") options.pose_source = pose_source::ground_truth;
                 else throw std::invalid_argument("unsupported trajectory source");
             }
-            else throw std::invalid_argument("unsupported submap option");
+            else if (!parse_mapping_option(option, value, mapping_options, mapping_enabled))
+                throw std::invalid_argument("unsupported submap option");
         }
          if (root.empty()) throw std::invalid_argument("--submaps requires --dataset directory");
         if (!options.submap_duration_ns || !options.ring_stride || !options.column_stride)
             throw std::invalid_argument("duration and sampling strides must be positive");
         const auto input = load_dataset(root, input_options);
-        const auto result = run_frame_pipeline(input, options);
+        cpu_mapper mapper(mapping_options);
+        const auto callbacks = mapping_enabled ? cpu_mapping_callbacks(mapper) : pipeline_callbacks{};
+        const auto result = run_frame_pipeline(input, options, callbacks);
         std::cout << std::setprecision(17);
         for (const auto& submap : result.submaps) {
             const auto& anchor = submap.anchor;
