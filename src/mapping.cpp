@@ -260,3 +260,72 @@ void cpu_mapper::integrate_scan(std::span<const ray> rays)
         std::chrono::steady_clock::now() - start).count();
 }
 }
+
+#include "mapping_internal.hpp"
+
+namespace covoxslam
+{
+void build_cpu_esdf(const tsdf_tiles& tsdf, esdf_tiles& esdf, const mapping_config& config)
+{
+    if (!config.valid()) throw std::invalid_argument("invalid ESDF mapping configuration");
+    esdf_tiles output;
+    detail::esdf_states states;
+     detail::esdf_queue queue;
+    for (const auto& [block, tile] : tsdf)
+    {
+        for (std::size_t local = 0; local < tile_voxels; ++local) {
+            const auto& voxel = tile.voxels[local];
+            if (!detail::eligible_esdf_voxel(voxel, config)) continue;
+            const auto index = global_index(block, local);
+            states.emplace(index, detail::esdf_state{});
+            auto& destination = output[block].voxels[local];
+            destination.flags = observed_flag;
+            if (std::abs(voxel.distance) <= config.esdf_site_band_m)
+            {
+                 states[index] = {0, index};
+                queue.push({0, index, index});
+                destination.flags |= esdf_site_flag;
+            }
+        }
+    }
+    while (!queue.empty())
+    {
+        const auto current = queue.top();
+        queue.pop();
+        const auto state = states.find(current.voxel);
+        if (state == states.end() || current.distance != state->second.distance) continue;
+        for (int z = -1; z <= 1; ++z)
+            for (int y = -1; y <= 1; ++y)
+                for (int x = -1; x <= 1; ++x)
+                {
+                    if (x == 0 && y == 0 && z == 0) continue;
+                    int3 neighbor;
+                    if (!detail::offset_index(current.voxel, x, y, z, neighbor)) continue;
+                    const auto found = states.find(neighbor);
+                     if (found == states.end()) continue;
+                    const double dx = double(neighbor.x) - current.source.x;
+                    const double dy = double(neighbor.y) - current.source.y;
+                    const double dz = double(neighbor.z) - current.source.z;
+                    const float candidate = static_cast<float>(config.voxel_size * std::sqrt(dx * dx + dy * dy + dz * dz));
+                    if (candidate < found->second.distance && candidate <= config.esdf_maximum_distance_m) {
+                        found->second = {candidate, current.source};
+                        queue.push({candidate, neighbor, current.source});
+                    }
+                }
+    }
+    for (const auto& [index, state] : states) {
+        const auto* source = find_voxel(tsdf, index);
+        auto& destination = output.at(block_index(index)).voxels[local_index(index)];
+        const bool reached = std::isfinite(state.distance);
+         const float distance = reached ? state.distance : config.esdf_maximum_distance_m;
+        destination.signed_distance_m = source->distance < 0 ? -distance : distance;
+        if (reached)
+        {
+            destination.parent_dx = static_cast<std::int32_t>(std::int64_t(state.source.x) - index.x);
+            destination.parent_dy = static_cast<std::int32_t>(std::int64_t(state.source.y) - index.y);
+            destination.parent_dz = static_cast<std::int32_t>(std::int64_t(state.source.z) - index.z);
+        }
+    }
+    esdf.swap(output);
+}
+}
