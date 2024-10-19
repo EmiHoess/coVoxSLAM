@@ -1,6 +1,8 @@
 #include <covoxslam/mapping.hpp>
 
 #include <stdexcept>
+#include <algorithm>
+#include <chrono>
 
 namespace covoxslam
 {
@@ -112,7 +114,7 @@ namespace covoxslam
 void cpu_mapper::begin(const submap_frame& frame)
 {
     if (active) throw std::logic_error("finish the active submap before beginning another");
-    if (frame.id < 0 || frame.end_stamp_ns < frame.start_stamp_ns ||
+    if (frame.end_stamp_ns < frame.start_stamp_ns ||
         !std::isfinite(frame.anchor.x) || !std::isfinite(frame.anchor.y) ||
         !std::isfinite(frame.anchor.z) || !std::isfinite(frame.anchor.yaw))
         throw std::invalid_argument("invalid submap anchor or interval");
@@ -131,6 +133,19 @@ submap cpu_mapper::finish(const submap_frame& frame)
     if (frame.anchor.x != anchor.x || frame.anchor.y != anchor.y ||
         frame.anchor.z != anchor.z || frame.anchor.yaw != anchor.yaw)
         throw std::logic_error("cannot change the integration anchor of a submap");
+    const auto& previous = active->frame;
+    if (frame.end_stamp_ns < previous.end_stamp_ns || frame.frame_ids.size() < previous.frame_ids.size() ||
+        !std::equal(previous.frame_ids.begin(), previous.frame_ids.end(), frame.frame_ids.begin()) ||
+        std::any_of(frame.frame_ids.begin(), frame.frame_ids.end(), [](int id) { return id < 0; }) ||
+        std::adjacent_find(frame.frame_ids.begin(), frame.frame_ids.end(), std::greater_equal<int>{}) != frame.frame_ids.end())
+        throw std::logic_error("submap frame history must be an ordered extension");
+    if (config.esdf_generator == esdf_backend::cpu_voxblox_batch)
+    {
+        const auto start = std::chrono::steady_clock::now();
+        build_cpu_esdf(active->tsdf, active->esdf, config);
+        active->statistics.esdf_ms += std::chrono::duration<double, std::milli>(
+             std::chrono::steady_clock::now() - start).count();
+    }
     active->frame = frame;
     submap result = std::move(*active);
     active.reset();
@@ -146,6 +161,8 @@ namespace covoxslam
 {
 bool mapping_config::valid() const noexcept
 {
+    if (esdf_generator != esdf_backend::none && esdf_generator != esdf_backend::cpu_voxblox_batch)
+        return false;
     for (const auto value : {voxel_size, truncation_distance, extraction_distance,
                             maximum_weight, minimum_ray_length_m, maximum_ray_length_m,
                             esdf_site_band_m, esdf_maximum_distance_m, esdf_minimum_weight})
@@ -332,5 +349,14 @@ void build_cpu_esdf(const tsdf_tiles& tsdf, esdf_tiles& esdf, const mapping_conf
         }
     }
     esdf.swap(output);
+}
+
+const char* esdf_backend_name(esdf_backend value) noexcept
+{
+    switch (value) {
+        case esdf_backend::none: return "none";
+        case esdf_backend::cpu_voxblox_batch: return "cpu-voxblox-batch";
+    }
+    return "unknown";
 }
 }

@@ -26,6 +26,15 @@ inline bool parse_mapping_option(std::string_view name, std::string_view value,
         if (value != "cpu-ray") throw std::invalid_argument("unsupported mapping backend");
         enabled = true;
     }
+    else if (name == "--esdf-generator")
+    {
+        if (value == "none") config.esdf_generator = esdf_backend::none;
+        else if (value == "cpu-voxblox-batch") config.esdf_generator = esdf_backend::cpu_voxblox_batch;
+        else throw std::invalid_argument("unsupported ESDF generator");
+    }
+    else if (name == "--esdf-maximum-distance") config.esdf_maximum_distance_m = mapping_scalar(value);
+    else if (name == "--esdf-site-band") config.esdf_site_band_m = mapping_scalar(value);
+    else if (name == "--esdf-minimum-weight") config.esdf_minimum_weight = mapping_scalar(value);
     else if (name == "--voxel-size") config.voxel_size = mapping_scalar(value);
     else if (name == "--truncation-distance") config.truncation_distance = mapping_scalar(value);
     else if (name == "--minimum-ray-length") config.minimum_ray_length_m = mapping_scalar(value);
@@ -52,6 +61,8 @@ inline pipeline_callbacks cpu_mapping_callbacks(cpu_mapper& mapper)
                   << statistics.rays_integrated << " integrated, " << statistics.rays_rejected
                   << " rejected, " << statistics.voxel_updates << " updates, "
                    << statistics.integration_ms << " ms\n";
+        std::cout << "esdf " << frame.id << ": " << esdf_backend_name(completed.config.esdf_generator)
+                  << ", " << completed.esdf.size() << " tiles, " << statistics.esdf_ms << " ms\n";
     };
     return callbacks;
 }
