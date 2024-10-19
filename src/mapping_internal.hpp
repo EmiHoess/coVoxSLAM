@@ -25,7 +25,9 @@ struct esdf_queue_greater
 {
     bool operator()(const esdf_queue_entry& left, const esdf_queue_entry& right) const noexcept
     {
-        return left.distance > right.distance;
+        if (left.distance != right.distance) return left.distance > right.distance;
+        if (left.voxel != right.voxel) return block_index_less(right.voxel, left.voxel);
+        return block_index_less(right.source, left.source);
     }
 };
 

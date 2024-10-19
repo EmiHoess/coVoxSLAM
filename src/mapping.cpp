@@ -293,7 +293,9 @@ void build_cpu_esdf(const tsdf_tiles& tsdf, esdf_tiles& esdf, const mapping_conf
         const auto current = queue.top();
         queue.pop();
         const auto state = states.find(current.voxel);
-        if (state == states.end() || current.distance != state->second.distance) continue;
+        if (state == states.end() || current.distance != state->second.distance ||
+            current.source != state->second.source || current.distance > config.esdf_maximum_distance_m)
+            continue;
         for (int z = -1; z <= 1; ++z)
             for (int y = -1; y <= 1; ++y)
                 for (int x = -1; x <= 1; ++x)
@@ -307,7 +309,10 @@ void build_cpu_esdf(const tsdf_tiles& tsdf, esdf_tiles& esdf, const mapping_conf
                     const double dy = double(neighbor.y) - current.source.y;
                     const double dz = double(neighbor.z) - current.source.z;
                     const float candidate = static_cast<float>(config.voxel_size * std::sqrt(dx * dx + dy * dy + dz * dz));
-                    if (candidate < found->second.distance && candidate <= config.esdf_maximum_distance_m) {
+                    const bool nearer = candidate < found->second.distance;
+                    const bool preferred_tie = candidate == found->second.distance &&
+                        block_index_less(current.source, found->second.source);
+                    if ((nearer || preferred_tie) && candidate <= config.esdf_maximum_distance_m) {
                         found->second = {candidate, current.source};
                         queue.push({candidate, neighbor, current.source});
                     }
