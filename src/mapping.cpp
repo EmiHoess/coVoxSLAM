@@ -190,50 +190,52 @@ bool integrate_ray(submap& map, const ray& input)
         !std::isfinite(input.origin.x) || !std::isfinite(input.origin.y) || !std::isfinite(input.origin.z))
         return false;
     const vec3f direction = delta / distance;
-    const float traversal = distance + config.truncation_distance;
+    const double traversal = double(distance) + config.truncation_distance;
      auto voxel = voxel_index(input.origin, config.voxel_size);
-    voxel_index(input.origin + direction * traversal, config.voxel_size);
+    voxel_index(input.origin + direction * static_cast<float>(traversal), config.voxel_size);
     std::array<int, 3> step{};
-    std::array<float, 3> next{}, increment{};
+    std::array<double, 3> next{}, increment{};
     const std::array<float, 3> origins{input.origin.x, input.origin.y, input.origin.z};
     const std::array<float, 3> directions{direction.x, direction.y, direction.z};
     const std::array<int, 3> coordinates{voxel.x, voxel.y, voxel.z};
     for (std::size_t axis = 0; axis < 3; ++axis)
     {
         if (directions[axis] == 0) {
-            next[axis] = increment[axis] = std::numeric_limits<float>::infinity();
+            next[axis] = increment[axis] = std::numeric_limits<double>::infinity();
             continue;
         }
         step[axis] = directions[axis] > 0 ? 1 : -1;
         const double boundary = double(config.voxel_size) *
             (double(coordinates[axis]) + (step[axis] > 0 ? 1 : 0));
-        next[axis] = static_cast<float>((boundary - origins[axis]) / directions[axis]);
-         increment[axis] = config.voxel_size / std::abs(directions[axis]);
+        next[axis] = std::max(0.0, (boundary - origins[axis]) / directions[axis]);
+         increment[axis] = double(config.voxel_size) / std::abs(double(directions[axis]));
     }
     const auto maximum_steps = static_cast<std::size_t>(std::ceil(double(traversal) / config.voxel_size) * 3) + 16;
     bool complete{};
+    double entered{};
     for (std::size_t iteration = 0; iteration < maximum_steps; ++iteration)
     {
+        const double boundary = std::min({next[0], next[1], next[2]});
         const auto center = voxel_center(voxel, config.voxel_size);
         const float projected = dot(center - input.origin, direction);
-        if (projected >= 0 && projected <= traversal)
+        if (boundary > entered && projected >= 0 && projected <= traversal)
             update_tsdf(map, voxel, std::clamp(distance - projected,
                         -config.truncation_distance, config.truncation_distance), input.weight);
-        const float boundary = std::min({next[0], next[1], next[2]});
-        if (!std::isfinite(boundary) || boundary > traversal) {
+        if (!std::isfinite(boundary) || boundary >= traversal) {
             complete = true;
             break;
         }
          int* components[]{&voxel.x, &voxel.y, &voxel.z};
         for (std::size_t axis = 0; axis < 3; ++axis)
         {
-            if (next[axis] > boundary + 1.0e-6F) continue;
+            if (next[axis] > boundary + 1.0e-6) continue;
             const auto candidate = std::int64_t(*components[axis]) + step[axis];
             if (candidate < std::numeric_limits<int>::min() || candidate > std::numeric_limits<int>::max())
                 throw std::out_of_range("DDA coordinate exceeds integer range");
             *components[axis] = static_cast<int>(candidate);
             next[axis] += increment[axis];
         }
+        entered = boundary;
     }
     if (!complete) throw std::runtime_error("DDA traversal exceeded step limit");
     return true;
