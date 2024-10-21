@@ -126,3 +126,104 @@ void write_tiles(const std::filesystem::path& path, const tile_map& tiles,
 }
 }
 }
+
+namespace covoxslam
+{
+map_exporter::map_exporter(const std::filesystem::path& output, export_manifest description)
+    : directory(output), manifest(std::move(description))
+{
+    if (directory.empty() || manifest.dataset_fingerprint.empty() ||
+        manifest.mapping_backend.empty() || manifest.esdf_backend.empty())
+        throw std::invalid_argument("map export needs an output path and input identity");
+    if (!directory.parent_path().empty()) std::filesystem::create_directories(directory.parent_path());
+     if (!std::filesystem::create_directory(directory))
+        throw std::invalid_argument("map export output already exists");
+    std::filesystem::create_directory(directory / "submaps");
+    poses = export_stream(directory / "poses.jsonl");
+    metadata = export_stream(directory / "submaps.jsonl");
+}
+
+void map_exporter::write(const submap& value)
+{
+    if (finished || failed) throw std::logic_error("map export is closed or has failed");
+    const auto& frame = value.frame;
+    if ((previous_id && frame.id <= *previous_id) || frame.id > 9007199254740991ULL ||
+        frame.frame_ids.empty() || frame.end_stamp_ns <= frame.start_stamp_ns || !value.config.valid())
+        throw std::invalid_argument("invalid or unordered submap export");
+    for (const auto* pose : {&frame.anchor, &value.optimized_world_pose})
+        for (const double component : {pose->x, pose->y, pose->z, pose->yaw})
+            if (!std::isfinite(component)) throw std::invalid_argument("invalid exported submap pose");
+     if (!std::isfinite(value.statistics.integration_ms) || value.statistics.integration_ms < 0)
+        throw std::invalid_argument("invalid exported integration time");
+    failed = true;
+    const auto stem = directory / "submaps" / ("submap_" + std::to_string(frame.id));
+    auto tsdf_path = stem;
+    auto esdf_path = stem;
+    tsdf_path += ".tsdf.bin";
+    esdf_path += ".esdf.bin";
+    write_tiles(tsdf_path, value.tsdf, "CVXTSDF1",
+                value.config.voxel_size, value.config.truncation_distance);
+    write_tiles(esdf_path, value.esdf, "CVXESDF1",
+                value.config.voxel_size, value.config.esdf_maximum_distance_m);
+    poses << "{\"submap_id\":" << frame.id << ",\"start_stamp_ns\":" << frame.start_stamp_ns
+          << ",\"end_stamp_ns\":" << frame.end_stamp_ns << ",\"initial\":";
+    write_pose(poses, frame.anchor);
+    poses << ",\"optimized\":";
+    write_pose(poses, value.optimized_world_pose);
+    poses << "}\n";
+     metadata << "{\"submap_id\":" << frame.id << ",\"frame_count\":" << frame.frame_ids.size()
+             << ",\"start_stamp_ns\":" << frame.start_stamp_ns << ",\"end_stamp_ns\":" << frame.end_stamp_ns
+             << ",\"frame_ids\":[";
+    for (std::size_t index = 0; index < frame.frame_ids.size(); ++index) {
+        if (index != 0) metadata << ',';
+        metadata << frame.frame_ids[index];
+    }
+    const auto& statistics = value.statistics;
+    metadata << "],\"mapping_backend\":\"" << json_escape(manifest.mapping_backend)
+             << "\",\"esdf_backend\":\"" << json_escape(manifest.esdf_backend)
+             << "\",\"tsdf_tiles\":" << value.tsdf.size() << ",\"esdf_tiles\":" << value.esdf.size();
+    write_mapping_parameters(metadata, value.config);
+    metadata << ",\"rays_submitted\":" << statistics.rays_submitted
+             << ",\"rays_integrated\":" << statistics.rays_integrated
+             << ",\"rays_rejected\":" << statistics.rays_rejected
+             << ",\"voxel_updates\":" << statistics.voxel_updates
+             << ",\"integration_ms\":" << statistics.integration_ms << "}\n";
+    poses.flush();
+    metadata.flush();
+    previous_id = frame.id;
+    if (!initial_config) initial_config = value.config;
+     ++count;
+    failed = false;
+}
+
+void map_exporter::finish()
+{
+    if (finished || failed || count == 0)
+        throw std::logic_error("cannot finalize an empty, closed or failed map export");
+    failed = true;
+    poses.close();
+    metadata.close();
+    const auto temporary = directory / "run.json.pending";
+    auto run = export_stream(temporary);
+    run << "{\"schema\":\"covoxslam.run.v1\",\"dataset_fingerprint\":\""
+        << json_escape(manifest.dataset_fingerprint) << "\",\"mapping_backend\":\""
+         << json_escape(manifest.mapping_backend) << "\",\"esdf_backend\":\""
+        << json_escape(manifest.esdf_backend) << "\",\"pgo_backend\":\"none\",\"problem_hash\":\"\",\"submap_count\":"
+        << count;
+    write_mapping_parameters(run, *initial_config);
+    run << "}\n";
+    run.close();
+    std::filesystem::rename(temporary, directory / "run.json");
+    finished = true;
+    failed = false;
+}
+
+void export_run(const std::filesystem::path& output, const export_manifest& manifest,
+                 std::span<const submap> submaps)
+{
+    if (submaps.empty()) throw std::invalid_argument("cannot export an empty run");
+    map_exporter writer(output, manifest);
+    for (const auto& value : submaps) writer.write(value);
+    writer.finish();
+}
+}
