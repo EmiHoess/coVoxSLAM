@@ -44,7 +44,8 @@ inline bool parse_mapping_option(std::string_view name, std::string_view value,
     return true;
 }
 
-inline pipeline_callbacks cpu_mapping_callbacks(cpu_mapper& mapper)
+inline pipeline_callbacks cpu_mapping_callbacks(cpu_mapper& mapper,
+    std::function<void(const submap&)> publish = {})
 {
     pipeline_callbacks callbacks;
     callbacks.begin = [&mapper](const submap_frame& frame) { mapper.begin(frame); };
@@ -53,9 +54,10 @@ inline pipeline_callbacks cpu_mapping_callbacks(cpu_mapper& mapper)
     {
         mapper.integrate_scan(rays);
     };
-    callbacks.finish = [&mapper](const submap_frame& frame)
+    callbacks.finish = [&mapper, publish](const submap_frame& frame)
       {
         const auto completed = mapper.finish(frame);
+        if (publish) publish(completed);
         const auto& statistics = completed.statistics;
         std::cout << "tsdf " << frame.id << ": " << completed.tsdf.size() << " tiles, "
                   << statistics.rays_integrated << " integrated, " << statistics.rays_rejected

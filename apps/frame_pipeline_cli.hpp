@@ -2,6 +2,7 @@
 
 #include <covoxslam/mapping.hpp>
 #include "mapping_cli.hpp"
+#include "map_export_cli.hpp"
 
 #include <charconv>
 #include <iomanip>
@@ -21,6 +22,7 @@ inline int run_submap_cli(int argc, char** argv)
         bool mapping_enabled{};
         dataset_load_options input_options;
         std::filesystem::path root;
+        std::filesystem::path output;
          const auto integer = [](std::string_view text) {
             std::uint64_t result{};
             const auto converted = std::from_chars(text.data(), text.data() + text.size(), result);
@@ -41,6 +43,10 @@ inline int run_submap_cli(int argc, char** argv)
             if (index + 1 >= argc) throw std::invalid_argument("missing submap option value");
             const std::string_view value(argv[index + 1]);
             if (option == "--dataset") root = argv[index + 1];
+            else if (option == "--output") {
+                if (value.empty()) throw std::invalid_argument("--output requires a directory");
+                 output = argv[index + 1];
+            }
             else if (option == "--maximum-frames") options.maximum_frames = count(value);
             else if (option == "--maximum-submaps") options.maximum_submaps = count(value);
              else if (option == "--ring-stride") options.ring_stride = count(value);
@@ -63,10 +69,16 @@ inline int run_submap_cli(int argc, char** argv)
          if (root.empty()) throw std::invalid_argument("--submaps requires --dataset directory");
         if (!options.submap_duration_ns || !options.ring_stride || !options.column_stride)
             throw std::invalid_argument("duration and sampling strides must be positive");
+        if (!output.empty() && !mapping_enabled)
+            throw std::invalid_argument("--output requires --backend cpu-ray");
         const auto input = load_dataset(root, input_options);
         cpu_mapper mapper(mapping_options);
-        const auto callbacks = mapping_enabled ? cpu_mapping_callbacks(mapper) : pipeline_callbacks{};
+        auto exporter = open_map_export(output, input, mapping_options);
+        const auto callbacks = mapping_enabled ? cpu_mapping_callbacks(mapper, [&](const submap& completed) {
+            if (exporter) exporter->write(completed);
+        }) : pipeline_callbacks{};
         const auto result = run_frame_pipeline(input, options, callbacks);
+        if (exporter) exporter->finish();
         std::cout << std::setprecision(17);
         for (const auto& submap : result.submaps) {
             const auto& anchor = submap.anchor;
