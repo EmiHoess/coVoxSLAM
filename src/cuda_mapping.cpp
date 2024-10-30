@@ -6,6 +6,32 @@
 #include <limits>
 #include <stdexcept>
 
+#include <type_traits>
+
+namespace covoxslam
+{
+namespace
+{
+static_assert(sizeof(float) == 4 && std::numeric_limits<float>::is_iec559);
+static_assert(std::is_standard_layout_v<detail::cuda_device_ray>);
+static_assert(std::is_trivially_copyable_v<detail::cuda_device_ray>);
+static_assert(sizeof(detail::cuda_device_ray) == 56);
+static_assert(alignof(detail::cuda_device_ray) == 8);
+static_assert(offsetof(detail::cuda_device_ray, stamp_ns) == 32);
+
+std::size_t checked_cuda_storage_bytes(std::size_t capacity)
+{
+    if (!capacity || capacity > std::numeric_limits<std::uint32_t>::max())
+        throw std::length_error("CUDA scan capacity is unsupported");
+     const auto blocks = 1 + (capacity - 1) / 256;
+    if (blocks > std::numeric_limits<std::size_t>::max() / 8 ||
+        capacity > (std::numeric_limits<std::size_t>::max() - blocks * 8) / 12)
+        throw std::length_error("CUDA scan byte count overflows addressable size");
+    return capacity * 12 + blocks * 8;
+}
+}
+}
+
 namespace covoxslam
 {
 namespace
@@ -64,10 +90,9 @@ struct cuda_scan_context::implementation
 cuda_scan_context::cuda_scan_context(int device, std::size_t capacity)
     : state(std::make_unique<implementation>())
 {
-    query_cuda_device(device);
-    if (!capacity || capacity > std::numeric_limits<std::uint32_t>::max() ||
-         capacity > std::numeric_limits<std::size_t>::max() / 16)
-        throw std::length_error("CUDA scan capacity is unsupported");
+    const auto info = query_cuda_device(device);
+    if (checked_cuda_storage_bytes(capacity) > info.total_memory_bytes)
+        throw std::length_error("CUDA scan storage exceeds total device memory");
     state->device = device;
     state->capacity = capacity;
     check_cuda(cudaSetDevice(device));
