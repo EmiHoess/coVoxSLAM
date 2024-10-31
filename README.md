@@ -2,6 +2,10 @@ coVoxSLAM
 
 GPU-accelerated volumetric SLAM system for globally consistent maps for small and large-scale environments.
 
+<a href="https://youtu.be/hGp-w6n05Tk
+" target="_blank"><img src="images/submission_image.png" 
+alt="coVoxSLAM ICRA 25 - Submission Video" width="240" height="180" border="10" /></a>
+
 ## Table of Contents
 - [Table of Contents](#table-of-contents)
 - [coVoxSLAM](#covoxslam)
