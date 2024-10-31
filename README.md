@@ -2,9 +2,8 @@ coVoxSLAM
 
 GPU-accelerated volumetric SLAM system for globally consistent maps for small and large-scale environments.
 
-<a href="https://youtu.be/hGp-w6n05Tk
-" target="_blank"><img src="images/submission_image.png" 
-alt="coVoxSLAM ICRA 25 - Submission Video" width="240" height="180" border="10" /></a>
+<a href="https://youtu.be/hGp-w6n05Tk" target="_blank"><img src="https://github.com/EmiHoess/coVoxSLAM/blob/main/docs/images/submission_image.png?raw=true" 
+alt="coVoxSLAM ICRA 25 - Submission Video" width="854" height="480" border="10" /></a>
 
 ## Table of Contents
 - [Table of Contents](#table-of-contents)
@@ -50,4 +49,16 @@ cmake .
 
 ## Paper
 
-Soon
+Pre-print available
+
+* Emiliano Höss, Pablo De Cristóforis. "**coVoxSLAM: GPU-Accelerated globally consistent dense SLAM**".
+arXiv preprint arXiv:2410.21149. \[ [ArXiv](https://arxiv.org/abs/2410.21149) \]
+
+```bibtex
+@article{hoss2024covoxslam,
+  title={coVoxSLAM: GPU Accelerated Globally Consistent Dense SLAM},
+  author={H{\"o}ss, Emiliano and De Crist{\'o}foris, Pablo},
+  journal={arXiv preprint arXiv:2410.21149},
+  year={2024}
+}
+```
