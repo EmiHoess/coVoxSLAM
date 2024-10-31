@@ -43,3 +43,48 @@ public:
 }
 ;
 }
+
+namespace covoxslam
+{
+struct ray;
+namespace detail { struct cuda_ray_device_view; struct cuda_ray_contribution; }
+
+struct cuda_ray_config
+{
+    float voxel_size{0.20F};
+    float truncation_distance{0.60F};
+     float minimum_ray_length_m{0.10F};
+    float maximum_ray_length_m{16.0F};
+    bool voxel_carving{true};
+    bool allow_clear{};
+};
+
+struct cuda_contribution_statistics {
+    std::uint64_t submitted_rays{};
+    std::uint64_t contributing_rays{};
+    std::uint64_t contributions{};
+     std::uint64_t uploaded_bytes{};
+    std::uint64_t downloaded_bytes{};
+    float upload_ms{};
+    float count_ms{};
+    float scan_ms{};
+    float emit_ms{};
+};
+
+class cuda_ray_context
+{
+    struct implementation;
+    std::unique_ptr<implementation> state;
+public:
+    cuda_ray_context(int device, std::size_t ray_capacity,
+                     std::uint64_t contribution_capacity, cuda_ray_config config = {});
+     ~cuda_ray_context();
+    cuda_ray_context(const cuda_ray_context&) = delete;
+    cuda_ray_context& operator=(const cuda_ray_context&) = delete;
+    std::size_t ray_capacity() const noexcept;
+    std::uint64_t contribution_capacity() const noexcept;
+    detail::cuda_ray_device_view device_view() const noexcept;
+    void copy_contributions(std::span<detail::cuda_ray_contribution> output);
+}
+;
+}

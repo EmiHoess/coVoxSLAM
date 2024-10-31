@@ -48,3 +48,25 @@ int cuda_emit_ray_contributions(const cuda_device_ray* rays, std::size_t count,
     cuda_ray_parameters parameters, const std::uint32_t* counts, const std::uint64_t* offsets,
     cuda_ray_contribution* output, std::uint64_t capacity, std::uint32_t* status, void* stream) noexcept;
 }
+
+namespace covoxslam::detail
+{
+struct cuda_ray_summary
+{
+    std::uint64_t contributions{};
+     std::uint32_t contributing_rays{};
+    std::uint32_t status{};
+};
+
+struct cuda_ray_device_view {
+    cuda_ray_contribution* contributions{};
+    std::uint64_t count{};
+    std::uint64_t capacity{};
+     std::uint32_t* counts{};
+    std::uint64_t* offsets{};
+    std::uint64_t* block_sums{};
+    void* stream{};
+    int device{};
+    std::size_t ray_capacity{};
+};
+}
