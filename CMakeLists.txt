@@ -20,6 +20,7 @@ if(covoxslam_enable_cuda)
     enable_language(CUDA)
     find_package(CUDAToolkit 12.6 REQUIRED)
     target_sources(covoxslam_core PRIVATE src/cuda_mapping.cpp cuda/foundation.cu)
+    target_sources(covoxslam_core PRIVATE cuda/ray_contributions.cu)
     target_link_libraries(covoxslam_core PUBLIC CUDA::cudart)
     set_target_properties(covoxslam_core PROPERTIES CUDA_STANDARD 20
         CUDA_STANDARD_REQUIRED ON CUDA_EXTENSIONS OFF CUDA_RUNTIME_LIBRARY Shared)
