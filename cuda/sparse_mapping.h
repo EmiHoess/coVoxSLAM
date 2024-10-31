@@ -30,6 +30,8 @@ struct cuda_ray_parameters
     float truncation_distance{0.60F};
      float minimum_ray_length_m{0.10F};
     float maximum_ray_length_m{16.0F};
+    bool voxel_carving{true};
+     bool allow_clear{};
 };
 
 struct cuda_ray_contribution {

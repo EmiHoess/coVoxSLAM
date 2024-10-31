@@ -17,34 +17,43 @@ __device__ std::uint32_t walk_ray(const cuda_device_ray& ray, cuda_ray_parameter
     std::uint64_t capacity, std::uint32_t* status)
 {
     float direction[3];
-    for (int axis = 0; axis < 3; ++axis) direction[axis] = ray.endpoint[axis] - ray.origin[axis];
+    for (int axis = 0; axis < 3; ++axis) {
+        if (!isfinite(ray.origin[axis]) || !isfinite(ray.endpoint[axis])) return 0;
+        direction[axis] = ray.endpoint[axis] - ray.origin[axis];
+    }
     const float distance = static_cast<float>(hypot(hypot(double(direction[0]), double(direction[1])), double(direction[2])));
-    if (!isfinite(distance) || distance < config.minimum_ray_length_m || distance > config.maximum_ray_length_m ||
+    if (!isfinite(distance) || distance < config.minimum_ray_length_m ||
         !isfinite(ray.weight) || ray.weight <= 0) return 0;
-    const double end = double(distance) + config.truncation_distance;
+    const bool clearing = distance > config.maximum_ray_length_m;
+    if (clearing && (!config.allow_clear || !config.voxel_carving)) return 0;
+    const double surface_start = fmax(0.0, double(distance) - config.truncation_distance);
+    const double start = config.voxel_carving ? 0.0 : surface_start;
+    const double end = clearing ? fmin(surface_start, double(config.maximum_ray_length_m))
+                               : double(distance) + config.truncation_distance;
+    if (end <= start) return 0;
      int voxel[3], step[3];
     double next[3], delta[3];
     for (int axis = 0; axis < 3; ++axis)
     {
-        const double coordinate = floor(double(ray.origin[axis]) / config.voxel_size);
+        direction[axis] /= distance;
+        const double coordinate = floor((double(ray.origin[axis]) + direction[axis] * start) / config.voxel_size);
         if (!isfinite(coordinate) || coordinate < INT_MIN || coordinate > INT_MAX) {
             atomicOr(status, 1U);
             return 0;
         }
         voxel[axis] = static_cast<int>(coordinate);
-        direction[axis] /= distance;
         step[axis] = direction[axis] > 0 ? 1 : direction[axis] < 0 ? -1 : 0;
         if (!step[axis]) {
             next[axis] = delta[axis] = CUDART_INF;
             continue;
         }
         const double boundary = config.voxel_size * (coordinate + (step[axis] > 0 ? 1 : 0));
-         next[axis] = fmax(0.0, (boundary - ray.origin[axis]) / direction[axis]);
+         next[axis] = fmax(start, (boundary - ray.origin[axis]) / direction[axis]);
         delta[axis] = double(config.voxel_size) / fabs(double(direction[axis]));
     }
-    const auto maximum_steps = static_cast<std::uint32_t>(ceil(end / config.voxel_size) * 3) + 16;
+    const auto maximum_steps = static_cast<std::uint32_t>(ceil((end - start) / config.voxel_size) * 3) + 16;
     std::uint32_t count{};
-    double entered{};
+    double entered{start};
     bool complete{};
     for (std::uint32_t iteration = 0; iteration < maximum_steps; ++iteration)
     {
@@ -62,7 +71,7 @@ __device__ std::uint32_t walk_ray(const cuda_device_ray& ray, cuda_ray_parameter
             atomicOr(status, 1U);
             return count;
         }
-        if (boundary > entered && projected >= 0 && projected <= end)
+        if (boundary > entered && projected >= start && projected <= end)
         {
             if constexpr (emit) {
                 if (count >= expected || offset > capacity || count >= capacity - offset)
