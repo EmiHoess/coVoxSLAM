@@ -58,3 +58,13 @@ void cuda_ray_context::copy_contributions(std::span<detail::cuda_ray_contributio
     throw std::runtime_error("covoxslam was built without CUDA support");
 }
 }
+
+#include <covoxslam/mapping.hpp>
+
+namespace covoxslam
+{
+cuda_contribution_statistics cuda_ray_context::generate(std::span<const ray>)
+{
+    throw std::runtime_error("covoxslam was built without CUDA support");
+}
+}

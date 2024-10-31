@@ -83,6 +83,7 @@ public:
     cuda_ray_context& operator=(const cuda_ray_context&) = delete;
     std::size_t ray_capacity() const noexcept;
     std::uint64_t contribution_capacity() const noexcept;
+    cuda_contribution_statistics generate(std::span<const ray> rays);
     detail::cuda_ray_device_view device_view() const noexcept;
     void copy_contributions(std::span<detail::cuda_ray_contribution> output);
 }

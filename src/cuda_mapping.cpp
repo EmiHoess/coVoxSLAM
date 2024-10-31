@@ -229,3 +229,74 @@ void cuda_ray_context::copy_contributions(std::span<detail::cuda_ray_contributio
     check_cuda(cudaStreamSynchronize(state->stream));
 }
 }
+
+#include <covoxslam/mapping.hpp>
+
+namespace covoxslam
+{
+cuda_contribution_statistics cuda_ray_context::generate(std::span<const ray> rays)
+{
+    state->contribution_count = 0;
+    if (rays.size() > state->ray_capacity)
+        throw std::length_error("CUDA ray batch exceeds its capacity");
+    check_cuda(cudaSetDevice(state->device));
+    check_cuda(cudaStreamSynchronize(state->stream));
+    state->rays_host.resize(rays.size());
+    for (std::size_t index = 0; index < rays.size(); ++index)
+    {
+        const auto& input = rays[index];
+        if (input.frame_id < 0 || input.column > std::numeric_limits<std::uint32_t>::max() ||
+            input.ring > std::numeric_limits<std::uint32_t>::max())
+            throw std::out_of_range("CUDA ray provenance is not representable");
+         state->rays_host[index] = {{input.origin.x, input.origin.y, input.origin.z},
+            {input.endpoint.x, input.endpoint.y, input.endpoint.z}, input.weight, input.stamp_ns,
+            static_cast<std::uint32_t>(input.frame_id), static_cast<std::uint32_t>(input.column),
+            static_cast<std::uint32_t>(input.ring), static_cast<std::uint32_t>(index)};
+    }
+    cuda_contribution_statistics result;
+    result.submitted_rays = rays.size();
+    if (rays.empty()) return result;
+    auto* device_rays = state->buffer<detail::cuda_device_ray>(0);
+    auto* counts = state->buffer<std::uint32_t>(1);
+    auto* offsets = state->buffer<std::uint64_t>(2);
+    auto* sums = state->buffer<std::uint64_t>(3);
+    auto* contributions = state->buffer<detail::cuda_ray_contribution>(4);
+     auto* summary = state->buffer<detail::cuda_ray_summary>(5);
+    result.uploaded_bytes = rays.size() * sizeof(detail::cuda_device_ray);
+    check_cuda(cudaEventRecord(state->events[0], state->stream));
+    check_cuda(cudaMemcpyAsync(device_rays, state->rays_host.data(),
+        static_cast<std::size_t>(result.uploaded_bytes), cudaMemcpyHostToDevice, state->stream));
+    check_cuda(cudaMemsetAsync(summary, 0, sizeof(*summary), state->stream));
+    check_cuda(cudaEventRecord(state->events[1], state->stream));
+    check_cuda(static_cast<cudaError_t>(detail::cuda_count_ray_contributions(
+        device_rays, rays.size(), state->parameters, counts, &summary->status, state->stream)));
+    check_cuda(cudaEventRecord(state->events[2], state->stream));
+    check_cuda(static_cast<cudaError_t>(detail::cuda_scan_counts(counts, offsets, sums, rays.size(), state->stream)));
+    check_cuda(static_cast<cudaError_t>(detail::cuda_summarize_ray_contributions(
+        counts, offsets, rays.size(), summary, state->stream)));
+    check_cuda(cudaEventRecord(state->events[3], state->stream));
+    detail::cuda_ray_summary completed;
+    check_cuda(cudaMemcpyAsync(&completed, summary, sizeof(completed), cudaMemcpyDeviceToHost, state->stream));
+     check_cuda(cudaStreamSynchronize(state->stream));
+    if (completed.status) throw std::runtime_error("CUDA contribution counting failed");
+    if (completed.contributions > state->contribution_capacity)
+        throw std::length_error("CUDA contribution batch exceeds its capacity");
+    check_cuda(cudaEventRecord(state->events[4], state->stream));
+    check_cuda(static_cast<cudaError_t>(detail::cuda_emit_ray_contributions(device_rays, rays.size(),
+        state->parameters, counts, offsets, contributions, state->contribution_capacity, &summary->status, state->stream)));
+    check_cuda(cudaEventRecord(state->events[5], state->stream));
+    check_cuda(cudaMemcpyAsync(&completed.status, &summary->status,
+        sizeof(completed.status), cudaMemcpyDeviceToHost, state->stream));
+    check_cuda(cudaStreamSynchronize(state->stream));
+    if (completed.status) throw std::runtime_error("CUDA contribution emission failed");
+    check_cuda(cudaEventElapsedTime(&result.upload_ms, state->events[0], state->events[1]));
+    check_cuda(cudaEventElapsedTime(&result.count_ms, state->events[1], state->events[2]));
+    check_cuda(cudaEventElapsedTime(&result.scan_ms, state->events[2], state->events[3]));
+     check_cuda(cudaEventElapsedTime(&result.emit_ms, state->events[4], state->events[5]));
+    result.contributing_rays = completed.contributing_rays;
+    result.contributions = completed.contributions;
+    result.downloaded_bytes = sizeof(completed) + sizeof(completed.status);
+    state->contribution_count = completed.contributions;
+    return result;
+}
+}

@@ -159,3 +159,28 @@ int cuda_emit_ray_contributions(const cuda_device_ray* rays, std::size_t count,
     return static_cast<int>(cudaGetLastError());
 }
 }
+
+namespace covoxslam::detail
+{
+namespace
+{
+__global__ void summarize_rays(const std::uint32_t* counts, const std::uint64_t* offsets,
+                               std::size_t size, cuda_ray_summary* summary)
+{
+    const auto index = static_cast<std::size_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+    if (index < size && counts[index]) atomicAdd(&summary->contributing_rays, 1U);
+     if (index + 1 == size) summary->contributions = offsets[index] + counts[index];
+}
+}
+
+int cuda_summarize_ray_contributions(const std::uint32_t* counts, const std::uint64_t* offsets,
+    std::size_t count, cuda_ray_summary* summary, void* stream) noexcept
+{
+    if (count > UINT32_MAX || (count && (!counts || !offsets || !summary)))
+        return static_cast<int>(cudaErrorInvalidValue);
+    if (!count) return static_cast<int>(cudaSuccess);
+    const auto blocks = static_cast<unsigned>(1 + (count - 1) / 256);
+    summarize_rays<<<blocks, 256, 0, static_cast<cudaStream_t>(stream)>>>(counts, offsets, count, summary);
+    return static_cast<int>(cudaGetLastError());
+}
+}

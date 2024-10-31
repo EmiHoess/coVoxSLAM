@@ -70,3 +70,9 @@ struct cuda_ray_device_view {
     std::size_t ray_capacity{};
 };
 }
+
+namespace covoxslam::detail
+{
+int cuda_summarize_ray_contributions(const std::uint32_t* counts, const std::uint64_t* offsets,
+    std::size_t count, cuda_ray_summary* summary, void* stream) noexcept;
+}
