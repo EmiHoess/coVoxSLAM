@@ -444,3 +444,110 @@ std::uint32_t cuda_mapper::implementation::prepare_segments(detail::cuda_ray_dev
     return result[0];
 }
 }
+
+namespace covoxslam
+{
+void cuda_mapper::integrate_scan(std::span<const ray> rays)
+{
+    if (!state->active || state->failed) throw std::logic_error("CUDA mapping needs an active healthy submap");
+    const auto start = std::chrono::steady_clock::now();
+    state->failed = true;
+    for (std::size_t first = 0; first < rays.size();)
+    {
+        const auto batch = rays.subspan(first, std::min(state->options.ray_capacity, rays.size() - first));
+        const auto generated = state->rays->generate(batch);
+        const auto view = state->rays->device_view();
+        const auto stream = static_cast<cudaStream_t>(view.stream);
+        auto& statistics = state->statistics;
+        statistics.cuda_uploaded_bytes += generated.uploaded_bytes;
+         statistics.cuda_downloaded_bytes += generated.downloaded_bytes;
+        if (view.count)
+        {
+            const auto segments = state->prepare_segments(view);
+            auto* status = state->buffer<std::uint32_t>(7) + 1;
+            const auto& config = state->config;
+            check_cuda(static_cast<cudaError_t>(detail::cuda_fuse_voxel_segments(view.contributions,
+                view.count, state->buffer<detail::cuda_voxel_segment>(4), segments,
+                state->buffer<detail::cuda_tile_coordinate>(5), state->buffer<detail::cuda_tsdf_tile>(6),
+                static_cast<std::uint32_t>(state->keys.size()),
+                {config.truncation_distance, config.maximum_weight, config.extraction_distance}, status, stream)));
+            std::uint32_t error{};
+            check_cuda(cudaMemcpyAsync(&error, status, sizeof(error), cudaMemcpyDeviceToHost, stream));
+            check_cuda(cudaStreamSynchronize(stream));
+            statistics.cuda_downloaded_bytes += sizeof(error);
+            if (error) throw std::runtime_error("CUDA TSDF fusion failed");
+             statistics.cuda_voxel_segments += segments;
+        }
+        std::uint64_t accepted{};
+        for (const auto& input : batch) {
+            const float distance = length(input.endpoint - input.origin);
+            if (std::isfinite(distance) && distance >= state->config.minimum_ray_length_m &&
+                distance <= state->config.maximum_ray_length_m && std::isfinite(input.weight) && input.weight > 0 &&
+                std::isfinite(input.origin.x) && std::isfinite(input.origin.y) && std::isfinite(input.origin.z)) ++accepted;
+        }
+        statistics.rays_submitted += batch.size();
+        statistics.rays_integrated += accepted;
+        statistics.rays_rejected += batch.size() - accepted;
+        statistics.voxel_updates += generated.contributions;
+        statistics.cuda_contributing_rays += generated.contributing_rays;
+        statistics.allocated_tiles = state->keys.size();
+        first += batch.size();
+    }
+    state->statistics.integration_ms += std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - start).count();
+    state->failed = false;
+}
+
+submap cuda_mapper::finish(const submap_frame& frame)
+{
+    if (!state->active || state->failed) throw std::logic_error("CUDA mapping needs an active healthy submap");
+    const auto& previous = *state->active;
+    if (frame.id != previous.id || frame.start_stamp_ns != previous.start_stamp_ns ||
+        frame.end_stamp_ns < previous.end_stamp_ns || frame.end_stamp_ns < frame.start_stamp_ns ||
+        frame.anchor.x != previous.anchor.x || frame.anchor.y != previous.anchor.y ||
+        frame.anchor.z != previous.anchor.z || frame.anchor.yaw != previous.anchor.yaw ||
+        frame.frame_ids.size() < previous.frame_ids.size() ||
+        !std::equal(previous.frame_ids.begin(), previous.frame_ids.end(), frame.frame_ids.begin()) ||
+        std::any_of(frame.frame_ids.begin(), frame.frame_ids.end(), [](int id) { return id < 0; }) ||
+        std::adjacent_find(frame.frame_ids.begin(), frame.frame_ids.end(), std::greater_equal<int>{}) != frame.frame_ids.end())
+        throw std::logic_error("CUDA submap finalization does not match its anchor or frame history");
+    state->failed = true;
+    submap result;
+    result.frame = frame;
+    result.optimized_world_pose = frame.anchor;
+    result.config = state->config;
+    std::vector<detail::cuda_tsdf_tile> tiles(state->keys.size());
+    check_cuda(cudaSetDevice(state->options.device));
+    const auto stream = static_cast<cudaStream_t>(state->rays->device_view().stream);
+    if (!tiles.empty()) {
+        check_cuda(cudaMemcpyAsync(tiles.data(), state->buffers[6], tiles.size() * sizeof(tiles[0]),
+            cudaMemcpyDeviceToHost, stream));
+        check_cuda(cudaStreamSynchronize(stream));
+    }
+    state->statistics.cuda_downloaded_bytes += tiles.size() * sizeof(detail::cuda_tsdf_tile);
+    for (std::size_t index = 0; index < tiles.size(); ++index)
+    {
+        tsdf_tile tile;
+        for (std::size_t local = 0; local < tile_voxels; ++local) {
+            const auto& source = tiles[index].voxels[local];
+            if (!std::isfinite(source.distance) || !std::isfinite(source.weight) || source.weight < 0 ||
+                source.weight > state->config.maximum_weight || (source.flags & ~3U) ||
+                std::abs(source.distance) > state->config.truncation_distance)
+                throw std::runtime_error("invalid canonical CUDA TSDF voxel");
+             tile.voxels[local] = {source.distance, source.weight, source.sample_count, source.flags};
+        }
+        const auto& key = state->keys[index];
+        result.tsdf.emplace(int3{key.x, key.y, key.z}, std::move(tile));
+    }
+    result.statistics = state->statistics;
+    if (state->config.esdf_generator == esdf_backend::cpu_voxblox_batch) {
+        const auto start = std::chrono::steady_clock::now();
+        build_cpu_esdf(result.tsdf, result.esdf, result.config);
+        result.statistics.esdf_ms = std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - start).count();
+    }
+    state->active.reset();
+    state->failed = false;
+    return result;
+}
+}

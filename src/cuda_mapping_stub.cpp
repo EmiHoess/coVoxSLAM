@@ -86,3 +86,16 @@ void cuda_mapper::begin(const submap_frame&)
     throw std::runtime_error("covoxslam was built without CUDA support");
 }
 }
+
+namespace covoxslam
+{
+void cuda_mapper::integrate_scan(std::span<const ray>)
+{
+    throw std::runtime_error("covoxslam was built without CUDA support");
+}
+
+submap cuda_mapper::finish(const submap_frame&)
+{
+    throw std::runtime_error("covoxslam was built without CUDA support");
+}
+}

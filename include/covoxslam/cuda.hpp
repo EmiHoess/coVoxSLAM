@@ -111,6 +111,8 @@ public:
     cuda_mapper(const cuda_mapper&) = delete;
     cuda_mapper& operator=(const cuda_mapper&) = delete;
     void begin(const submap_frame& frame);
+    void integrate_scan(std::span<const ray> rays);
+    submap finish(const submap_frame& frame);
     bool is_active() const noexcept;
 }
 ;
