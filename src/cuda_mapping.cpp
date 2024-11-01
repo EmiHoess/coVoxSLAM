@@ -300,3 +300,147 @@ cuda_contribution_statistics cuda_ray_context::generate(std::span<const ray> ray
     return result;
 }
 }
+
+#include <algorithm>
+#include <chrono>
+#include <cmath>
+
+namespace covoxslam
+{
+struct cuda_mapper::implementation
+{
+    mapping_config config;
+    cuda_mapper_options options;
+    std::unique_ptr<cuda_ray_context> rays;
+    std::array<void*, 8> buffers{};
+     std::optional<submap_frame> active;
+    mapping_statistics statistics;
+    std::vector<detail::cuda_tile_coordinate> keys;
+    std::unordered_map<int3, std::uint32_t, int3_hash> slots;
+    std::vector<detail::cuda_voxel_segment> segments;
+    bool failed{};
+    template<class value_type> value_type* buffer(std::size_t index) const noexcept
+    {
+        return static_cast<value_type*>(buffers[index]);
+    }
+    std::uint32_t prepare_segments(detail::cuda_ray_device_view view);
+    ~implementation()
+    {
+        if (!rays) return;
+        cudaSetDevice(options.device);
+        cudaStreamSynchronize(static_cast<cudaStream_t>(rays->device_view().stream));
+         for (auto buffer : buffers) if (buffer) cudaFree(buffer);
+    }
+};
+
+cuda_mapper::cuda_mapper(mapping_config config, cuda_mapper_options options)
+    : state(std::make_unique<implementation>())
+{
+    if (!config.valid()) throw std::invalid_argument("invalid CUDA mapping configuration");
+    const auto limit = std::numeric_limits<std::uint32_t>::max();
+    if (!options.ray_capacity || options.ray_capacity > limit || !options.contribution_capacity ||
+        options.contribution_capacity > limit || config.maximum_tiles > limit)
+        throw std::length_error("CUDA mapper capacities are unsupported");
+    const auto count = options.contribution_capacity;
+    const std::array<std::size_t, 8> bytes{count * sizeof(detail::cuda_ray_contribution), count * 4,
+        count * 8, (1 + (count - 1) / 256) * 8, count * sizeof(detail::cuda_voxel_segment),
+        config.maximum_tiles * sizeof(detail::cuda_tile_coordinate),
+        config.maximum_tiles * sizeof(detail::cuda_tsdf_tile), 8};
+    std::uint64_t total = options.ray_capacity * (sizeof(detail::cuda_device_ray) + 12) +
+        (1 + (options.ray_capacity - 1) / 256) * 8 + count * sizeof(detail::cuda_ray_contribution) +
+        sizeof(detail::cuda_ray_summary);
+    for (const auto size : bytes) total += size;
+     if (total > options.maximum_device_bytes)
+        throw std::length_error("CUDA mapper exceeds its device storage budget");
+    const auto device = query_cuda_device(options.device);
+    if (total > device.total_memory_bytes) throw std::length_error("CUDA mapper exceeds device memory");
+    state->config = config;
+    state->options = options;
+    state->rays = std::make_unique<cuda_ray_context>(options.device, options.ray_capacity, count,
+        cuda_ray_config{config.voxel_size, config.truncation_distance,
+                        config.minimum_ray_length_m, config.maximum_ray_length_m});
+    check_cuda(cudaSetDevice(options.device));
+    for (std::size_t index = 0; index < bytes.size(); ++index)
+        check_cuda(cudaMalloc(&state->buffers[index], bytes[index]));
+}
+
+cuda_mapper::~cuda_mapper() = default;
+
+void cuda_mapper::begin(const submap_frame& frame)
+{
+    if (state->active) throw std::logic_error("finish the active submap before beginning another");
+    if (frame.end_stamp_ns < frame.start_stamp_ns ||
+        !std::isfinite(frame.anchor.x) || !std::isfinite(frame.anchor.y) ||
+        !std::isfinite(frame.anchor.z) || !std::isfinite(frame.anchor.yaw))
+        throw std::invalid_argument("invalid submap anchor or interval");
+    state->active = frame;
+    state->keys.clear();
+     state->slots.clear();
+    state->segments.clear();
+    state->statistics = {};
+    state->failed = false;
+}
+
+bool cuda_mapper::is_active() const noexcept { return state->active.has_value(); }
+}
+
+namespace covoxslam
+{
+std::uint32_t cuda_mapper::implementation::prepare_segments(detail::cuda_ray_device_view view)
+{
+    const auto stream = static_cast<cudaStream_t>(view.stream);
+    auto* flags = buffer<std::uint32_t>(1);
+    auto* offsets = buffer<std::uint64_t>(2);
+    auto* sums = buffer<std::uint64_t>(3);
+    auto* device_segments = buffer<detail::cuda_voxel_segment>(4);
+     auto* counters = buffer<std::uint32_t>(7);
+    check_cuda(cudaMemsetAsync(counters, 0, 8, stream));
+    check_cuda(static_cast<cudaError_t>(detail::cuda_stable_sort_contributions(view.contributions,
+        buffer<detail::cuda_ray_contribution>(0), flags, offsets, sums, view.count, stream)));
+    check_cuda(static_cast<cudaError_t>(detail::cuda_build_voxel_segments(view.contributions, view.count,
+        flags, offsets, sums, device_segments, static_cast<std::uint32_t>(options.contribution_capacity),
+        counters, counters + 1, stream)));
+    std::array<std::uint32_t, 2> result{};
+    check_cuda(cudaMemcpyAsync(result.data(), counters, sizeof(result), cudaMemcpyDeviceToHost, stream));
+    check_cuda(cudaStreamSynchronize(stream));
+    statistics.cuda_downloaded_bytes += sizeof(result);
+    if (result[1] || !result[0] || result[0] > view.count) throw std::runtime_error("CUDA contribution grouping failed");
+    segments.resize(result[0]);
+    const auto segment_bytes = segments.size() * sizeof(segments[0]);
+     check_cuda(cudaMemcpyAsync(segments.data(), device_segments, segment_bytes, cudaMemcpyDeviceToHost, stream));
+    check_cuda(cudaStreamSynchronize(stream));
+    statistics.cuda_downloaded_bytes += segment_bytes;
+    auto proposed_keys = keys;
+    auto proposed_slots = slots;
+    for (auto& segment : segments)
+    {
+        const int3 voxel{segment.voxel[0], segment.voxel[1], segment.voxel[2]};
+        const auto key = block_index(voxel);
+        auto found = proposed_slots.find(key);
+        if (found == proposed_slots.end()) {
+            if (proposed_keys.size() >= config.maximum_tiles)
+                throw std::length_error("CUDA map exceeds its tile capacity");
+            const auto slot = static_cast<std::uint32_t>(proposed_keys.size());
+            proposed_keys.push_back({key.x, key.y, key.z});
+             found = proposed_slots.emplace(key, slot).first;
+        }
+        segment.tile_slot = found->second;
+        segment.local_index = static_cast<std::uint32_t>(local_index(voxel));
+    }
+    const auto previous = keys.size();
+    keys = std::move(proposed_keys);
+    slots = std::move(proposed_slots);
+    const auto added = keys.size() - previous;
+    if (added)
+    {
+        check_cuda(cudaMemcpyAsync(buffer<detail::cuda_tile_coordinate>(5) + previous, keys.data() + previous,
+            added * sizeof(keys[0]), cudaMemcpyHostToDevice, stream));
+        check_cuda(cudaMemsetAsync(buffer<detail::cuda_tsdf_tile>(6) + previous, 0,
+            added * sizeof(detail::cuda_tsdf_tile), stream));
+        statistics.cuda_uploaded_bytes += added * sizeof(keys[0]);
+    }
+    check_cuda(cudaMemcpyAsync(device_segments, segments.data(), segment_bytes, cudaMemcpyHostToDevice, stream));
+     statistics.cuda_uploaded_bytes += segment_bytes;
+    return result[0];
+}
+}

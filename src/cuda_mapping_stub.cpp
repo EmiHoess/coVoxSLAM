@@ -68,3 +68,21 @@ cuda_contribution_statistics cuda_ray_context::generate(std::span<const ray>)
     throw std::runtime_error("covoxslam was built without CUDA support");
 }
 }
+
+namespace covoxslam
+{
+struct cuda_mapper::implementation
+{};
+
+cuda_mapper::cuda_mapper(mapping_config, cuda_mapper_options)
+{
+    throw std::runtime_error("covoxslam was built without CUDA support");
+}
+
+cuda_mapper::~cuda_mapper() = default;
+bool cuda_mapper::is_active() const noexcept { return false; }
+void cuda_mapper::begin(const submap_frame&)
+{
+    throw std::runtime_error("covoxslam was built without CUDA support");
+}
+}

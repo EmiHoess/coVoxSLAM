@@ -89,3 +89,29 @@ public:
 }
 ;
 }
+
+#include <covoxslam/mapping.hpp>
+
+namespace covoxslam
+{
+struct cuda_mapper_options {
+    int device{};
+    std::size_t ray_capacity{65536};
+     std::size_t contribution_capacity{8388608};
+    std::size_t maximum_device_bytes{2ULL << 30};
+};
+
+class cuda_mapper
+{
+    struct implementation;
+    std::unique_ptr<implementation> state;
+public:
+    explicit cuda_mapper(mapping_config config = {}, cuda_mapper_options options = {});
+     ~cuda_mapper();
+    cuda_mapper(const cuda_mapper&) = delete;
+    cuda_mapper& operator=(const cuda_mapper&) = delete;
+    void begin(const submap_frame& frame);
+    bool is_active() const noexcept;
+}
+;
+}

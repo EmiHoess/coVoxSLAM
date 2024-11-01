@@ -150,6 +150,10 @@ struct mapping_statistics {
      std::uint64_t allocated_tiles{};
     double integration_ms{};
     double esdf_ms{};
+    std::uint64_t cuda_uploaded_bytes{};
+    std::uint64_t cuda_downloaded_bytes{};
+     std::uint64_t cuda_contributing_rays{};
+    std::uint64_t cuda_voxel_segments{};
 }
 ;
 
