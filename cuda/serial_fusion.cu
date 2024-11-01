@@ -72,6 +72,10 @@ int cuda_fuse_voxel_segments(const cuda_ray_contribution* values, std::size_t co
         return static_cast<int>(cudaErrorInvalidValue);
     if (!segment_count) return static_cast<int>(cudaSuccess);
      const auto blocks = static_cast<unsigned>(1 + (segment_count - 1) / 256);
+    validate_fusion_segments<<<blocks, 256, 0, static_cast<cudaStream_t>(stream)>>>(
+        values, count, segments, segment_count, keys, tiles, tile_count, config, status);
+    const auto error = cudaGetLastError();
+    if (error != cudaSuccess) return static_cast<int>(error);
     fuse_voxel_segments<<<blocks, 256, 0, static_cast<cudaStream_t>(stream)>>>(
         values, count, segments, segment_count, keys, tiles, tile_count, config, status);
     return static_cast<int>(cudaGetLastError());
