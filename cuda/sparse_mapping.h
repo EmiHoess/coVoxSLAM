@@ -124,3 +124,39 @@ int cuda_fuse_voxel_segments(const cuda_ray_contribution* values, std::size_t co
     const cuda_tile_coordinate* keys, cuda_tsdf_tile* tiles, std::uint32_t tile_count,
     cuda_fusion_parameters config, std::uint32_t* status, void* stream) noexcept;
 }
+
+namespace covoxslam::detail
+{
+enum class cuda_esdf_unobserved : std::uint32_t { unknown, free, occupied };
+
+struct cuda_site_esdf_parameters
+{
+    float voxel_size{0.20F};
+    float truncation_distance{0.60F};
+     float site_band_m{0.20F};
+    float minimum_weight{1.0F};
+    float maximum_distance_m{8.0F};
+    cuda_esdf_unobserved unobserved{cuda_esdf_unobserved::unknown};
+    bool include_negative_truncation_band{};
+};
+
+struct cuda_site_esdf_voxel {
+    float squared_distance_voxels{};
+    std::int32_t parent[3]{};
+     std::uint32_t flags{};
+}
+;
+
+inline constexpr std::uint32_t cuda_esdf_observed = 1;
+inline constexpr std::uint32_t cuda_esdf_inside = 2;
+inline constexpr std::uint32_t cuda_esdf_site = 4;
+inline constexpr std::uint32_t cuda_esdf_parent_assigned = 8;
+
+int cuda_initialize_site_esdf(const cuda_tile_coordinate* keys, const cuda_tsdf_tile* tsdf,
+    std::size_t tile_count, cuda_site_esdf_parameters parameters, cuda_site_esdf_voxel* output,
+    std::uint32_t* status, void* stream) noexcept;
+int cuda_sweep_site_esdf(const cuda_tile_coordinate* keys, std::size_t tile_count,
+    cuda_site_esdf_voxel* output, float maximum_squared, std::uint32_t* changed, void* stream) noexcept;
+int cuda_relax_site_esdf_neighbors(const cuda_tile_coordinate* keys, std::size_t tile_count,
+    cuda_site_esdf_voxel* output, float maximum_squared, std::uint32_t* changed, void* stream) noexcept;
+}
