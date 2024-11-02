@@ -44,7 +44,8 @@ inline bool parse_mapping_option(std::string_view name, std::string_view value,
     return true;
 }
 
-inline pipeline_callbacks cpu_mapping_callbacks(cpu_mapper& mapper,
+template<class mapper_type>
+inline pipeline_callbacks mapping_callbacks(mapper_type& mapper,
     std::function<void(const submap&)> publish = {})
 {
     pipeline_callbacks callbacks;
@@ -63,6 +64,10 @@ inline pipeline_callbacks cpu_mapping_callbacks(cpu_mapper& mapper,
                   << statistics.rays_integrated << " integrated, " << statistics.rays_rejected
                   << " rejected, " << statistics.voxel_updates << " updates, "
                    << statistics.integration_ms << " ms\n";
+        if (statistics.cuda_uploaded_bytes || statistics.cuda_downloaded_bytes)
+            std::cout << "cuda " << statistics.cuda_contributing_rays << " contributing rays, "
+                      << statistics.cuda_voxel_segments << " voxel segments, " << statistics.cuda_uploaded_bytes
+                      << " uploaded bytes, " << statistics.cuda_downloaded_bytes << " downloaded bytes\n";
         std::cout << "esdf " << frame.id << ": " << esdf_backend_name(completed.config.esdf_generator)
                   << ", " << completed.esdf.size() << " tiles, " << statistics.esdf_ms << " ms\n";
     };

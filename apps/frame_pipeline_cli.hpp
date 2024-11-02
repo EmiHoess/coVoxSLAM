@@ -1,7 +1,7 @@
 #pragma once
 
 #include <covoxslam/mapping.hpp>
-#include "mapping_cli.hpp"
+#include "cuda_mapping_cli.hpp"
 #include "map_export_cli.hpp"
 
 #include <charconv>
@@ -16,10 +16,10 @@ namespace covoxslam
 
 inline int run_submap_cli(int argc, char** argv)
 {
-    try {
         pipeline_options options;
         mapping_config mapping_options;
         bool mapping_enabled{};
+        cuda_mapping_cli_options cuda_options;
         dataset_load_options input_options;
         std::filesystem::path root;
         std::filesystem::path output;
@@ -63,20 +63,26 @@ inline int run_submap_cli(int argc, char** argv)
                 else if (value == "ground_truth") options.pose_source = pose_source::ground_truth;
                 else throw std::invalid_argument("unsupported trajectory source");
             }
-            else if (!parse_mapping_option(option, value, mapping_options, mapping_enabled))
+            else if (!parse_cuda_mapping_option(option, value, mapping_options, mapping_enabled, cuda_options) &&
+                     !parse_mapping_option(option, value, mapping_options, mapping_enabled))
                 throw std::invalid_argument("unsupported submap option");
         }
          if (root.empty()) throw std::invalid_argument("--submaps requires --dataset directory");
         if (!options.submap_duration_ns || !options.ring_stride || !options.column_stride)
             throw std::invalid_argument("duration and sampling strides must be positive");
         if (!output.empty() && !mapping_enabled)
-            throw std::invalid_argument("--output requires --backend cpu-ray");
+            throw std::invalid_argument("--output requires --backend cpu-ray or cuda-ray");
         const auto input = load_dataset(root, input_options);
-        cpu_mapper mapper(mapping_options);
-        auto exporter = open_map_export(output, input, mapping_options);
-        const auto callbacks = mapping_enabled ? cpu_mapping_callbacks(mapper, [&](const submap& completed) {
-            if (exporter) exporter->write(completed);
-        }) : pipeline_callbacks{};
+        std::unique_ptr<cpu_mapper> cpu;
+        std::unique_ptr<cuda_mapper> gpu;
+        if (mapping_enabled) {
+            if (cuda_options.enabled) gpu = std::make_unique<cuda_mapper>(mapping_options, cuda_options.mapper);
+            else cpu = std::make_unique<cpu_mapper>(mapping_options);
+        }
+        auto exporter = open_map_export(output, input, mapping_options, cuda_options.enabled ? "cuda-ray" : "cpu-ray");
+        const auto publish = [&](const submap& completed) { if (exporter) exporter->write(completed); };
+        const auto callbacks = gpu ? mapping_callbacks(*gpu, publish) :
+            cpu ? mapping_callbacks(*cpu, publish) : pipeline_callbacks{};
         const auto result = run_frame_pipeline(input, options, callbacks);
         if (exporter) exporter->finish();
         std::cout << std::setprecision(17);
@@ -94,16 +100,6 @@ inline int run_submap_cli(int argc, char** argv)
         std::cout << result.frames_loaded << " frames, " << result.submaps.size()
                    << " submaps, " << result.rays_generated << " rays\n";
         return 0;
-    }
-    catch (const std::invalid_argument& error) {
-        std::cerr << "covoxslam: " << error.what() << '\n';
-        return 2;
-    }
-    catch (const std::exception& error)
-    {
-         std::cerr << "covoxslam: " << error.what() << '\n';
-        return 1;
-    }
 }
 
 }
