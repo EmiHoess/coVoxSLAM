@@ -1,5 +1,6 @@
 #include <covoxslam/cuda.hpp>
 #include "sparse_mapping.h"
+#include "cuda_site_conversion.hpp"
 
 #include <cuda_runtime_api.h>
 #include <array>
