@@ -1,4 +1,7 @@
-coVoxSLAM
+### Disclaimer
+🚧 **This project is currently under revision. The code will be available soon!** 🚧
+
+## coVoxSLAM
 
 GPU-accelerated volumetric SLAM system for globally consistent maps for small and large-scale environments.
 
@@ -6,15 +9,13 @@ GPU-accelerated volumetric SLAM system for globally consistent maps for small an
 alt="coVoxSLAM ICRA 25 - Submission Video" width="854" height="480" border="10" /></a>
 
 ## Table of Contents
-- [Table of Contents](#table-of-contents)
 - [coVoxSLAM](#covoxslam)
+- [Table of Contents](#table-of-contents)
 - [Get Started ](#get-started-)
 - [Compilers ](#compilers-)
 - [Dependencies ](#dependencies-)
 - [Build](#build)
 - [Paper](#paper)
-
-## coVoxSLAM
 
 ![pipeline](docs/diagrams/pipeline.png)
 The architecture of coVoxSLAM is shown above. The system consists of a frontend and backend. The frontend is responsible for integrating the incoming sensor data into a TSDF volume to include or update the voxels that build the TSDF maps and propagate updated voxels from the TSDF to the ESDF submaps. The created voxels are grouped in fixed-size blocks, which in turn, are indexed using an appropriately designed hash table. The backend is responsible for estimating the most likely submap collection alignment by minimizing the total error of the three pose graph constraints: odometry, loop closure and submap registration.
