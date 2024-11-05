@@ -7,13 +7,13 @@
 
 namespace covoxslam::detail
 {
-__device__ bool site_tile_less(cuda_tile_coordinate left, cuda_tile_coordinate right)
+__device__ inline bool site_tile_less(cuda_tile_coordinate left, cuda_tile_coordinate right)
 {
     return left.z < right.z || (left.z == right.z &&
         (left.y < right.y || (left.y == right.y && left.x < right.x)));
 }
 
-__device__ bool site_coordinate(cuda_tile_coordinate key, int local, int* position)
+__device__ inline bool site_coordinate(cuda_tile_coordinate key, int local, int* position)
 {
     const int blocks[3]{key.x, key.y, key.z};
     for (int axis = 0; axis < 3; ++axis) {
@@ -24,7 +24,7 @@ __device__ bool site_coordinate(cuda_tile_coordinate key, int local, int* positi
     return true;
 }
 
-__device__ std::size_t site_tile_slot(const cuda_tile_coordinate* keys,
+__device__ inline std::size_t site_tile_slot(const cuda_tile_coordinate* keys,
                                       std::size_t size, cuda_tile_coordinate key)
 {
     std::size_t first{}, last = size;
@@ -38,12 +38,12 @@ __device__ std::size_t site_tile_slot(const cuda_tile_coordinate* keys,
      return first;
 }
 
-__device__ int site_block_index(int coordinate)
+__device__ inline int site_block_index(int coordinate)
 {
     return coordinate / 8 - (coordinate % 8 < 0 ? 1 : 0);
 }
 
-__device__ int site_local_index(int x, int y, int z)
+__device__ inline int site_local_index(int x, int y, int z)
 {
     return ((x % 8 + 8) % 8) + 8 * (((y % 8 + 8) % 8) + 8 * ((z % 8 + 8) % 8));
 }
