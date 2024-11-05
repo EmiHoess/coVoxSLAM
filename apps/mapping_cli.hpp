@@ -30,6 +30,7 @@ inline bool parse_mapping_option(std::string_view name, std::string_view value,
     {
         if (value == "none") config.esdf_generator = esdf_backend::none;
         else if (value == "cpu-voxblox-batch") config.esdf_generator = esdf_backend::cpu_voxblox_batch;
+        else if (value == "cuda-nvblox-block-band") config.esdf_generator = esdf_backend::cuda_nvblox_block_band;
         else throw std::invalid_argument("unsupported ESDF generator");
     }
     else if (name == "--esdf-maximum-distance") config.esdf_maximum_distance_m = mapping_scalar(value);
@@ -46,7 +47,7 @@ inline bool parse_mapping_option(std::string_view name, std::string_view value,
 
 template<class mapper_type>
 inline pipeline_callbacks mapping_callbacks(mapper_type& mapper,
-    std::function<void(const submap&)> publish = {})
+    std::function<void(const submap&)> publish = {}, std::function<void(submap&)> finalize = {})
 {
     pipeline_callbacks callbacks;
     callbacks.begin = [&mapper](const submap_frame& frame) { mapper.begin(frame); };
@@ -55,9 +56,10 @@ inline pipeline_callbacks mapping_callbacks(mapper_type& mapper,
     {
         mapper.integrate_scan(rays);
     };
-    callbacks.finish = [&mapper, publish](const submap_frame& frame)
+    callbacks.finish = [&mapper, publish, finalize](const submap_frame& frame)
       {
-        const auto completed = mapper.finish(frame);
+        auto completed = mapper.finish(frame);
+        if (finalize) finalize(completed);
         if (publish) publish(completed);
         const auto& statistics = completed.statistics;
         std::cout << "tsdf " << frame.id << ": " << completed.tsdf.size() << " tiles, "

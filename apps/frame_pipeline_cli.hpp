@@ -2,6 +2,7 @@
 
 #include <covoxslam/mapping.hpp>
 #include "cuda_mapping_cli.hpp"
+#include "cuda_esdf_cli.hpp"
 #include "map_export_cli.hpp"
 
 #include <charconv>
@@ -73,16 +74,19 @@ inline int run_submap_cli(int argc, char** argv)
         if (!output.empty() && !mapping_enabled)
             throw std::invalid_argument("--output requires --backend cpu-ray or cuda-ray");
         const auto input = load_dataset(root, input_options);
+        const auto finalize = cuda_esdf_finalizer(mapping_options, cuda_options.mapper.device);
+        auto mapper_options = mapping_options;
+        if (finalize) mapper_options.esdf_generator = esdf_backend::none;
         std::unique_ptr<cpu_mapper> cpu;
         std::unique_ptr<cuda_mapper> gpu;
         if (mapping_enabled) {
-            if (cuda_options.enabled) gpu = std::make_unique<cuda_mapper>(mapping_options, cuda_options.mapper);
-            else cpu = std::make_unique<cpu_mapper>(mapping_options);
+            if (cuda_options.enabled) gpu = std::make_unique<cuda_mapper>(mapper_options, cuda_options.mapper);
+            else cpu = std::make_unique<cpu_mapper>(mapper_options);
         }
         auto exporter = open_map_export(output, input, mapping_options, cuda_options.enabled ? "cuda-ray" : "cpu-ray");
         const auto publish = [&](const submap& completed) { if (exporter) exporter->write(completed); };
-        const auto callbacks = gpu ? mapping_callbacks(*gpu, publish) :
-            cpu ? mapping_callbacks(*cpu, publish) : pipeline_callbacks{};
+        const auto callbacks = gpu ? mapping_callbacks(*gpu, publish, finalize) :
+            cpu ? mapping_callbacks(*cpu, publish, finalize) : pipeline_callbacks{};
         const auto result = run_frame_pipeline(input, options, callbacks);
         if (exporter) exporter->finish();
         std::cout << std::setprecision(17);

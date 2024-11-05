@@ -37,7 +37,7 @@ void usage()
               << "  --submaps --dataset PATH --backend cpu-ray|cuda-ray  Build local TSDF maps\n"
               << "  --cuda-device N --cuda-ray-capacity N --cuda-contribution-capacity N --cuda-device-bytes N\n"
               << "  --voxel-size M --truncation-distance M --maximum-ray-length M\n"
-              << "  --esdf-generator none|cpu-voxblox-batch  Default cpu-voxblox-batch\n"
+              << "  --esdf-generator none|cpu-voxblox-batch|cuda-nvblox-block-band  Default cpu-voxblox-batch\n"
               << "  --output PATH  Export CPU maps to a new directory\n"
               << "  --submaps --dataset PATH  Deskew scans and report submap metadata\n"
               << "    --maximum-frames N | --maximum-submaps N  Zero means unlimited\n"

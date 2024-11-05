@@ -99,3 +99,12 @@ submap cuda_mapper::finish(const submap_frame&)
     throw std::runtime_error("covoxslam was built without CUDA support");
 }
 }
+
+namespace covoxslam
+{
+cuda_site_esdf_statistics build_cuda_site_esdf(const tsdf_tiles&, esdf_tiles&,
+    const mapping_config&, const cuda_site_esdf_options&)
+{
+    throw std::runtime_error("covoxslam was built without CUDA support");
+}
+}

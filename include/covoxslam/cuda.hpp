@@ -117,3 +117,27 @@ public:
 }
 ;
 }
+
+namespace covoxslam
+{
+enum class cuda_esdf_unobserved_policy { unknown, free, occupied };
+
+struct cuda_site_esdf_options
+{
+    int device{};
+    cuda_esdf_unobserved_policy unobserved{cuda_esdf_unobserved_policy::unknown};
+     bool include_negative_truncation_band{};
+    std::size_t maximum_scratch_bytes{1ULL << 30};
+    std::uint32_t maximum_iterations{4096};
+};
+
+struct cuda_site_esdf_statistics {
+    std::uint64_t uploaded_bytes{};
+    std::uint64_t downloaded_bytes{};
+     std::uint32_t wave_iterations{};
+    double elapsed_ms{};
+};
+
+cuda_site_esdf_statistics build_cuda_site_esdf(const tsdf_tiles& tsdf, esdf_tiles& esdf,
+    const mapping_config& config, const cuda_site_esdf_options& options = {});
+}
