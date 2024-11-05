@@ -160,3 +160,62 @@ int cuda_sweep_site_esdf(const cuda_tile_coordinate* keys, std::size_t tile_coun
 int cuda_relax_site_esdf_neighbors(const cuda_tile_coordinate* keys, std::size_t tile_count,
     cuda_site_esdf_voxel* output, float maximum_squared, std::uint32_t* changed, void* stream) noexcept;
 }
+
+namespace covoxslam::detail
+{
+struct cuda_voxblox_voxel
+{
+    float distance_m{};
+    std::int32_t parent[3]{};
+     std::uint32_t flags{};
+};
+
+struct cuda_voxblox_parameters {
+    float voxel_size{0.20F};
+    float seed_band_m{0.20F};
+    float maximum_distance_m{8.0F};
+     float minimum_weight{1.0F};
+    float minimum_difference_m{0.0002F};
+    std::uint32_t bucket_count{64};
+    bool full_euclidean{true};
+};
+
+struct cuda_voxblox_queue
+{
+    std::uint32_t size{}, cursor{}, status{}, frontier_count{};
+    std::uint64_t pushes{}, pops{}, accepted{}, relaxations{}, eligible{}, seeds{};
+};
+
+struct cuda_voxblox_proposal {
+    std::uint32_t target{UINT32_MAX};
+    float source_distance_m{}, step_distance_m{};
+     std::int32_t parent[3]{};
+};
+
+struct cuda_voxblox_workspace
+{
+    cuda_voxblox_voxel* values{};
+    std::uint32_t* next{};
+    std::uint32_t* queued{};
+    std::uint32_t* heads{};
+     std::uint32_t* tails{};
+    const std::uint32_t* order{};
+    std::uint32_t* sources{};
+    std::uint32_t* winners{};
+    cuda_voxblox_proposal* proposals{};
+    cuda_voxblox_queue* queue{};
+};
+
+static_assert(sizeof(cuda_voxblox_voxel) == 20 && sizeof(cuda_voxblox_queue) == 64);
+static_assert(sizeof(cuda_voxblox_proposal) == 24);
+int cuda_initialize_voxblox(const cuda_tile_coordinate* keys, const cuda_tsdf_tile* tsdf,
+    std::size_t tile_count, cuda_voxblox_parameters config, cuda_voxblox_workspace work, void* stream) noexcept;
+int cuda_enqueue_voxblox_seeds(std::size_t count, cuda_voxblox_parameters config,
+    cuda_voxblox_workspace work, void* stream) noexcept;
+int cuda_propagate_voxblox_ordered(const cuda_tile_coordinate* keys, std::size_t tile_count,
+    cuda_voxblox_parameters config, cuda_voxblox_workspace work, std::uint32_t maximum_pops, void* stream) noexcept;
+int cuda_propagate_voxblox_frontier(const cuda_tile_coordinate* keys, std::size_t tile_count,
+    cuda_voxblox_parameters config, cuda_voxblox_workspace work, std::uint32_t capacity, void* stream) noexcept;
+int cuda_validate_voxblox(const cuda_tile_coordinate* keys, const cuda_tsdf_tile* tsdf,
+    std::size_t tile_count, cuda_voxblox_parameters config, cuda_voxblox_workspace work, void* stream) noexcept;
+}
