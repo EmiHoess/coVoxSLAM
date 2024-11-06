@@ -4,6 +4,7 @@
 #include "cuda_voxblox_conversion.hpp"
 
 #include <cuda_runtime_api.h>
+#include "cuda_voxblox_storage.hpp"
 #include <array>
 #include <limits>
 #include <stdexcept>

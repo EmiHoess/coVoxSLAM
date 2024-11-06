@@ -141,3 +141,34 @@ struct cuda_site_esdf_statistics {
 cuda_site_esdf_statistics build_cuda_site_esdf(const tsdf_tiles& tsdf, esdf_tiles& esdf,
     const mapping_config& config, const cuda_site_esdf_options& options = {});
 }
+
+namespace covoxslam
+{
+enum class cuda_voxblox_executor { ordered, frontier };
+enum class cuda_voxblox_distance { full_euclidean, quasi_euclidean };
+
+struct cuda_voxblox_options
+{
+    int device{};
+    cuda_voxblox_executor executor{cuda_voxblox_executor::ordered};
+     cuda_voxblox_distance distance{cuda_voxblox_distance::full_euclidean};
+    std::size_t maximum_scratch_bytes{1ULL << 30};
+    std::uint64_t maximum_queue_pops{100000000};
+    std::uint32_t maximum_rounds{100000};
+    std::uint32_t pops_per_launch{256};
+    std::uint32_t frontier_capacity{256};
+     std::uint32_t bucket_count{64};
+    float minimum_difference_m{-1.0F};
+};
+
+struct cuda_voxblox_statistics {
+    std::uint64_t uploaded_bytes{}, downloaded_bytes{}, scratch_bytes{};
+    std::uint64_t queue_pushes{}, queue_pops{}, accepted_updates{}, candidate_relaxations{};
+     std::uint64_t eligible_voxels{}, fixed_seeds{};
+    std::uint32_t rounds{};
+    double elapsed_ms{};
+};
+
+cuda_voxblox_statistics build_cuda_voxblox_esdf(const tsdf_tiles& tsdf, esdf_tiles& esdf,
+    const mapping_config& config, const cuda_voxblox_options& options = {});
+}
