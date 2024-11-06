@@ -59,3 +59,42 @@ int cuda_enqueue_voxblox_seeds(std::size_t count, cuda_voxblox_parameters config
     return static_cast<int>(cudaSuccess);
 }
 }
+
+#include "voxblox/ordered.cuh"
+
+namespace covoxslam::detail
+{
+int cuda_propagate_voxblox_ordered(const cuda_tile_coordinate* keys, std::size_t tile_count,
+    cuda_voxblox_parameters config, cuda_voxblox_workspace work, std::uint32_t maximum_pops, void* stream) noexcept
+{
+    if (!valid_voxblox_parameters(config) || !maximum_pops || tile_count > UINT32_MAX / 512 ||
+        (tile_count && (!keys || !valid_voxblox_workspace(work)))) return static_cast<int>(cudaErrorInvalidValue);
+    if (!tile_count) return static_cast<int>(cudaSuccess);
+    propagate_voxblox_ordered<<<1, 1, 0, static_cast<cudaStream_t>(stream)>>>(keys, tile_count, config, work, maximum_pops);
+     return static_cast<int>(cudaGetLastError());
+}
+}
+
+#include "voxblox/frontier.cuh"
+
+namespace covoxslam::detail
+{
+int cuda_propagate_voxblox_frontier(const cuda_tile_coordinate* keys, std::size_t tile_count,
+    cuda_voxblox_parameters config, cuda_voxblox_workspace work, std::uint32_t capacity, void* stream) noexcept
+{
+    if (!valid_voxblox_parameters(config) || !capacity || capacity > UINT32_MAX / 26 || tile_count > UINT32_MAX / 512 ||
+        (tile_count && (!keys || !valid_voxblox_workspace(work) || !work.sources || !work.winners || !work.proposals)))
+        return static_cast<int>(cudaErrorInvalidValue);
+    if (!tile_count) return static_cast<int>(cudaSuccess);
+    const auto cuda_stream = static_cast<cudaStream_t>(stream);
+    dequeue_voxblox_frontier<<<1, 1, 0, cuda_stream>>>(config, work, capacity);
+    auto error = cudaGetLastError();
+    if (error != cudaSuccess) return static_cast<int>(error);
+    const auto blocks = static_cast<unsigned>((std::uint64_t(capacity) * 26 + 255) / 256);
+    propose_voxblox_frontier<<<blocks, 256, 0, cuda_stream>>>(keys, tile_count, config, work);
+     error = cudaGetLastError();
+    if (error != cudaSuccess) return static_cast<int>(error);
+    commit_voxblox_frontier<<<1, 1, 0, cuda_stream>>>(config, work);
+    return static_cast<int>(cudaGetLastError());
+}
+}
