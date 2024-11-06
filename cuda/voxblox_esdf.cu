@@ -1,6 +1,7 @@
 #include "sparse_mapping.h"
 #include "voxblox/initialize.cuh"
 #include "voxblox/proposal.cuh"
+#include "voxblox/validate.cuh"
 #include <cmath>
 #include <initializer_list>
 
@@ -71,6 +72,10 @@ int cuda_propagate_voxblox_ordered(const cuda_tile_coordinate* keys, std::size_t
         (tile_count && (!keys || !valid_voxblox_workspace(work)))) return static_cast<int>(cudaErrorInvalidValue);
     if (!tile_count) return static_cast<int>(cudaSuccess);
     propagate_voxblox_ordered<<<1, 1, 0, static_cast<cudaStream_t>(stream)>>>(keys, tile_count, config, work, maximum_pops);
+    const auto completed_error = cudaGetLastError();
+    if (completed_error != cudaSuccess) return static_cast<int>(completed_error);
+    validate_voxblox<<<static_cast<unsigned>((tile_count * 512 + 255) / 256), 256, 0, static_cast<cudaStream_t>(stream)>>>(
+        keys, nullptr, tile_count, config, work, false);
      return static_cast<int>(cudaGetLastError());
 }
 }
@@ -95,6 +100,24 @@ int cuda_propagate_voxblox_frontier(const cuda_tile_coordinate* keys, std::size_
      error = cudaGetLastError();
     if (error != cudaSuccess) return static_cast<int>(error);
     commit_voxblox_frontier<<<1, 1, 0, cuda_stream>>>(config, work);
+    const auto completed_error = cudaGetLastError();
+    if (completed_error != cudaSuccess) return static_cast<int>(completed_error);
+    validate_voxblox<<<static_cast<unsigned>((tile_count * 512 + 255) / 256), 256, 0, static_cast<cudaStream_t>(stream)>>>(
+        keys, nullptr, tile_count, config, work, false);
+    return static_cast<int>(cudaGetLastError());
+}
+}
+
+namespace covoxslam::detail
+{
+int cuda_validate_voxblox(const cuda_tile_coordinate* keys, const cuda_tsdf_tile* tsdf,
+    std::size_t tile_count, cuda_voxblox_parameters config, cuda_voxblox_workspace work, void* stream) noexcept
+{
+    if (!valid_voxblox_parameters(config) || tile_count > UINT32_MAX / 512 ||
+        (tile_count && (!keys || !tsdf || !valid_voxblox_workspace(work)))) return static_cast<int>(cudaErrorInvalidValue);
+    if (!tile_count) return static_cast<int>(cudaSuccess);
+    validate_voxblox<<<static_cast<unsigned>((tile_count * 512 + 255) / 256), 256, 0, static_cast<cudaStream_t>(stream)>>>(
+        keys, tsdf, tile_count, config, work, true);
     return static_cast<int>(cudaGetLastError());
 }
 }
