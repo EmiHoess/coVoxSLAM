@@ -219,3 +219,33 @@ int cuda_propagate_voxblox_frontier(const cuda_tile_coordinate* keys, std::size_
 int cuda_validate_voxblox(const cuda_tile_coordinate* keys, const cuda_tsdf_tile* tsdf,
     std::size_t tile_count, cuda_voxblox_parameters config, cuda_voxblox_workspace work, void* stream) noexcept;
 }
+
+namespace covoxslam::detail
+{
+struct cuda_projective_pose
+{
+    float translation[3]{};
+    float rotation_xyzw[4]{0, 0, 0, 1};
+};
+
+struct cuda_projective_calibration {
+    std::uint32_t rings{};
+    std::uint32_t columns{};
+     float azimuth_start_rad{};
+    float azimuth_coverage_rad{6.283185307179586F};
+    bool counter_clockwise{true};
+};
+
+bool valid_projective_shape(cuda_projective_calibration calibration) noexcept;
+bool valid_projective_pose(cuda_projective_pose pose) noexcept;
+bool valid_projective_calibration(cuda_projective_calibration calibration,
+    const float* vertical_angles, std::size_t angle_count) noexcept;
+}
+
+namespace covoxslam::detail
+{
+int cuda_build_projective_range_image(const cuda_device_ray* rays, std::size_t count,
+    cuda_ray_parameters parameters, cuda_projective_pose pose, cuda_projective_calibration calibration,
+    const float* vertical_angles, std::uint64_t* winners, std::size_t pixel_capacity,
+    std::uint32_t* status, void* stream) noexcept;
+}

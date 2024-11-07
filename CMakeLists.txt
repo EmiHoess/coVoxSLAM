@@ -24,6 +24,7 @@ if(covoxslam_enable_cuda)
     target_sources(covoxslam_core PRIVATE cuda/serial_fusion.cu)
     target_sources(covoxslam_core PRIVATE cuda/esdf_site.cu)
     target_sources(covoxslam_core PRIVATE cuda/voxblox_esdf.cu)
+    target_sources(covoxslam_core PRIVATE cuda/projective.cu)
     target_link_libraries(covoxslam_core PUBLIC CUDA::cudart)
     set_target_properties(covoxslam_core PROPERTIES CUDA_STANDARD 20
         CUDA_STANDARD_REQUIRED ON CUDA_EXTENSIONS OFF CUDA_RUNTIME_LIBRARY Shared)
