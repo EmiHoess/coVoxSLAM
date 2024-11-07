@@ -249,3 +249,14 @@ int cuda_build_projective_range_image(const cuda_device_ray* rays, std::size_t c
     const float* vertical_angles, std::uint64_t* winners, std::size_t pixel_capacity,
     std::uint32_t* status, void* stream) noexcept;
 }
+
+namespace covoxslam::detail
+{
+int cuda_count_projective_tiles(const cuda_device_ray* rays, std::size_t ray_count,
+    const std::uint64_t* winners, std::size_t pixel_count, cuda_projective_pose pose,
+    cuda_ray_parameters parameters, std::uint32_t* counts, std::uint32_t* status, void* stream) noexcept;
+int cuda_emit_projective_tiles(const cuda_device_ray* rays, std::size_t ray_count,
+    const std::uint64_t* winners, std::size_t pixel_count, cuda_projective_pose pose,
+    cuda_ray_parameters parameters, const std::uint32_t* counts, const std::uint64_t* offsets,
+    cuda_tile_coordinate* keys, std::uint64_t capacity, std::uint32_t* status, void* stream) noexcept;
+}

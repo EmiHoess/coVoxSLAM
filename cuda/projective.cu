@@ -71,3 +71,53 @@ int cuda_build_projective_range_image(const cuda_device_ray* rays, std::size_t c
     return static_cast<int>(cudaGetLastError());
 }
 }
+
+#include "projective/discovery.cuh"
+
+namespace covoxslam::detail
+{
+namespace
+{
+bool valid_projective_discovery(std::size_t ray_count, std::size_t pixel_count,
+    cuda_projective_pose pose, cuda_ray_parameters parameters)
+{
+    return valid_projective_pose(pose) && ray_count <= UINT32_MAX && pixel_count <= UINT32_MAX &&
+        std::isfinite(parameters.voxel_size) && parameters.voxel_size > 0 &&
+        std::isfinite(parameters.truncation_distance) && parameters.truncation_distance > 0 &&
+        std::isfinite(parameters.minimum_ray_length_m) && parameters.minimum_ray_length_m >= 0 &&
+        std::isfinite(parameters.maximum_ray_length_m) && parameters.maximum_ray_length_m > 0 &&
+        parameters.maximum_ray_length_m >= parameters.minimum_ray_length_m &&
+         (double(parameters.maximum_ray_length_m) + parameters.truncation_distance) / parameters.voxel_size < 10000000;
+}
+}
+
+int cuda_count_projective_tiles(const cuda_device_ray* rays, std::size_t ray_count,
+    const std::uint64_t* winners, std::size_t pixel_count, cuda_projective_pose pose,
+    cuda_ray_parameters parameters, std::uint32_t* counts, std::uint32_t* status, void* stream) noexcept
+{
+    if (!valid_projective_discovery(ray_count, pixel_count, pose, parameters) || !status ||
+        (ray_count && !rays) || (pixel_count && (!winners || !counts))) return static_cast<int>(cudaErrorInvalidValue);
+    auto error = cudaMemsetAsync(status, 0, sizeof(*status), static_cast<cudaStream_t>(stream));
+    if (error != cudaSuccess || !pixel_count) return static_cast<int>(error);
+    visit_projective_tiles<false><<<static_cast<unsigned>((pixel_count + 255) / 256), 256, 0,
+        static_cast<cudaStream_t>(stream)>>>(rays, ray_count, winners, pixel_count, pose, parameters,
+            nullptr, counts, nullptr, nullptr, 0, status);
+    return static_cast<int>(cudaGetLastError());
+}
+
+int cuda_emit_projective_tiles(const cuda_device_ray* rays, std::size_t ray_count,
+    const std::uint64_t* winners, std::size_t pixel_count, cuda_projective_pose pose,
+    cuda_ray_parameters parameters, const std::uint32_t* counts, const std::uint64_t* offsets,
+    cuda_tile_coordinate* keys, std::uint64_t capacity, std::uint32_t* status, void* stream) noexcept
+{
+    if (!valid_projective_discovery(ray_count, pixel_count, pose, parameters) || !status ||
+        capacity > std::numeric_limits<std::size_t>::max() / sizeof(cuda_tile_coordinate) ||
+        (ray_count && !rays) || (pixel_count && (!winners || !counts || !offsets)) ||
+        (capacity && !keys)) return static_cast<int>(cudaErrorInvalidValue);
+    if (!pixel_count) return static_cast<int>(cudaSuccess);
+    visit_projective_tiles<true><<<static_cast<unsigned>((pixel_count + 255) / 256), 256, 0,
+        static_cast<cudaStream_t>(stream)>>>(rays, ray_count, winners, pixel_count, pose, parameters,
+            counts, nullptr, offsets, keys, capacity, status);
+    return static_cast<int>(cudaGetLastError());
+}
+}
