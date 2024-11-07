@@ -21,6 +21,7 @@ inline int run_submap_cli(int argc, char** argv)
         mapping_config mapping_options;
         bool mapping_enabled{};
         cuda_mapping_cli_options cuda_options;
+        cuda_voxblox_cli_options esdf_options;
         dataset_load_options input_options;
         std::filesystem::path root;
         std::filesystem::path output;
@@ -64,7 +65,8 @@ inline int run_submap_cli(int argc, char** argv)
                 else if (value == "ground_truth") options.pose_source = pose_source::ground_truth;
                 else throw std::invalid_argument("unsupported trajectory source");
             }
-            else if (!parse_cuda_mapping_option(option, value, mapping_options, mapping_enabled, cuda_options) &&
+            else if (!parse_cuda_esdf_option(option, value, esdf_options) &&
+                     !parse_cuda_mapping_option(option, value, mapping_options, mapping_enabled, cuda_options) &&
                      !parse_mapping_option(option, value, mapping_options, mapping_enabled))
                 throw std::invalid_argument("unsupported submap option");
         }
@@ -74,7 +76,7 @@ inline int run_submap_cli(int argc, char** argv)
         if (!output.empty() && !mapping_enabled)
             throw std::invalid_argument("--output requires --backend cpu-ray or cuda-ray");
         const auto input = load_dataset(root, input_options);
-        const auto finalize = cuda_esdf_finalizer(mapping_options, cuda_options.mapper.device);
+        const auto finalize = cuda_esdf_finalizer(mapping_options, cuda_options.mapper.device, esdf_options);
         auto mapper_options = mapping_options;
         if (finalize) mapper_options.esdf_generator = esdf_backend::none;
         std::unique_ptr<cpu_mapper> cpu;

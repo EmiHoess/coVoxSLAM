@@ -666,3 +666,95 @@ cuda_site_esdf_statistics build_cuda_site_esdf(const tsdf_tiles& tsdf, esdf_tile
     return statistics;
 }
 }
+
+namespace covoxslam
+{
+cuda_voxblox_statistics build_cuda_voxblox_esdf(const tsdf_tiles& tsdf, esdf_tiles& esdf,
+    const mapping_config& config, const cuda_voxblox_options& options)
+{
+    const auto start = std::chrono::steady_clock::now();
+    const auto difference = options.minimum_difference_m < 0 ? std::max(1.0e-5F, config.voxel_size * 1.0e-3F) : options.minimum_difference_m;
+    const detail::cuda_voxblox_parameters parameters{config.voxel_size, config.esdf_site_band_m,
+        config.esdf_maximum_distance_m, config.esdf_minimum_weight, difference, options.bucket_count,
+        options.distance == cuda_voxblox_distance::full_euclidean};
+    check_cuda(static_cast<cudaError_t>(detail::cuda_initialize_voxblox(nullptr, nullptr, 0, parameters, {}, nullptr)));
+    const auto bytes = detail::voxblox_storage_bytes(tsdf.size(), options);
+    if (!config.maximum_tiles || tsdf.size() > config.maximum_tiles) throw std::length_error("CUDA Voxblox tile limit exceeded");
+    cuda_voxblox_statistics statistics;
+    for (const auto size : bytes) statistics.scratch_bytes += size;
+     if (statistics.scratch_bytes > query_cuda_device(options.device).total_memory_bytes)
+        throw std::length_error("CUDA Voxblox exceeds device memory");
+    check_cuda(cudaSetDevice(options.device));
+    if (tsdf.empty()) { esdf.clear(); return statistics; }
+    std::vector<int3> order;
+    for (const auto& [key, tile] : tsdf) order.push_back(key);
+    std::sort(order.begin(), order.end(), block_index_less);
+    std::vector<detail::cuda_tile_coordinate> keys;
+    std::vector<detail::cuda_tsdf_tile> tiles(tsdf.size());
+    std::vector<detail::cuda_voxblox_voxel> values(tsdf.size() * 512);
+    for (std::size_t slot = 0; slot < order.size(); ++slot)
+    {
+        const auto key = order[slot];
+        keys.push_back({key.x, key.y, key.z});
+        const auto& source = tsdf.at(key);
+        for (std::size_t local = 0; local < 512; ++local) {
+            const auto& voxel = source.voxels[local];
+             tiles[slot].voxels[local] = {voxel.distance, voxel.weight, voxel.sample_count, voxel.flags};
+        }
+    }
+    const auto canonical = detail::voxblox_canonical_order(keys);
+    detail::voxblox_storage storage;
+    check_cuda(cudaStreamCreateWithFlags(&storage.stream, cudaStreamNonBlocking));
+    for (std::size_t index = 0; index < bytes.size(); ++index)
+        if (bytes[index]) check_cuda(cudaMalloc(&storage.buffers[index], bytes[index]));
+    const auto work = storage.workspace();
+    auto* device_keys = storage.buffer<detail::cuda_tile_coordinate>(0);
+    auto* device_tiles = storage.buffer<detail::cuda_tsdf_tile>(1);
+    check_cuda(cudaMemcpyAsync(device_keys, keys.data(), bytes[0], cudaMemcpyHostToDevice, storage.stream));
+    check_cuda(cudaMemcpyAsync(device_tiles, tiles.data(), bytes[1], cudaMemcpyHostToDevice, storage.stream));
+    check_cuda(cudaMemcpyAsync(storage.buffers[5], canonical.data(), bytes[5], cudaMemcpyHostToDevice, storage.stream));
+    statistics.uploaded_bytes = bytes[0] + bytes[1] + bytes[5];
+    detail::cuda_voxblox_queue state;
+    const auto read_state = [&] {
+        check_cuda(cudaMemcpyAsync(&state, work.queue, sizeof(state), cudaMemcpyDeviceToHost, storage.stream));
+        check_cuda(cudaStreamSynchronize(storage.stream));
+         statistics.downloaded_bytes += sizeof(state);
+        if (state.status) throw std::runtime_error("CUDA Voxblox input or state invariant failed");
+    };
+    check_cuda(static_cast<cudaError_t>(detail::cuda_initialize_voxblox(device_keys, device_tiles, tsdf.size(), parameters, work, storage.stream)));
+    read_state();
+    check_cuda(static_cast<cudaError_t>(detail::cuda_enqueue_voxblox_seeds(values.size(), parameters, work, storage.stream)));
+    read_state();
+    while (state.size)
+    {
+        if (statistics.rounds >= options.maximum_rounds || state.pops >= options.maximum_queue_pops)
+            throw std::runtime_error("CUDA Voxblox propagation limit exceeded");
+        const auto remaining = options.maximum_queue_pops - state.pops;
+        int error{};
+        if (options.executor == cuda_voxblox_executor::ordered)
+            error = detail::cuda_propagate_voxblox_ordered(device_keys, tsdf.size(), parameters, work,
+                static_cast<std::uint32_t>(std::min<std::uint64_t>(remaining, options.pops_per_launch)), storage.stream);
+        else
+            error = detail::cuda_propagate_voxblox_frontier(device_keys, tsdf.size(), parameters, work,
+                static_cast<std::uint32_t>(std::min<std::uint64_t>(remaining, options.frontier_capacity)), storage.stream);
+        check_cuda(static_cast<cudaError_t>(error));
+         ++statistics.rounds;
+        read_state();
+    }
+    check_cuda(static_cast<cudaError_t>(detail::cuda_validate_voxblox(device_keys, device_tiles, tsdf.size(), parameters, work, storage.stream)));
+    read_state();
+    check_cuda(cudaMemcpyAsync(values.data(), work.values, bytes[2], cudaMemcpyDeviceToHost, storage.stream));
+    check_cuda(cudaStreamSynchronize(storage.stream));
+    statistics.downloaded_bytes += bytes[2];
+    auto completed = detail::convert_cuda_voxblox(keys, tiles, values, parameters);
+    statistics.queue_pushes = state.pushes;
+    statistics.queue_pops = state.pops;
+    statistics.accepted_updates = state.accepted;
+    statistics.candidate_relaxations = state.relaxations;
+    statistics.eligible_voxels = state.eligible;
+    statistics.fixed_seeds = state.seeds;
+     statistics.elapsed_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+    esdf.swap(completed);
+    return statistics;
+}
+}

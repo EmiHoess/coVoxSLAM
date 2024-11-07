@@ -108,3 +108,12 @@ cuda_site_esdf_statistics build_cuda_site_esdf(const tsdf_tiles&, esdf_tiles&,
     throw std::runtime_error("covoxslam was built without CUDA support");
 }
 }
+
+namespace covoxslam
+{
+cuda_voxblox_statistics build_cuda_voxblox_esdf(const tsdf_tiles&, esdf_tiles&,
+    const mapping_config&, const cuda_voxblox_options&)
+{
+    throw std::runtime_error("CUDA Voxblox ESDF is unavailable in this build");
+}
+}

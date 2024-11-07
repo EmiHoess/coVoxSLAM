@@ -168,10 +168,19 @@ void validate_export_submap(const submap& value)
             const auto& voxel = tile.voxels[local];
             const bool observed = (voxel.flags & observed_flag) != 0;
             const bool site = (voxel.flags & esdf_site_flag) != 0;
+            const bool signed_seed = site && config.esdf_generator == esdf_backend::cuda_voxblox_batch;
+            if (signed_seed) {
+                const auto* source = find_voxel(value.tsdf, global_index(block, local));
+                if (!source || !(source->flags & observed_flag) ||
+                    source->weight < config.esdf_minimum_weight || std::abs(source->distance) >= config.esdf_site_band_m ||
+                    std::bit_cast<std::uint32_t>(source->distance) !=
+                        std::bit_cast<std::uint32_t>(voxel.signed_distance_m))
+                    throw std::invalid_argument("inconsistent Voxblox fixed seed export");
+            }
             if (!std::isfinite(voxel.signed_distance_m) ||
                 std::abs(voxel.signed_distance_m) > config.esdf_maximum_distance_m ||
                 (voxel.flags & ~(observed_flag | esdf_site_flag)) != 0 ||
-                 (site && (!observed || voxel.signed_distance_m != 0 ||
+                 (site && (!observed || (!signed_seed && voxel.signed_distance_m != 0) ||
                            voxel.parent_dx != 0 || voxel.parent_dy != 0 || voxel.parent_dz != 0)))
                 throw std::invalid_argument("inconsistent ESDF voxel export");
             const std::array<std::int64_t, 3> index{
