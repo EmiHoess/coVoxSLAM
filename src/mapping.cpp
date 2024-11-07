@@ -162,7 +162,7 @@ namespace covoxslam
 bool mapping_config::valid() const noexcept
 {
     if (esdf_generator != esdf_backend::none && esdf_generator != esdf_backend::cpu_voxblox_batch &&
-        esdf_generator != esdf_backend::cuda_nvblox_block_band &&
+        esdf_generator != esdf_backend::cuda_projective_block_band &&
         esdf_generator != esdf_backend::cuda_voxblox_batch)
         return false;
     for (const auto value : {voxel_size, truncation_distance, extraction_distance,
@@ -360,7 +360,7 @@ const char* esdf_backend_name(esdf_backend value) noexcept
     switch (value) {
         case esdf_backend::none: return "none";
         case esdf_backend::cpu_voxblox_batch: return "cpu-voxblox-batch";
-        case esdf_backend::cuda_nvblox_block_band: return "cuda-nvblox-block-band";
+        case esdf_backend::cuda_projective_block_band: return "cuda-projective-block-band";
         case esdf_backend::cuda_voxblox_batch: return "cuda-voxblox-batch";
     }
     return "unknown";

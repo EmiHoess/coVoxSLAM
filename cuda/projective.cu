@@ -121,3 +121,5 @@ int cuda_emit_projective_tiles(const cuda_device_ray* rays, std::size_t ray_coun
     return static_cast<int>(cudaGetLastError());
 }
 }
+
+#include "projective/sampling.cuh"

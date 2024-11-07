@@ -33,7 +33,7 @@ inline std::function<void(submap&)> cuda_esdf_finalizer(const mapping_config& co
 {
     if (voxblox.specified && config.esdf_generator != esdf_backend::cuda_voxblox_batch)
         throw std::invalid_argument("Voxblox execution options require cuda-voxblox-batch");
-    if (config.esdf_generator != esdf_backend::cuda_nvblox_block_band &&
+    if (config.esdf_generator != esdf_backend::cuda_projective_block_band &&
         config.esdf_generator != esdf_backend::cuda_voxblox_batch) return {};
     query_cuda_device(device);
     return [config, device, voxblox](submap& completed)

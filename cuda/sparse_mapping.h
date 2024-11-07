@@ -260,3 +260,18 @@ int cuda_emit_projective_tiles(const cuda_device_ray* rays, std::size_t ray_coun
     cuda_ray_parameters parameters, const std::uint32_t* counts, const std::uint64_t* offsets,
     cuda_tile_coordinate* keys, std::uint64_t capacity, std::uint32_t* status, void* stream) noexcept;
 }
+
+namespace covoxslam::detail
+{
+enum class cuda_projective_interpolation { nearest, linear_nearest };
+struct cuda_projective_parameters
+{
+    cuda_projective_interpolation interpolation{cuda_projective_interpolation::linear_nearest};
+    float depth_discontinuity_voxels{3};
+     float nearest_ray_distance_voxels{2};
+    bool constant_weight{true};
+    bool weight_dropoff{true};
+     bool sparsity_compensation{true};
+    float sparsity_compensation_factor{20};
+};
+}

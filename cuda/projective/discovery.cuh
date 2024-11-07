@@ -17,11 +17,11 @@ __device__ std::uint32_t walk_projective_tiles(const cuda_device_ray* rays, std:
     if (ray_index >= ray_count) { atomicOr(status, 2U); return 0; }
     const auto ray = rays[ray_index];
     double direction[3];
-    for (int axis = 0; axis < 3; ++axis) direction[axis] = double(ray.endpoint[axis]) - pose.translation[axis];
-    const double range = hypot(hypot(direction[0], direction[1]), direction[2]);
+    for (int axis = 0; axis < 3; ++axis) direction[axis] = double(ray.endpoint[axis] - pose.translation[axis]);
+    const float range = static_cast<float>(hypot(hypot(direction[0], direction[1]), direction[2]));
      if (!isfinite(range) || range <= 0 || range < parameters.minimum_ray_length_m) return 0;
     const double end = range > parameters.maximum_ray_length_m ? parameters.maximum_ray_length_m :
-        fmin(range + parameters.truncation_distance, double(parameters.maximum_ray_length_m) + parameters.truncation_distance);
+        fmin(double(range) + parameters.truncation_distance, double(parameters.maximum_ray_length_m) + parameters.truncation_distance);
     const double tile_size = double(parameters.voxel_size) * 8;
     int tile[3], step[3];
     double next[3], delta[3];
