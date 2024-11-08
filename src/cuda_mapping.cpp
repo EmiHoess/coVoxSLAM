@@ -758,3 +758,64 @@ cuda_voxblox_statistics build_cuda_voxblox_esdf(const tsdf_tiles& tsdf, esdf_til
     return statistics;
 }
 }
+
+#include "cuda_projective_internal.hpp"
+
+namespace covoxslam
+{
+cuda_projective_mapper::cuda_projective_mapper(const sensor& sensor, mapping_config config, cuda_projective_options options)
+    : state(std::make_unique<implementation>())
+{
+    static_cast<void>(cpu_mapper(config));
+    const auto finite_nonnegative = [](float value) { return std::isfinite(value) && value >= 0; };
+    if ((options.interpolation != cuda_projective_interpolation::nearest &&
+         options.interpolation != cuda_projective_interpolation::linear_nearest) ||
+        !finite_nonnegative(options.depth_discontinuity_voxels) || !finite_nonnegative(options.nearest_ray_distance_voxels) ||
+        !std::isfinite(options.depth_discontinuity_voxels * config.voxel_size) ||
+        !std::isfinite(options.nearest_ray_distance_voxels * config.voxel_size) ||
+        !std::isfinite(options.sparsity_compensation_factor) || options.sparsity_compensation_factor <= 0 ||
+        (options.weight_dropoff && config.truncation_distance <= config.voxel_size) ||
+        (double(config.maximum_ray_length_m) + config.truncation_distance) / config.voxel_size >= 10000000)
+        throw std::invalid_argument("invalid projective interpolation or weighting controls");
+    if (sensor.rings > INT32_MAX || sensor.columns > INT32_MAX)
+        throw std::length_error("projective calibration exceeds index capacity");
+    state->calibration = {static_cast<std::uint32_t>(sensor.rings), static_cast<std::uint32_t>(sensor.columns),
+        static_cast<float>(sensor.azimuth_start_rad), static_cast<float>(sensor.azimuth_coverage_rad), sensor.counter_clockwise};
+    if (!detail::valid_projective_calibration(state->calibration, sensor.vertical_angles_rad.data(), sensor.vertical_angles_rad.size()))
+        throw std::invalid_argument("invalid projective sensor calibration");
+    state->pixels = sensor.rings * sensor.columns;
+    if (!options.ray_capacity) options.ray_capacity = state->pixels;
+    if (state->pixels > UINT32_MAX || options.ray_capacity > UINT32_MAX || !options.candidate_tile_capacity ||
+        options.candidate_tile_capacity > UINT32_MAX || config.maximum_tiles > INT32_MAX)
+        throw std::length_error("projective capacities exceed native limits");
+    state->projection = {static_cast<detail::cuda_projective_interpolation>(options.interpolation),
+        options.depth_discontinuity_voxels, options.nearest_ray_distance_voxels, options.constant_weight,
+        options.weight_dropoff, options.sparsity_compensation, options.sparsity_compensation_factor};
+    state->tracing = {config.voxel_size, config.truncation_distance, config.minimum_ray_length_m,
+        config.maximum_ray_length_m, options.voxel_carving, options.allow_clear};
+    const auto pixels = state->pixels;
+    const std::array<std::size_t, 12> bytes{options.ray_capacity * sizeof(detail::cuda_device_ray), sensor.rings * 4,
+        pixels * 8, pixels * 4, pixels * 8, (1 + (pixels - 1) / 256) * 8,
+        options.candidate_tile_capacity * sizeof(detail::cuda_tile_coordinate), config.maximum_tiles * sizeof(detail::cuda_tile_coordinate),
+        config.maximum_tiles * 4, config.maximum_tiles * sizeof(detail::cuda_tsdf_tile), sizeof(detail::cuda_ray_summary), 8};
+    std::size_t total{};
+    for (const auto size : bytes) {
+        if (size > options.maximum_device_bytes - total) throw std::length_error("projective device budget exceeded");
+         total += size;
+    }
+    if (total > query_cuda_device(options.device).total_memory_bytes) throw std::length_error("projective device memory exceeded");
+    state->config = config;
+    state->options = options;
+    auto metadata_config = config;
+    metadata_config.esdf_generator = esdf_backend::none;
+    state->metadata = std::make_unique<cpu_mapper>(metadata_config);
+    check_cuda(cudaSetDevice(options.device));
+    check_cuda(cudaStreamCreateWithFlags(&state->stream, cudaStreamNonBlocking));
+    for (std::size_t index = 0; index < bytes.size(); ++index) check_cuda(cudaMalloc(&state->buffers[index], bytes[index]));
+    check_cuda(cudaMemcpyAsync(state->buffers[1], sensor.vertical_angles_rad.data(), bytes[1], cudaMemcpyHostToDevice, state->stream));
+    check_cuda(cudaStreamSynchronize(state->stream));
+    state->setup_uploaded_bytes = bytes[1];
+}
+
+cuda_projective_mapper::~cuda_projective_mapper() = default;
+}

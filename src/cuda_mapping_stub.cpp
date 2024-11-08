@@ -117,3 +117,13 @@ cuda_voxblox_statistics build_cuda_voxblox_esdf(const tsdf_tiles&, esdf_tiles&,
     throw std::runtime_error("CUDA Voxblox ESDF is unavailable in this build");
 }
 }
+
+namespace covoxslam
+{
+struct cuda_projective_mapper::implementation {};
+cuda_projective_mapper::cuda_projective_mapper(const sensor&, mapping_config, cuda_projective_options)
+{
+    throw std::runtime_error("CUDA projective mapping is unavailable in this build");
+}
+cuda_projective_mapper::~cuda_projective_mapper() = default;
+}

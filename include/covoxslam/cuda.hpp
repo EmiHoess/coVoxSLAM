@@ -172,3 +172,36 @@ struct cuda_voxblox_statistics {
 cuda_voxblox_statistics build_cuda_voxblox_esdf(const tsdf_tiles& tsdf, esdf_tiles& esdf,
     const mapping_config& config, const cuda_voxblox_options& options = {});
 }
+
+namespace covoxslam
+{
+enum class cuda_projective_interpolation { nearest, linear_nearest };
+
+struct cuda_projective_options
+{
+    int device{};
+    std::size_t ray_capacity{};
+    std::size_t candidate_tile_capacity{4194304};
+     std::size_t maximum_device_bytes{2ULL << 30};
+    cuda_projective_interpolation interpolation{cuda_projective_interpolation::linear_nearest};
+    float depth_discontinuity_voxels{3};
+    float nearest_ray_distance_voxels{2};
+    bool constant_weight{true};
+     bool weight_dropoff{true};
+    bool sparsity_compensation{true};
+    float sparsity_compensation_factor{20};
+    bool voxel_carving{true};
+    bool allow_clear{};
+};
+
+class cuda_projective_mapper
+{
+    struct implementation;
+    std::unique_ptr<implementation> state;
+public:
+    cuda_projective_mapper(const sensor& calibration, mapping_config config = {}, cuda_projective_options options = {});
+     ~cuda_projective_mapper();
+    cuda_projective_mapper(const cuda_projective_mapper&) = delete;
+    cuda_projective_mapper& operator=(const cuda_projective_mapper&) = delete;
+};
+}
