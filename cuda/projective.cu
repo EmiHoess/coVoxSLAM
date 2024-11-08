@@ -123,3 +123,45 @@ int cuda_emit_projective_tiles(const cuda_device_ray* rays, std::size_t ray_coun
 }
 
 #include "projective/sampling.cuh"
+
+#include "projective/fusion.cuh"
+
+namespace covoxslam::detail
+{
+int cuda_fuse_projective_tiles(const std::uint32_t* slots, std::size_t slot_count,
+    const cuda_tile_coordinate* keys, cuda_tsdf_tile* tiles, std::uint32_t tile_count,
+    const cuda_device_ray* rays, std::size_t ray_count, const std::uint64_t* winners, const float* angles,
+    cuda_projective_pose pose, cuda_projective_calibration calibration, cuda_ray_parameters parameters,
+    cuda_fusion_parameters fusion, cuda_projective_parameters sampling,
+    std::uint64_t* updates, std::uint32_t* status, void* stream) noexcept
+{
+    const auto valid_nonnegative = [](float value) { return std::isfinite(value) && value >= 0; };
+    if (!valid_projective_shape(calibration) || !valid_projective_discovery(ray_count, 0, pose, parameters) ||
+        slot_count > INT_MAX || (slot_count && (!slots || !keys || !tiles)) || (ray_count && !rays) ||
+        !winners || !angles || !updates || !status ||
+        !std::isfinite(fusion.maximum_weight) || fusion.maximum_weight <= 0 ||
+        !valid_nonnegative(fusion.extraction_distance) || fusion.extraction_distance > parameters.truncation_distance ||
+        fusion.truncation_distance != parameters.truncation_distance ||
+        !valid_nonnegative(sampling.depth_discontinuity_voxels) || !valid_nonnegative(sampling.nearest_ray_distance_voxels) ||
+        !std::isfinite(sampling.depth_discontinuity_voxels * parameters.voxel_size) ||
+        !std::isfinite(sampling.nearest_ray_distance_voxels * parameters.voxel_size) ||
+        !std::isfinite(sampling.sparsity_compensation_factor) || sampling.sparsity_compensation_factor <= 0 ||
+        (sampling.weight_dropoff && parameters.truncation_distance <= parameters.voxel_size) ||
+        (sampling.interpolation != cuda_projective_interpolation::nearest &&
+         sampling.interpolation != cuda_projective_interpolation::linear_nearest)) return static_cast<int>(cudaErrorInvalidValue);
+    const auto cuda_stream = static_cast<cudaStream_t>(stream);
+    auto error = cudaMemsetAsync(updates, 0, sizeof(*updates), cuda_stream);
+     if (error != cudaSuccess) return static_cast<int>(error);
+    const auto blocks = static_cast<unsigned>((std::size_t(calibration.rings) + 127) / 128);
+    validate_projective_angles<<<blocks, 128, 0, cuda_stream>>>(angles, calibration.rings, status);
+    error = cudaGetLastError();
+    if (error != cudaSuccess || !slot_count) return static_cast<int>(error);
+    fuse_projective_tiles<false><<<static_cast<unsigned>(slot_count), 512, 0, cuda_stream>>>(slots, slot_count,
+        keys, tiles, tile_count, rays, ray_count, winners, angles, pose, calibration, parameters, fusion, sampling, updates, status);
+    error = cudaGetLastError();
+    if (error != cudaSuccess) return static_cast<int>(error);
+    fuse_projective_tiles<true><<<static_cast<unsigned>(slot_count), 512, 0, cuda_stream>>>(slots, slot_count,
+        keys, tiles, tile_count, rays, ray_count, winners, angles, pose, calibration, parameters, fusion, sampling, updates, status);
+    return static_cast<int>(cudaGetLastError());
+}
+}

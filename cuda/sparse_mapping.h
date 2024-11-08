@@ -275,3 +275,13 @@ struct cuda_projective_parameters
     float sparsity_compensation_factor{20};
 };
 }
+
+namespace covoxslam::detail
+{
+int cuda_fuse_projective_tiles(const std::uint32_t* slots, std::size_t slot_count,
+    const cuda_tile_coordinate* keys, cuda_tsdf_tile* tiles, std::uint32_t tile_count,
+    const cuda_device_ray* rays, std::size_t ray_count, const std::uint64_t* winners, const float* angles,
+    cuda_projective_pose pose, cuda_projective_calibration calibration, cuda_ray_parameters ray_parameters,
+    cuda_fusion_parameters fusion, cuda_projective_parameters sampling,
+    std::uint64_t* updates, std::uint32_t* status, void* stream) noexcept;
+}
