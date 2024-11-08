@@ -203,5 +203,8 @@ public:
      ~cuda_projective_mapper();
     cuda_projective_mapper(const cuda_projective_mapper&) = delete;
     cuda_projective_mapper& operator=(const cuda_projective_mapper&) = delete;
+    void begin(const submap_frame& frame);
+    void integrate_scan(std::span<const ray> rays, const pose& scan_reference);
+    bool is_active() const noexcept;
 };
 }

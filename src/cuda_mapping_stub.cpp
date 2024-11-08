@@ -127,3 +127,16 @@ cuda_projective_mapper::cuda_projective_mapper(const sensor&, mapping_config, cu
 }
 cuda_projective_mapper::~cuda_projective_mapper() = default;
 }
+
+namespace covoxslam
+{
+void cuda_projective_mapper::begin(const submap_frame&)
+{
+    throw std::runtime_error("CUDA projective mapping is unavailable in this build");
+}
+void cuda_projective_mapper::integrate_scan(std::span<const ray>, const pose&)
+{
+    throw std::runtime_error("CUDA projective mapping is unavailable in this build");
+}
+bool cuda_projective_mapper::is_active() const noexcept { return false; }
+}

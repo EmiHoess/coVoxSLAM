@@ -819,3 +819,150 @@ cuda_projective_mapper::cuda_projective_mapper(const sensor& sensor, mapping_con
 
 cuda_projective_mapper::~cuda_projective_mapper() = default;
 }
+
+namespace covoxslam
+{
+void cuda_projective_mapper::begin(const submap_frame& frame)
+{
+    state->metadata->begin(frame);
+    state->keys.clear();
+    state->slots.clear();
+    state->statistics = {};
+    state->statistics.cuda_uploaded_bytes = state->setup_uploaded_bytes;
+    state->setup_uploaded_bytes = 0;
+    state->failed = false;
+}
+
+bool cuda_projective_mapper::is_active() const noexcept { return state->metadata->is_active(); }
+
+detail::cuda_ray_summary cuda_projective_mapper::implementation::checked_summary()
+{
+    detail::cuda_ray_summary completed;
+    check_cuda(cudaMemcpyAsync(&completed, buffers[10], sizeof(completed), cudaMemcpyDeviceToHost, stream));
+    check_cuda(cudaStreamSynchronize(stream));
+    statistics.cuda_downloaded_bytes += sizeof(completed);
+    if (completed.status) throw std::runtime_error("projective device operation failed");
+    return completed;
+}
+
+std::size_t cuda_projective_mapper::implementation::prepare_tiles(std::uint64_t count)
+{
+    if (!count) return 0;
+    std::vector<detail::cuda_tile_coordinate> candidates(static_cast<std::size_t>(count));
+    const auto bytes = candidates.size() * sizeof(candidates[0]);
+    check_cuda(cudaMemcpyAsync(candidates.data(), buffers[6], bytes, cudaMemcpyDeviceToHost, stream));
+    check_cuda(cudaStreamSynchronize(stream));
+    statistics.cuda_downloaded_bytes += bytes;
+    const auto less = [](const auto& left, const auto& right) {
+        return block_index_less({left.x, left.y, left.z}, {right.x, right.y, right.z});
+    };
+    std::sort(candidates.begin(), candidates.end(), less);
+    candidates.erase(std::unique(candidates.begin(), candidates.end(), [&](const auto& left, const auto& right) {
+        return !less(left, right) && !less(right, left);
+    }), candidates.end());
+    auto proposed_keys = keys;
+    auto proposed_slots = slots;
+    std::vector<std::uint32_t> selected;
+    for (const auto& candidate : candidates) {
+        const int3 key{candidate.x, candidate.y, candidate.z};
+        auto found = proposed_slots.find(key);
+        if (found == proposed_slots.end()) {
+            if (proposed_keys.size() >= config.maximum_tiles) throw std::length_error("projective map tile limit exceeded");
+            const auto slot = static_cast<std::uint32_t>(proposed_keys.size());
+            proposed_keys.push_back(candidate);
+            found = proposed_slots.emplace(key, slot).first;
+        }
+        selected.push_back(found->second);
+    }
+    std::sort(selected.begin(), selected.end());
+    const auto previous = keys.size();
+    keys = std::move(proposed_keys);
+    slots = std::move(proposed_slots);
+    const auto added = keys.size() - previous;
+    if (added) {
+        check_cuda(cudaMemcpyAsync(buffer<detail::cuda_tile_coordinate>(7) + previous, keys.data() + previous,
+            added * sizeof(keys[0]), cudaMemcpyHostToDevice, stream));
+        check_cuda(cudaMemsetAsync(buffer<detail::cuda_tsdf_tile>(9) + previous, 0, added * sizeof(detail::cuda_tsdf_tile), stream));
+        statistics.cuda_uploaded_bytes += added * sizeof(keys[0]);
+    }
+    check_cuda(cudaMemcpyAsync(buffers[8], selected.data(), selected.size() * sizeof(selected[0]), cudaMemcpyHostToDevice, stream));
+    check_cuda(cudaStreamSynchronize(stream));
+    statistics.cuda_uploaded_bytes += selected.size() * sizeof(selected[0]);
+    return selected.size();
+}
+}
+
+namespace covoxslam
+{
+void cuda_projective_mapper::integrate_scan(std::span<const ray> rays, const pose& scan_reference)
+{
+    if (!state->metadata->is_active() || state->failed) throw std::logic_error("projective mapping needs an active healthy submap");
+    if (rays.size() > state->options.ray_capacity) throw std::length_error("projective scan exceeds its whole-scan ray capacity");
+    const auto& rotation = scan_reference.rotation;
+    const auto& translation = scan_reference.translation;
+    const detail::cuda_projective_pose reference{{translation.x, translation.y, translation.z},
+        {static_cast<float>(rotation.x), static_cast<float>(rotation.y), static_cast<float>(rotation.z), static_cast<float>(rotation.w)}};
+    if (!detail::valid_projective_pose(reference)) throw std::invalid_argument("invalid projective scan reference pose");
+    if (rays.empty()) return;
+    const auto start = std::chrono::steady_clock::now();
+    state->failed = true;
+    check_cuda(cudaSetDevice(state->options.device));
+    std::vector<detail::cuda_device_ray> input;
+    input.reserve(rays.size());
+    for (std::size_t index = 0; index < rays.size(); ++index) {
+        const auto& ray = rays[index];
+        if (ray.frame_id < 0 || ray.column > UINT32_MAX || ray.ring > UINT32_MAX)
+            throw std::invalid_argument("projective ray metadata exceeds its native representation");
+        input.push_back({{ray.origin.x, ray.origin.y, ray.origin.z}, {ray.endpoint.x, ray.endpoint.y, ray.endpoint.z},
+            ray.weight, ray.stamp_ns, static_cast<std::uint32_t>(ray.frame_id), static_cast<std::uint32_t>(ray.column),
+            static_cast<std::uint32_t>(ray.ring), static_cast<std::uint32_t>(index)});
+    }
+    const auto stream = state->stream;
+    auto* device_rays = state->buffer<detail::cuda_device_ray>(0);
+    auto* angles = state->buffer<float>(1);
+    auto* winners = state->buffer<std::uint64_t>(2);
+    auto* counts = state->buffer<std::uint32_t>(3);
+    auto* offsets = state->buffer<std::uint64_t>(4);
+    auto* summary = state->buffer<detail::cuda_ray_summary>(10);
+    check_cuda(cudaMemcpyAsync(device_rays, input.data(), input.size() * sizeof(input[0]), cudaMemcpyHostToDevice, stream));
+    state->statistics.cuda_uploaded_bytes += input.size() * sizeof(input[0]);
+    check_cuda(cudaMemsetAsync(summary, 0, sizeof(*summary), stream));
+    check_cuda(static_cast<cudaError_t>(detail::cuda_build_projective_range_image(device_rays, rays.size(), state->tracing,
+        reference, state->calibration, angles, winners, state->pixels, &summary->status, stream)));
+    state->checked_summary();
+    check_cuda(static_cast<cudaError_t>(detail::cuda_count_projective_tiles(device_rays, rays.size(), winners, state->pixels,
+        reference, state->tracing, counts, &summary->status, stream)));
+    check_cuda(static_cast<cudaError_t>(detail::cuda_scan_counts(counts, offsets, state->buffer<std::uint64_t>(5), state->pixels, stream)));
+    check_cuda(static_cast<cudaError_t>(detail::cuda_summarize_ray_contributions(counts, offsets, state->pixels, summary, stream)));
+    const auto generated = state->checked_summary();
+    if (generated.contributions > state->options.candidate_tile_capacity)
+        throw std::length_error("projective tile candidates exceed their capacity");
+    std::uint64_t updates{};
+    if (generated.contributions) {
+        check_cuda(static_cast<cudaError_t>(detail::cuda_emit_projective_tiles(device_rays, rays.size(), winners, state->pixels,
+            reference, state->tracing, counts, offsets, state->buffer<detail::cuda_tile_coordinate>(6),
+            state->options.candidate_tile_capacity, &summary->status, stream)));
+        state->checked_summary();
+        const auto selected = state->prepare_tiles(generated.contributions);
+        const auto& config = state->config;
+        check_cuda(static_cast<cudaError_t>(detail::cuda_fuse_projective_tiles(state->buffer<std::uint32_t>(8), selected,
+            state->buffer<detail::cuda_tile_coordinate>(7), state->buffer<detail::cuda_tsdf_tile>(9),
+            static_cast<std::uint32_t>(state->keys.size()), device_rays, rays.size(), winners, angles, reference,
+            state->calibration, state->tracing, {config.truncation_distance, config.maximum_weight, config.extraction_distance},
+            state->projection, state->buffer<std::uint64_t>(11), &summary->status, stream)));
+        state->checked_summary();
+        check_cuda(cudaMemcpyAsync(&updates, state->buffers[11], sizeof(updates), cudaMemcpyDeviceToHost, stream));
+        check_cuda(cudaStreamSynchronize(stream));
+        state->statistics.cuda_downloaded_bytes += sizeof(updates);
+    }
+    auto& statistics = state->statistics;
+    statistics.rays_submitted += rays.size();
+    statistics.rays_integrated += generated.contributing_rays;
+    statistics.rays_rejected += rays.size() - generated.contributing_rays;
+    statistics.cuda_contributing_rays += generated.contributing_rays;
+    statistics.voxel_updates += updates;
+    statistics.allocated_tiles = state->keys.size();
+    statistics.integration_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+    state->failed = false;
+}
+}
