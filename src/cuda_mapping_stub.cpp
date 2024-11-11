@@ -140,3 +140,11 @@ void cuda_projective_mapper::integrate_scan(std::span<const ray>, const pose&)
 }
 bool cuda_projective_mapper::is_active() const noexcept { return false; }
 }
+
+namespace covoxslam
+{
+submap cuda_projective_mapper::finish(const submap_frame&)
+{
+    throw std::runtime_error("CUDA projective mapping is unavailable in this build");
+}
+}

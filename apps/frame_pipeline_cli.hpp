@@ -1,7 +1,7 @@
 #pragma once
 
 #include <covoxslam/mapping.hpp>
-#include "cuda_mapping_cli.hpp"
+#include "projective_cli.hpp"
 #include "cuda_esdf_cli.hpp"
 #include "map_export_cli.hpp"
 
@@ -21,6 +21,8 @@ inline int run_submap_cli(int argc, char** argv)
         mapping_config mapping_options;
         bool mapping_enabled{};
         cuda_mapping_cli_options cuda_options;
+        cuda_projective_options projective_options;
+        bool projective_option_set{};
         cuda_voxblox_cli_options esdf_options;
         dataset_load_options input_options;
         std::filesystem::path root;
@@ -65,7 +67,8 @@ inline int run_submap_cli(int argc, char** argv)
                 else if (value == "ground_truth") options.pose_source = pose_source::ground_truth;
                 else throw std::invalid_argument("unsupported trajectory source");
             }
-            else if (!parse_cuda_esdf_option(option, value, esdf_options) &&
+            else if (!parse_projective_option(option, value, projective_options, projective_option_set) &&
+                     !parse_cuda_esdf_option(option, value, esdf_options) &&
                      !parse_cuda_mapping_option(option, value, mapping_options, mapping_enabled, cuda_options) &&
                      !parse_mapping_option(option, value, mapping_options, mapping_enabled))
                 throw std::invalid_argument("unsupported submap option");
@@ -74,20 +77,33 @@ inline int run_submap_cli(int argc, char** argv)
         if (!options.submap_duration_ns || !options.ring_stride || !options.column_stride)
             throw std::invalid_argument("duration and sampling strides must be positive");
         if (!output.empty() && !mapping_enabled)
-            throw std::invalid_argument("--output requires --backend cpu-ray or cuda-ray");
+            throw std::invalid_argument("--output requires --backend cpu-ray, cuda-ray or cuda-projective");
+        if (projective_option_set && !cuda_options.projective)
+            throw std::invalid_argument("projective options require --backend cuda-projective");
+        if (cuda_options.projective && cuda_options.contribution_capacity_set)
+            throw std::invalid_argument("projective mapping uses --projective-candidate-capacity");
         const auto input = load_dataset(root, input_options);
         const auto finalize = cuda_esdf_finalizer(mapping_options, cuda_options.mapper.device, esdf_options);
         auto mapper_options = mapping_options;
         if (finalize) mapper_options.esdf_generator = esdf_backend::none;
         std::unique_ptr<cpu_mapper> cpu;
         std::unique_ptr<cuda_mapper> gpu;
+        std::unique_ptr<cuda_projective_mapper> projective;
         if (mapping_enabled) {
-            if (cuda_options.enabled) gpu = std::make_unique<cuda_mapper>(mapper_options, cuda_options.mapper);
+            if (cuda_options.projective) {
+                projective_options.device = cuda_options.mapper.device;
+                projective_options.maximum_device_bytes = cuda_options.mapper.maximum_device_bytes;
+                if (cuda_options.ray_capacity_set) projective_options.ray_capacity = cuda_options.mapper.ray_capacity;
+                projective = std::make_unique<cuda_projective_mapper>(input.sensor, mapper_options, projective_options);
+            }
+            else if (cuda_options.enabled) gpu = std::make_unique<cuda_mapper>(mapper_options, cuda_options.mapper);
             else cpu = std::make_unique<cpu_mapper>(mapper_options);
         }
-        auto exporter = open_map_export(output, input, mapping_options, cuda_options.enabled ? "cuda-ray" : "cpu-ray");
+        const char* backend = projective ? "cuda-projective" : gpu ? "cuda-ray" : "cpu-ray";
+        auto exporter = open_map_export(output, input, mapping_options, backend);
         const auto publish = [&](const submap& completed) { if (exporter) exporter->write(completed); };
-        const auto callbacks = gpu ? mapping_callbacks(*gpu, publish, finalize) :
+        const auto callbacks = projective ? mapping_callbacks(*projective, publish, finalize) :
+            gpu ? mapping_callbacks(*gpu, publish, finalize) :
             cpu ? mapping_callbacks(*cpu, publish, finalize) : pipeline_callbacks{};
         const auto result = run_frame_pipeline(input, options, callbacks);
         if (exporter) exporter->finish();

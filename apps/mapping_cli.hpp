@@ -53,9 +53,10 @@ inline pipeline_callbacks mapping_callbacks(mapper_type& mapper,
     pipeline_callbacks callbacks;
     callbacks.begin = [&mapper](const submap_frame& frame) { mapper.begin(frame); };
     callbacks.integrate_scan = [&mapper](const submap_frame&, const frame_descriptor&,
-                                         std::span<const ray> rays, const pose&)
+                                         std::span<const ray> rays, const pose& reference)
     {
-        mapper.integrate_scan(rays);
+        if constexpr (requires { mapper.integrate_scan(rays, reference); }) mapper.integrate_scan(rays, reference);
+        else mapper.integrate_scan(rays);
     };
     callbacks.finish = [&mapper, publish, finalize](const submap_frame& frame)
       {

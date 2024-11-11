@@ -206,5 +206,6 @@ public:
     void begin(const submap_frame& frame);
     void integrate_scan(std::span<const ray> rays, const pose& scan_reference);
     bool is_active() const noexcept;
+    submap finish(const submap_frame& frame);
 };
 }

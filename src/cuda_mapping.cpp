@@ -966,3 +966,49 @@ void cuda_projective_mapper::integrate_scan(std::span<const ray> rays, const pos
     state->failed = false;
 }
 }
+
+namespace covoxslam
+{
+submap cuda_projective_mapper::finish(const submap_frame& frame)
+{
+    if (!state->metadata->is_active() || state->failed) throw std::logic_error("projective mapping needs an active healthy submap");
+    auto validated_metadata = *state->metadata;
+    auto result = validated_metadata.finish(frame);
+    state->failed = true;
+    check_cuda(cudaSetDevice(state->options.device));
+    std::vector<detail::cuda_tsdf_tile> tiles(state->keys.size());
+    const auto bytes = tiles.size() * sizeof(tiles[0]);
+    if (bytes) {
+        check_cuda(cudaMemcpyAsync(tiles.data(), state->buffers[9], bytes, cudaMemcpyDeviceToHost, state->stream));
+        check_cuda(cudaStreamSynchronize(state->stream));
+    }
+    state->statistics.cuda_downloaded_bytes += bytes;
+    result.config = state->config;
+    result.statistics = state->statistics;
+    for (std::size_t index = 0; index < tiles.size(); ++index) {
+        tsdf_tile tile;
+        bool observed{};
+        for (std::size_t local = 0; local < tile_voxels; ++local) {
+            const auto& source = tiles[index].voxels[local];
+            if (!std::isfinite(source.distance) || !std::isfinite(source.weight) || source.weight < 0 ||
+                source.weight > result.config.maximum_weight || std::abs(source.distance) > result.config.truncation_distance ||
+                (source.flags & ~3U) || bool(source.flags & observed_flag) != (source.weight > 0) ||
+                (!(source.flags & observed_flag) && (source.flags & near_surface_flag)) ||
+                bool(source.flags & observed_flag) != (source.sample_count != 0))
+                throw std::runtime_error("invalid canonical projective TSDF voxel");
+            tile.voxels[local] = {source.distance, source.weight, source.sample_count, source.flags};
+            observed = observed || (source.flags & observed_flag);
+        }
+        const auto key = state->keys[index];
+        if (observed) result.tsdf.emplace(int3{key.x, key.y, key.z}, std::move(tile));
+    }
+    if (result.config.esdf_generator != esdf_backend::none) {
+        const auto start = std::chrono::steady_clock::now();
+        build_cpu_esdf(result.tsdf, result.esdf, result.config);
+        result.statistics.esdf_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+    }
+    state->metadata = std::make_unique<cpu_mapper>(std::move(validated_metadata));
+    state->failed = false;
+    return result;
+}
+}
