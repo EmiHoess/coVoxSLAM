@@ -1,4 +1,5 @@
 #include <covoxslam/dataset.hpp>
+#include <covoxslam/result.hpp>
 #include "frame_pipeline_cli.hpp"
 
 #include <charconv>
@@ -14,12 +15,12 @@
 
 namespace
 {
-std::size_t parse_index(std::string_view value, std::string_view option)
+covoxslam::operation_result<std::size_t> parse_index(std::string_view value, std::string_view option)
 {
     std::size_t result{};
     const auto parsed = std::from_chars(value.data(), value.data() + value.size(), result);
      if (parsed.ec != std::errc{} || parsed.ptr != value.data() + value.size())
-        throw std::invalid_argument(std::string(option) + " needs a nonnegative integer");
+        return std::unexpected(covoxslam::operation_error{std::string(option) + " needs a nonnegative integer"});
     return result;
 }
 
@@ -41,7 +42,7 @@ void usage()
               << "  --projective-voxel-carving BOOL --projective-allow-clear BOOL  BOOL is true or false\n"
               << "  --cuda-device N --cuda-ray-capacity N --cuda-contribution-capacity N --cuda-device-bytes N\n"
               << "  --voxel-size M --truncation-distance M --maximum-ray-length M\n"
-              << "  --esdf-generator none|cpu-voxblox-batch|cuda-projective-block-band|cuda-voxblox-batch  Default cpu-voxblox-batch\n"
+              << "  --esdf-generator none|cpu-blocks-batch|cuda-projective-block-band|cuda-voxblox-batch  Default cpu-blocks-batch\n"
               << "  --esdf-executor ordered|frontier --esdf-distance full-euclidean|quasi-euclidean\n"
               << "  --output PATH  Export CPU maps to a new directory\n"
               << "  --submaps --dataset PATH  Deskew scans and report submap metadata\n"
@@ -91,7 +92,12 @@ int main(int argc, char** argv)
                     : covoxslam::dataset_verification_mode::force_full;
             }
             else if (option == "--frame") {
-                frame_index = parse_index(value, option);
+                const auto parsed = parse_index(value, option);
+                if (!parsed) {
+                    std::cerr << "covoxslam: " << parsed.error().message << '\n';
+                    return 2;
+                }
+                frame_index = *parsed;
                 frame_selected = true;
             }
             else if (option == "--point-source")
@@ -104,9 +110,13 @@ int main(int argc, char** argv)
             else
               {
                 const auto stride = parse_index(value, option);
-                if (stride == 0) throw std::invalid_argument(std::string(option) + " must be positive");
-                if (option == "--ring-stride") ring_stride = stride;
-                else column_stride = stride;
+                if (!stride || *stride == 0) {
+                    const auto diagnostic = !stride ? stride.error().message : std::string(option) + " must be positive";
+                    std::cerr << "covoxslam: " << diagnostic << '\n';
+                    return 2;
+                }
+                if (option == "--ring-stride") ring_stride = *stride;
+                else column_stride = *stride;
                 sampling_selected = true;
             }
         }

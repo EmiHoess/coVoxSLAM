@@ -13,7 +13,7 @@ namespace covoxslam
 struct export_manifest {
     std::string dataset_fingerprint;
     std::string mapping_backend{"cpu-ray"};
-     std::string esdf_backend{"cpu-voxblox-batch"};
+     std::string esdf_backend{"cpu-blocks-batch"};
 };
 
 class map_exporter

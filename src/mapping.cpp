@@ -139,7 +139,7 @@ submap cpu_mapper::finish(const submap_frame& frame)
         std::any_of(frame.frame_ids.begin(), frame.frame_ids.end(), [](int id) { return id < 0; }) ||
         std::adjacent_find(frame.frame_ids.begin(), frame.frame_ids.end(), std::greater_equal<int>{}) != frame.frame_ids.end())
         throw std::logic_error("submap frame history must be an ordered extension");
-    if (config.esdf_generator == esdf_backend::cpu_voxblox_batch)
+    if (config.esdf_generator == esdf_backend::cpu_blocks_batch)
     {
         const auto start = std::chrono::steady_clock::now();
         build_cpu_esdf(active->tsdf, active->esdf, config);
@@ -161,7 +161,7 @@ namespace covoxslam
 {
 bool mapping_config::valid() const noexcept
 {
-    if (esdf_generator != esdf_backend::none && esdf_generator != esdf_backend::cpu_voxblox_batch &&
+    if (esdf_generator != esdf_backend::none && esdf_generator != esdf_backend::cpu_blocks_batch &&
         esdf_generator != esdf_backend::cuda_projective_block_band &&
         esdf_generator != esdf_backend::cuda_voxblox_batch)
         return false;
@@ -180,7 +180,7 @@ bool mapping_config::valid() const noexcept
 cpu_mapper::cpu_mapper(mapping_config options) : config(options)
 {
      if (!config.valid()) throw std::invalid_argument("invalid CPU mapping configuration");
-    if (config.esdf_generator != esdf_backend::none && config.esdf_generator != esdf_backend::cpu_voxblox_batch)
+    if (config.esdf_generator != esdf_backend::none && config.esdf_generator != esdf_backend::cpu_blocks_batch)
         throw std::invalid_argument("CUDA ESDF requires the external submap finalizer");
 }
 }
@@ -359,7 +359,7 @@ const char* esdf_backend_name(esdf_backend value) noexcept
 {
     switch (value) {
         case esdf_backend::none: return "none";
-        case esdf_backend::cpu_voxblox_batch: return "cpu-voxblox-batch";
+        case esdf_backend::cpu_blocks_batch: return "cpu-blocks-batch";
         case esdf_backend::cuda_projective_block_band: return "cuda-projective-block-band";
         case esdf_backend::cuda_voxblox_batch: return "cuda-voxblox-batch";
     }

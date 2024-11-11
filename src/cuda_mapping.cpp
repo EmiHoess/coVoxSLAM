@@ -340,7 +340,7 @@ cuda_mapper::cuda_mapper(mapping_config config, cuda_mapper_options options)
     : state(std::make_unique<implementation>())
 {
     if (!config.valid()) throw std::invalid_argument("invalid CUDA mapping configuration");
-    if (config.esdf_generator != esdf_backend::none && config.esdf_generator != esdf_backend::cpu_voxblox_batch)
+    if (config.esdf_generator != esdf_backend::none && config.esdf_generator != esdf_backend::cpu_blocks_batch)
         throw std::invalid_argument("CUDA ESDF requires the external submap finalizer");
     const auto limit = std::numeric_limits<std::uint32_t>::max();
     if (!options.ray_capacity || options.ray_capacity > limit || !options.contribution_capacity ||
@@ -545,7 +545,7 @@ submap cuda_mapper::finish(const submap_frame& frame)
         result.tsdf.emplace(int3{key.x, key.y, key.z}, std::move(tile));
     }
     result.statistics = state->statistics;
-    if (state->config.esdf_generator == esdf_backend::cpu_voxblox_batch) {
+    if (state->config.esdf_generator == esdf_backend::cpu_blocks_batch) {
         const auto start = std::chrono::steady_clock::now();
         build_cpu_esdf(result.tsdf, result.esdf, result.config);
         result.statistics.esdf_ms = std::chrono::duration<double, std::milli>(

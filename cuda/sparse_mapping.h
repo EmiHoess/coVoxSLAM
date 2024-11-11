@@ -285,3 +285,14 @@ int cuda_fuse_projective_tiles(const std::uint32_t* slots, std::size_t slot_coun
     cuda_fusion_parameters fusion, cuda_projective_parameters sampling,
     std::uint64_t* updates, std::uint32_t* status, void* stream) noexcept;
 }
+
+namespace covoxslam::detail
+{
+enum class cuda_ray_fusion_mode { serial, weighted_sum, weighted_sum_hybrid, capped_affine, capped_affine_hybrid };
+
+struct cuda_ray_fusion_options
+{
+    cuda_ray_fusion_mode mode{cuda_ray_fusion_mode::serial};
+     std::uint32_t short_segment_threshold{32};
+};
+}

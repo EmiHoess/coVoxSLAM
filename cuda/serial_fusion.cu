@@ -81,3 +81,5 @@ int cuda_fuse_voxel_segments(const cuda_ray_contribution* values, std::size_t co
     return static_cast<int>(cudaGetLastError());
 }
 }
+
+#include "ray_fusion/weighted_sum/fuse.cuh"

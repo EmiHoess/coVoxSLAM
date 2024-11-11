@@ -29,7 +29,7 @@ inline bool parse_mapping_option(std::string_view name, std::string_view value,
     else if (name == "--esdf-generator")
     {
         if (value == "none") config.esdf_generator = esdf_backend::none;
-        else if (value == "cpu-voxblox-batch") config.esdf_generator = esdf_backend::cpu_voxblox_batch;
+        else if (value == "cpu-blocks-batch") config.esdf_generator = esdf_backend::cpu_blocks_batch;
         else if (value == "cuda-projective-block-band") config.esdf_generator = esdf_backend::cuda_projective_block_band;
         else if (value == "cuda-voxblox-batch") config.esdf_generator = esdf_backend::cuda_voxblox_batch;
         else throw std::invalid_argument("unsupported ESDF generator");
