@@ -51,6 +51,7 @@ __device__ bool voxel_key_less(const cuda_voxel_segment& a, const cuda_voxel_seg
     return false;
 }
 
+template<bool check_arithmetic = true>
 __global__ void validate_fusion_segments(const cuda_ray_contribution* values, std::size_t count,
     const cuda_voxel_segment* segments, std::uint32_t segment_count,
     const cuda_tile_coordinate* keys, const cuda_tsdf_tile* tiles, std::uint32_t tile_count,
@@ -86,8 +87,11 @@ __global__ void validate_fusion_segments(const cuda_ray_contribution* values, st
         atomicOr(status, 1U);
         return;
     }
-    auto voxel = tiles[segment.tile_slot].voxels[segment.local_index];
-     if (!fuse_ordered_samples(voxel, values + segment.begin, segment.count, config)) atomicOr(status, 2U);
+    if constexpr (check_arithmetic)
+    {
+        auto voxel = tiles[segment.tile_slot].voxels[segment.local_index];
+         if (!fuse_ordered_samples(voxel, values + segment.begin, segment.count, config)) atomicOr(status, 2U);
+    }
 }
 
 __global__ void fuse_voxel_segments(const cuda_ray_contribution* values, std::size_t count,

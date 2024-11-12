@@ -5,8 +5,8 @@
 namespace covoxslam::detail
 {
 __device__ cuda_voxblox_proposal voxblox_proposal(std::uint32_t source_index, unsigned ordinal,
-    const cuda_tile_coordinate* keys, std::size_t tile_count, cuda_voxblox_parameters config,
-    cuda_voxblox_workspace work)
+    const cuda_tile_coordinate* keys, std::size_t tile_count, cuda_blocks_parameters config,
+    cuda_blocks_workspace work)
 {
     cuda_voxblox_proposal result;
     const auto source = work.values[source_index];
@@ -49,7 +49,7 @@ __device__ cuda_voxblox_proposal voxblox_proposal(std::uint32_t source_index, un
 }
 
 __device__ bool voxblox_accept(const cuda_voxblox_proposal& proposal,
-    cuda_voxblox_parameters config, cuda_voxblox_workspace work)
+    cuda_blocks_parameters config, cuda_blocks_workspace work)
 {
     auto& target = work.values[proposal.target];
     const float source = proposal.source_distance_m;

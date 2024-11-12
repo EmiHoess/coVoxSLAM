@@ -4,7 +4,7 @@
 
 namespace covoxslam::detail
 {
-__global__ void dequeue_voxblox_frontier(cuda_voxblox_parameters config, cuda_voxblox_workspace work,
+__global__ void dequeue_voxblox_frontier(cuda_blocks_parameters config, cuda_blocks_workspace work,
     std::uint32_t capacity)
 {
     if (blockIdx.x || threadIdx.x) return;
@@ -25,7 +25,7 @@ __global__ void dequeue_voxblox_frontier(cuda_voxblox_parameters config, cuda_vo
 }
 
 __global__ void propose_voxblox_frontier(const cuda_tile_coordinate* keys, std::size_t tile_count,
-    cuda_voxblox_parameters config, cuda_voxblox_workspace work)
+    cuda_blocks_parameters config, cuda_blocks_workspace work)
 {
     const auto index = static_cast<std::size_t>(blockIdx.x) * blockDim.x + threadIdx.x;
     if (work.queue->status || index >= std::size_t(work.queue->frontier_count) * 26) return;
@@ -33,7 +33,7 @@ __global__ void propose_voxblox_frontier(const cuda_tile_coordinate* keys, std::
         keys, tile_count, config, work);
 }
 
-__global__ void commit_voxblox_frontier(cuda_voxblox_parameters config, cuda_voxblox_workspace work)
+__global__ void commit_voxblox_frontier(cuda_blocks_parameters config, cuda_blocks_workspace work)
 {
     if (blockIdx.x || threadIdx.x || work.queue->status) return;
     const auto count = work.queue->frontier_count * 26;

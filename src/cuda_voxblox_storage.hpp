@@ -47,7 +47,7 @@ struct voxblox_storage
     {
         return static_cast<value_type*>(buffers[index]);
     }
-    cuda_voxblox_workspace workspace() const noexcept {
+    cuda_blocks_workspace workspace() const noexcept {
         return {buffer<cuda_voxblox_voxel>(2), buffer<std::uint32_t>(3), buffer<std::uint32_t>(4),
             buffer<std::uint32_t>(6), buffer<std::uint32_t>(7), buffer<std::uint32_t>(5),
             buffer<std::uint32_t>(10), buffer<std::uint32_t>(9), buffer<cuda_voxblox_proposal>(11),

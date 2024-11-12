@@ -72,7 +72,7 @@ int cuda_fuse_voxel_segments(const cuda_ray_contribution* values, std::size_t co
         return static_cast<int>(cudaErrorInvalidValue);
     if (!segment_count) return static_cast<int>(cudaSuccess);
      const auto blocks = static_cast<unsigned>(1 + (segment_count - 1) / 256);
-    validate_fusion_segments<<<blocks, 256, 0, static_cast<cudaStream_t>(stream)>>>(
+    validate_fusion_segments<><<<blocks, 256, 0, static_cast<cudaStream_t>(stream)>>>(
         values, count, segments, segment_count, keys, tiles, tile_count, config, status);
     const auto error = cudaGetLastError();
     if (error != cudaSuccess) return static_cast<int>(error);
@@ -85,3 +85,67 @@ int cuda_fuse_voxel_segments(const cuda_ray_contribution* values, std::size_t co
 #include "ray_fusion/weighted_sum/fuse.cuh"
 
 #include "ray_fusion/dispatch.cuh"
+
+namespace covoxslam::detail
+{
+namespace
+{
+template<bool affine, bool publish>
+cudaError_t launch_parallel_fusion(const cuda_ray_contribution* values, const cuda_voxel_segment* segments,
+    std::uint32_t segment_count, cuda_tsdf_tile* tiles, cuda_fusion_parameters config,
+    std::uint32_t threshold, std::uint32_t* status, cudaStream_t stream)
+{
+    if (threshold) {
+        const auto blocks = static_cast<unsigned>((std::size_t(segment_count) + 255) / 256);
+        fuse_short_segments<publish><<<blocks, 256, 0, stream>>>(values, segments, segment_count, tiles, config, threshold, status);
+        const auto error = cudaGetLastError();
+         if (error != cudaSuccess) return error;
+    }
+    const auto blocks = static_cast<unsigned>((std::size_t(segment_count) + 7) / 8);
+    fuse_parallel_segments<affine, publish><<<blocks, 256, 0, stream>>>(
+        values, segments, segment_count, tiles, config, threshold, status);
+    return cudaGetLastError();
+}
+}
+
+int cuda_reduce_voxel_segments(const cuda_ray_contribution* values, std::size_t count,
+    const cuda_voxel_segment* segments, std::uint32_t segment_count,
+    const cuda_tile_coordinate* keys, cuda_tsdf_tile* tiles, std::uint32_t tile_count,
+    cuda_fusion_parameters config, cuda_ray_fusion_options options,
+    std::uint32_t* status, void* stream) noexcept
+{
+    const bool hybrid = options.mode == cuda_ray_fusion_mode::weighted_sum_hybrid ||
+        options.mode == cuda_ray_fusion_mode::capped_affine_hybrid;
+    if (static_cast<unsigned>(options.mode) > static_cast<unsigned>(cuda_ray_fusion_mode::capped_affine_hybrid) ||
+        (hybrid && !options.short_segment_threshold) || !std::isfinite(config.truncation_distance) || config.truncation_distance <= 0 ||
+        !std::isfinite(config.maximum_weight) || config.maximum_weight <= 0 ||
+        !std::isfinite(config.extraction_distance) || config.extraction_distance < 0 ||
+        config.extraction_distance > config.truncation_distance || count > UINT32_MAX ||
+        segment_count > count || (bool(count) != bool(segment_count)) ||
+        (segment_count && (!values || !segments || !keys || !tiles || !status || !tile_count)))
+        return static_cast<int>(cudaErrorInvalidValue);
+    if (!segment_count) return static_cast<int>(cudaSuccess);
+    if (options.mode == cuda_ray_fusion_mode::serial)
+        return cuda_fuse_voxel_segments(values, count, segments, segment_count, keys, tiles, tile_count, config, status, stream);
+    const auto cuda_stream = static_cast<cudaStream_t>(stream);
+     const auto blocks = static_cast<unsigned>((std::size_t(segment_count) + 255) / 256);
+    validate_fusion_segments<false><<<blocks, 256, 0, cuda_stream>>>(
+        values, count, segments, segment_count, keys, tiles, tile_count, config, status);
+    auto error = cudaGetLastError();
+    if (error != cudaSuccess) return static_cast<int>(error);
+    const auto threshold = hybrid ? options.short_segment_threshold : 0;
+    const bool affine = options.mode == cuda_ray_fusion_mode::capped_affine || options.mode == cuda_ray_fusion_mode::capped_affine_hybrid;
+    if (affine) {
+        error = launch_parallel_fusion<true, false>(values, segments, segment_count, tiles, config, threshold, status, cuda_stream);
+        if (error == cudaSuccess)
+             error = launch_parallel_fusion<true, true>(values, segments, segment_count, tiles, config, threshold, status, cuda_stream);
+    }
+    else
+    {
+        error = launch_parallel_fusion<false, false>(values, segments, segment_count, tiles, config, threshold, status, cuda_stream);
+        if (error == cudaSuccess)
+            error = launch_parallel_fusion<false, true>(values, segments, segment_count, tiles, config, threshold, status, cuda_stream);
+    }
+    return static_cast<int>(error);
+}
+}

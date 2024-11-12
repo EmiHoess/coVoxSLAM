@@ -7,7 +7,7 @@
 
 namespace covoxslam::detail
 {
-bool valid_voxblox_parameters(cuda_voxblox_parameters config)
+bool valid_voxblox_parameters(cuda_blocks_parameters config)
 {
     return std::isfinite(config.voxel_size) && config.voxel_size > 0 &&
         std::isfinite(config.seed_band_m) && config.seed_band_m >= 0 &&
@@ -19,13 +19,13 @@ bool valid_voxblox_parameters(cuda_voxblox_parameters config)
         config.bucket_count >= 2 && config.bucket_count <= 65536;
 }
 
-bool valid_voxblox_workspace(cuda_voxblox_workspace work)
+bool valid_voxblox_workspace(cuda_blocks_workspace work)
 {
     return work.values && work.next && work.queued && work.heads && work.tails && work.order && work.queue;
 }
 
 int cuda_initialize_voxblox(const cuda_tile_coordinate* keys, const cuda_tsdf_tile* tsdf,
-    std::size_t tile_count, cuda_voxblox_parameters config, cuda_voxblox_workspace work, void* stream) noexcept
+    std::size_t tile_count, cuda_blocks_parameters config, cuda_blocks_workspace work, void* stream) noexcept
 {
     if (!valid_voxblox_parameters(config) || tile_count > UINT32_MAX / 512 ||
         (tile_count && (!keys || !tsdf || !valid_voxblox_workspace(work))))
@@ -46,8 +46,8 @@ int cuda_initialize_voxblox(const cuda_tile_coordinate* keys, const cuda_tsdf_ti
     return static_cast<int>(cudaGetLastError());
 }
 
-int cuda_enqueue_voxblox_seeds(std::size_t count, cuda_voxblox_parameters config,
-    cuda_voxblox_workspace work, void* stream) noexcept
+int cuda_enqueue_voxblox_seeds(std::size_t count, cuda_blocks_parameters config,
+    cuda_blocks_workspace work, void* stream) noexcept
 {
     if (!valid_voxblox_parameters(config) || count > UINT32_MAX || (count && !valid_voxblox_workspace(work)))
         return static_cast<int>(cudaErrorInvalidValue);
@@ -66,7 +66,7 @@ int cuda_enqueue_voxblox_seeds(std::size_t count, cuda_voxblox_parameters config
 namespace covoxslam::detail
 {
 int cuda_propagate_voxblox_ordered(const cuda_tile_coordinate* keys, std::size_t tile_count,
-    cuda_voxblox_parameters config, cuda_voxblox_workspace work, std::uint32_t maximum_pops, void* stream) noexcept
+    cuda_blocks_parameters config, cuda_blocks_workspace work, std::uint32_t maximum_pops, void* stream) noexcept
 {
     if (!valid_voxblox_parameters(config) || !maximum_pops || tile_count > UINT32_MAX / 512 ||
         (tile_count && (!keys || !valid_voxblox_workspace(work)))) return static_cast<int>(cudaErrorInvalidValue);
@@ -85,7 +85,7 @@ int cuda_propagate_voxblox_ordered(const cuda_tile_coordinate* keys, std::size_t
 namespace covoxslam::detail
 {
 int cuda_propagate_voxblox_frontier(const cuda_tile_coordinate* keys, std::size_t tile_count,
-    cuda_voxblox_parameters config, cuda_voxblox_workspace work, std::uint32_t capacity, void* stream) noexcept
+    cuda_blocks_parameters config, cuda_blocks_workspace work, std::uint32_t capacity, void* stream) noexcept
 {
     if (!valid_voxblox_parameters(config) || !capacity || capacity > UINT32_MAX / 26 || tile_count > UINT32_MAX / 512 ||
         (tile_count && (!keys || !valid_voxblox_workspace(work) || !work.sources || !work.winners || !work.proposals)))
@@ -111,7 +111,7 @@ int cuda_propagate_voxblox_frontier(const cuda_tile_coordinate* keys, std::size_
 namespace covoxslam::detail
 {
 int cuda_validate_voxblox(const cuda_tile_coordinate* keys, const cuda_tsdf_tile* tsdf,
-    std::size_t tile_count, cuda_voxblox_parameters config, cuda_voxblox_workspace work, void* stream) noexcept
+    std::size_t tile_count, cuda_blocks_parameters config, cuda_blocks_workspace work, void* stream) noexcept
 {
     if (!valid_voxblox_parameters(config) || tile_count > UINT32_MAX / 512 ||
         (tile_count && (!keys || !tsdf || !valid_voxblox_workspace(work)))) return static_cast<int>(cudaErrorInvalidValue);

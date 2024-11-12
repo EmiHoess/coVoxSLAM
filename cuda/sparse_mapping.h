@@ -170,7 +170,7 @@ struct cuda_voxblox_voxel
      std::uint32_t flags{};
 };
 
-struct cuda_voxblox_parameters {
+struct cuda_blocks_parameters {
     float voxel_size{0.20F};
     float seed_band_m{0.20F};
     float maximum_distance_m{8.0F};
@@ -192,7 +192,7 @@ struct cuda_voxblox_proposal {
      std::int32_t parent[3]{};
 };
 
-struct cuda_voxblox_workspace
+struct cuda_blocks_workspace
 {
     cuda_voxblox_voxel* values{};
     std::uint32_t* next{};
@@ -209,15 +209,15 @@ struct cuda_voxblox_workspace
 static_assert(sizeof(cuda_voxblox_voxel) == 20 && sizeof(cuda_voxblox_queue) == 64);
 static_assert(sizeof(cuda_voxblox_proposal) == 24);
 int cuda_initialize_voxblox(const cuda_tile_coordinate* keys, const cuda_tsdf_tile* tsdf,
-    std::size_t tile_count, cuda_voxblox_parameters config, cuda_voxblox_workspace work, void* stream) noexcept;
-int cuda_enqueue_voxblox_seeds(std::size_t count, cuda_voxblox_parameters config,
-    cuda_voxblox_workspace work, void* stream) noexcept;
+    std::size_t tile_count, cuda_blocks_parameters config, cuda_blocks_workspace work, void* stream) noexcept;
+int cuda_enqueue_voxblox_seeds(std::size_t count, cuda_blocks_parameters config,
+    cuda_blocks_workspace work, void* stream) noexcept;
 int cuda_propagate_voxblox_ordered(const cuda_tile_coordinate* keys, std::size_t tile_count,
-    cuda_voxblox_parameters config, cuda_voxblox_workspace work, std::uint32_t maximum_pops, void* stream) noexcept;
+    cuda_blocks_parameters config, cuda_blocks_workspace work, std::uint32_t maximum_pops, void* stream) noexcept;
 int cuda_propagate_voxblox_frontier(const cuda_tile_coordinate* keys, std::size_t tile_count,
-    cuda_voxblox_parameters config, cuda_voxblox_workspace work, std::uint32_t capacity, void* stream) noexcept;
+    cuda_blocks_parameters config, cuda_blocks_workspace work, std::uint32_t capacity, void* stream) noexcept;
 int cuda_validate_voxblox(const cuda_tile_coordinate* keys, const cuda_tsdf_tile* tsdf,
-    std::size_t tile_count, cuda_voxblox_parameters config, cuda_voxblox_workspace work, void* stream) noexcept;
+    std::size_t tile_count, cuda_blocks_parameters config, cuda_blocks_workspace work, void* stream) noexcept;
 }
 
 namespace covoxslam::detail
@@ -293,6 +293,15 @@ enum class cuda_ray_fusion_mode { serial, weighted_sum, weighted_sum_hybrid, cap
 struct cuda_ray_fusion_options
 {
     cuda_ray_fusion_mode mode{cuda_ray_fusion_mode::serial};
-     std::uint32_t short_segment_threshold{32};
+    std::uint32_t short_segment_threshold{32};
 };
+}
+
+namespace covoxslam::detail
+{
+int cuda_reduce_voxel_segments(const cuda_ray_contribution* values, std::size_t count,
+    const cuda_voxel_segment* segments, std::uint32_t segment_count,
+    const cuda_tile_coordinate* keys, cuda_tsdf_tile* tiles, std::uint32_t tile_count,
+    cuda_fusion_parameters config, cuda_ray_fusion_options options,
+    std::uint32_t* status, void* stream) noexcept;
 }

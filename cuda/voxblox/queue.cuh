@@ -10,8 +10,8 @@ __device__ int voxblox_sign(float value)
     return value == 0 ? 0 : value < 0 ? -1 : 1;
 }
 
-__device__ void voxblox_push(std::uint32_t voxel, cuda_voxblox_parameters config,
-    cuda_voxblox_workspace work)
+__device__ void voxblox_push(std::uint32_t voxel, cuda_blocks_parameters config,
+    cuda_blocks_workspace work)
 {
     if (work.queued[voxel]) return;
     const float scaled = fminf(fabsf(work.values[voxel].distance_m), config.maximum_distance_m) /
@@ -28,7 +28,7 @@ __device__ void voxblox_push(std::uint32_t voxel, cuda_voxblox_parameters config
     ++work.queue->pushes;
 }
 
-__device__ std::uint32_t voxblox_pop(cuda_voxblox_parameters config, cuda_voxblox_workspace work)
+__device__ std::uint32_t voxblox_pop(cuda_blocks_parameters config, cuda_blocks_workspace work)
 {
     while (work.queue->cursor < config.bucket_count && work.heads[work.queue->cursor] == UINT32_MAX)
         ++work.queue->cursor;
@@ -50,8 +50,8 @@ __device__ std::uint32_t voxblox_pop(cuda_voxblox_parameters config, cuda_voxblo
     return voxel;
 }
 
-__global__ void enqueue_voxblox_seeds(std::size_t count, std::size_t begin, std::size_t end, cuda_voxblox_parameters config,
-    cuda_voxblox_workspace work)
+__global__ void enqueue_voxblox_seeds(std::size_t count, std::size_t begin, std::size_t end, cuda_blocks_parameters config,
+    cuda_blocks_workspace work)
 {
     if (blockIdx.x || threadIdx.x || work.queue->status) return;
     for (std::size_t rank = begin; rank < end; ++rank) {

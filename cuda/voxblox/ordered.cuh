@@ -5,7 +5,7 @@
 namespace covoxslam::detail
 {
 __global__ void propagate_voxblox_ordered(const cuda_tile_coordinate* keys, std::size_t tile_count,
-    cuda_voxblox_parameters config, cuda_voxblox_workspace work, std::uint32_t maximum_pops)
+    cuda_blocks_parameters config, cuda_blocks_workspace work, std::uint32_t maximum_pops)
 {
     if (blockIdx.x || threadIdx.x || work.queue->status) return;
     for (std::uint32_t pop = 0; pop < maximum_pops && work.queue->size && !work.queue->status; ++pop)

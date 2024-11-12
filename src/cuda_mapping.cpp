@@ -682,7 +682,7 @@ cuda_voxblox_statistics build_cuda_voxblox_esdf(const tsdf_tiles& tsdf, esdf_til
 {
     const auto start = std::chrono::steady_clock::now();
     const auto difference = options.minimum_difference_m < 0 ? std::max(1.0e-5F, config.voxel_size * 1.0e-3F) : options.minimum_difference_m;
-    const detail::cuda_voxblox_parameters parameters{config.voxel_size, config.esdf_site_band_m,
+    const detail::cuda_blocks_parameters parameters{config.voxel_size, config.esdf_site_band_m,
         config.esdf_maximum_distance_m, config.esdf_minimum_weight, difference, options.bucket_count,
         options.distance == cuda_voxblox_distance::full_euclidean};
     check_cuda(static_cast<cudaError_t>(detail::cuda_initialize_voxblox(nullptr, nullptr, 0, parameters, {}, nullptr)));
