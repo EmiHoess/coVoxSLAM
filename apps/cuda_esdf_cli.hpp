@@ -31,10 +31,10 @@ inline bool parse_cuda_esdf_option(std::string_view name, std::string_view value
 inline std::function<void(submap&)> cuda_esdf_finalizer(const mapping_config& config, int device,
     const cuda_voxblox_cli_options& voxblox = {})
 {
-    if (voxblox.specified && config.esdf_generator != esdf_backend::cuda_voxblox_batch)
-        throw std::invalid_argument("Voxblox execution options require cuda-voxblox-batch");
+    if (voxblox.specified && config.esdf_generator != esdf_backend::cuda_blocks_batch)
+        throw std::invalid_argument("Voxblox execution options require cuda-blocks-batch");
     if (config.esdf_generator != esdf_backend::cuda_projective_block_band &&
-        config.esdf_generator != esdf_backend::cuda_voxblox_batch) return {};
+        config.esdf_generator != esdf_backend::cuda_blocks_batch) return {};
     query_cuda_device(device);
     return [config, device, voxblox](submap& completed)
     {
@@ -43,7 +43,7 @@ inline std::function<void(submap&)> cuda_esdf_finalizer(const mapping_config& co
             completed.statistics.cuda_uploaded_bytes += statistics.uploaded_bytes;
             completed.statistics.cuda_downloaded_bytes += statistics.downloaded_bytes;
         };
-        if (config.esdf_generator == esdf_backend::cuda_voxblox_batch) {
+        if (config.esdf_generator == esdf_backend::cuda_blocks_batch) {
             auto options = voxblox.options;
              options.device = device;
             record(build_cuda_voxblox_esdf(completed.tsdf, completed.esdf, config, options));

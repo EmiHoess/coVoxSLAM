@@ -42,7 +42,7 @@ void usage()
               << "  --projective-voxel-carving BOOL --projective-allow-clear BOOL  BOOL is true or false\n"
               << "  --cuda-device N --cuda-ray-capacity N --cuda-contribution-capacity N --cuda-device-bytes N\n"
               << "  --voxel-size M --truncation-distance M --maximum-ray-length M\n"
-              << "  --esdf-generator none|cpu-blocks-batch|cuda-projective-block-band|cuda-voxblox-batch  Default cpu-blocks-batch\n"
+              << "  --esdf-generator none|cpu-blocks-batch|cuda-projective-block-band|cuda-blocks-batch  Default cpu-blocks-batch\n"
               << "  --esdf-executor ordered|frontier --esdf-distance full-euclidean|quasi-euclidean\n"
               << "  --output PATH  Export CPU maps to a new directory\n"
               << "  --submaps --dataset PATH  Deskew scans and report submap metadata\n"

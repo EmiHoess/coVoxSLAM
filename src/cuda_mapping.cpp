@@ -60,17 +60,25 @@ cuda_device_info query_cuda_device(int index)
     return result;
 }
 
-bool cuda_mapping_available(std::string* diagnostic) {
-    try {
-        query_cuda_device(0);
-        if (diagnostic) diagnostic->clear();
+bool cuda_mapping_available(std::string* diagnostic)
+{
+    const auto failed = [diagnostic](cudaError_t code) {
+        if (code == cudaSuccess) return false;
+        if (diagnostic) *diagnostic = cudaGetErrorString(code);
         return true;
-    }
-    catch (const std::exception& error)
-    {
-         if (diagnostic) *diagnostic = error.what();
+    };
+    int count{}, version{};
+    if (failed(cudaGetDeviceCount(&count))) return false;
+    if (count < 1) {
+         if (diagnostic) *diagnostic = "CUDA device index is unavailable";
         return false;
     }
+    cudaDeviceProp properties{};
+    if (failed(cudaGetDeviceProperties(&properties, 0)) ||
+        failed(cudaRuntimeGetVersion(&version)) ||
+        failed(cudaDriverGetVersion(&version))) return false;
+    if (diagnostic) diagnostic->clear();
+    return true;
 }
 
 struct cuda_scan_context::implementation

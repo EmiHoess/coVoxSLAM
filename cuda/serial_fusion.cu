@@ -83,3 +83,5 @@ int cuda_fuse_voxel_segments(const cuda_ray_contribution* values, std::size_t co
 }
 
 #include "ray_fusion/weighted_sum/fuse.cuh"
+
+#include "ray_fusion/dispatch.cuh"

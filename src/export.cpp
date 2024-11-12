@@ -168,7 +168,7 @@ void validate_export_submap(const submap& value)
             const auto& voxel = tile.voxels[local];
             const bool observed = (voxel.flags & observed_flag) != 0;
             const bool site = (voxel.flags & esdf_site_flag) != 0;
-            const bool signed_seed = site && config.esdf_generator == esdf_backend::cuda_voxblox_batch;
+            const bool signed_seed = site && config.esdf_generator == esdf_backend::cuda_blocks_batch;
             if (signed_seed) {
                 const auto* source = find_voxel(value.tsdf, global_index(block, local));
                 if (!source || !(source->flags & observed_flag) ||
