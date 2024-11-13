@@ -22,14 +22,14 @@ static_assert(sizeof(detail::cuda_device_ray) == 56);
 static_assert(alignof(detail::cuda_device_ray) == 8);
 static_assert(offsetof(detail::cuda_device_ray, stamp_ns) == 32);
 
-std::size_t checked_cuda_storage_bytes(std::size_t capacity)
+operation_result<std::size_t> checked_cuda_storage_bytes(std::size_t capacity)
 {
     if (!capacity || capacity > std::numeric_limits<std::uint32_t>::max())
-        throw std::length_error("CUDA scan capacity is unsupported");
+        return std::unexpected(operation_error{"CUDA scan capacity is unsupported"});
      const auto blocks = 1 + (capacity - 1) / 256;
     if (blocks > std::numeric_limits<std::size_t>::max() / 8 ||
         capacity > (std::numeric_limits<std::size_t>::max() - blocks * 8) / 12)
-        throw std::length_error("CUDA scan byte count overflows addressable size");
+        return std::unexpected(operation_error{"CUDA scan byte count overflows addressable size"});
     return capacity * 12 + blocks * 8;
 }
 }
@@ -39,6 +39,12 @@ namespace covoxslam
 {
 namespace
 {
+operation_status cuda_status(cudaError_t error)
+{
+    if (error != cudaSuccess) return std::unexpected(operation_error{cudaGetErrorString(error)});
+    return {};
+}
+
 void check_cuda(cudaError_t error)
 {
     if (error != cudaSuccess) throw std::runtime_error(cudaGetErrorString(error));
@@ -60,25 +66,26 @@ cuda_device_info query_cuda_device(int index)
     return result;
 }
 
+operation_result<cuda_device_info> query_cuda_device_checked(int index)
+{
+    int count{};
+    if (const auto status = cuda_status(cudaGetDeviceCount(&count)); !status) return std::unexpected(status.error());
+    if (index < 0 || index >= count) return std::unexpected(operation_error{"CUDA device index is unavailable"});
+    cudaDeviceProp properties{};
+    if (const auto status = cuda_status(cudaGetDeviceProperties(&properties, index)); !status) return std::unexpected(status.error());
+    cuda_device_info result{index, properties.major, properties.minor};
+    result.name = properties.name;
+    result.total_memory_bytes = properties.totalGlobalMem;
+    if (const auto status = cuda_status(cudaRuntimeGetVersion(&result.runtime_version)); !status) return std::unexpected(status.error());
+    if (const auto status = cuda_status(cudaDriverGetVersion(&result.driver_version)); !status) return std::unexpected(status.error());
+    return result;
+}
+
 bool cuda_mapping_available(std::string* diagnostic)
 {
-    const auto failed = [diagnostic](cudaError_t code) {
-        if (code == cudaSuccess) return false;
-        if (diagnostic) *diagnostic = cudaGetErrorString(code);
-        return true;
-    };
-    int count{}, version{};
-    if (failed(cudaGetDeviceCount(&count))) return false;
-    if (count < 1) {
-         if (diagnostic) *diagnostic = "CUDA device index is unavailable";
-        return false;
-    }
-    cudaDeviceProp properties{};
-    if (failed(cudaGetDeviceProperties(&properties, 0)) ||
-        failed(cudaRuntimeGetVersion(&version)) ||
-        failed(cudaDriverGetVersion(&version))) return false;
-    if (diagnostic) diagnostic->clear();
-    return true;
+    const auto result = query_cuda_device_checked(0);
+    if (diagnostic) *diagnostic = result ? std::string{} : result.error().message;
+    return result.has_value();
 }
 
 struct cuda_scan_context::implementation
@@ -98,20 +105,31 @@ struct cuda_scan_context::implementation
     }
 };
 
-cuda_scan_context::cuda_scan_context(int device, std::size_t capacity)
-    : state(std::make_unique<implementation>())
+cuda_scan_context::cuda_scan_context() = default;
+operation_result<std::unique_ptr<cuda_scan_context>> cuda_scan_context::create(int device, std::size_t capacity)
 {
-    const auto info = query_cuda_device(device);
-    if (checked_cuda_storage_bytes(capacity) > info.total_memory_bytes)
-        throw std::length_error("CUDA scan storage exceeds total device memory");
+    const auto info = query_cuda_device_checked(device);
+    if (!info) return std::unexpected(info.error());
+    const auto total = checked_cuda_storage_bytes(capacity);
+    if (!total) return std::unexpected(total.error());
+    if (*total > info->total_memory_bytes)
+        return std::unexpected(operation_error{"CUDA scan storage exceeds total device memory"});
+    auto owner = std::unique_ptr<cuda_scan_context>(new cuda_scan_context);
+    auto& state = owner->state;
+    state = std::make_unique<implementation>();
     state->device = device;
     state->capacity = capacity;
-    check_cuda(cudaSetDevice(device));
-    check_cuda(cudaStreamCreateWithFlags(&state->stream, cudaStreamNonBlocking));
+    if (const auto status = cuda_status(cudaSetDevice(device)); !status) return std::unexpected(status.error());
+    if (const auto status = cuda_status(cudaStreamCreateWithFlags(&state->stream, cudaStreamNonBlocking)); !status)
+        return std::unexpected(status.error());
     const std::array<std::size_t, 3> bytes{capacity * 4, capacity * 8, (1 + (capacity - 1) / 256) * 8};
     for (std::size_t index = 0; index < bytes.size(); ++index)
-        check_cuda(cudaMalloc(&state->buffers[index], bytes[index]));
-    for (auto& event : state->events) check_cuda(cudaEventCreate(&event));
+        if (const auto status = cuda_status(cudaMalloc(&state->buffers[index], bytes[index])); !status)
+            return std::unexpected(status.error());
+    for (auto& event : state->events) {
+        if (const auto status = cuda_status(cudaEventCreate(&event)); !status) return std::unexpected(status.error());
+    }
+    return owner;
 }
 
 cuda_scan_context::~cuda_scan_context() = default;
@@ -689,7 +707,7 @@ cuda_site_esdf_statistics build_cuda_site_esdf(const tsdf_tiles& tsdf, esdf_tile
 
 namespace covoxslam
 {
-cuda_voxblox_statistics build_cuda_voxblox_esdf(const tsdf_tiles& tsdf, esdf_tiles& esdf,
+cuda_blocks_statistics build_cuda_blocks_esdf(const tsdf_tiles& tsdf, esdf_tiles& esdf,
     const mapping_config& config, const cuda_blocks_options& options)
 {
     const auto start = std::chrono::steady_clock::now();
@@ -700,7 +718,7 @@ cuda_voxblox_statistics build_cuda_voxblox_esdf(const tsdf_tiles& tsdf, esdf_til
     check_cuda(static_cast<cudaError_t>(detail::cuda_initialize_voxblox(nullptr, nullptr, 0, parameters, {}, nullptr)));
     const auto bytes = detail::voxblox_storage_bytes(tsdf.size(), options);
     if (!config.maximum_tiles || tsdf.size() > config.maximum_tiles) throw std::length_error("CUDA Voxblox tile limit exceeded");
-    cuda_voxblox_statistics statistics;
+    cuda_blocks_statistics statistics;
     for (const auto size : bytes) statistics.scratch_bytes += size;
      if (statistics.scratch_bytes > query_cuda_device(options.device).total_memory_bytes)
         throw std::length_error("CUDA Voxblox exceeds device memory");

@@ -1,5 +1,6 @@
 #include "sparse_mapping.h"
 #include "projective/geometry.cuh"
+#include "projective_projective/sampling.cuh"
 
 #include <cmath>
 #include <limits>

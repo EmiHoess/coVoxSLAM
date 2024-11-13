@@ -46,7 +46,7 @@ inline std::function<void(submap&)> cuda_esdf_finalizer(const mapping_config& co
         if (config.esdf_generator == esdf_backend::cuda_blocks_batch) {
             auto options = voxblox.options;
              options.device = device;
-            record(build_cuda_voxblox_esdf(completed.tsdf, completed.esdf, config, options));
+            record(build_cuda_blocks_esdf(completed.tsdf, completed.esdf, config, options));
         }
         else
         {

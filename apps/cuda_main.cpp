@@ -35,12 +35,15 @@ int main(int argc, char** argv)
             }
             else count = value;
         }
-        const auto info = covoxslam::query_cuda_device(device);
-        covoxslam::cuda_scan_context context(device, count);
+        const auto queried = covoxslam::query_cuda_device_checked(device);
+        if (!queried) { std::cerr << "covoxslam_cuda: " << queried.error().message << '\n'; return 1; }
+        const auto& info = *queried;
+        auto context = covoxslam::cuda_scan_context::create(device, count);
+        if (!context) { std::cerr << "covoxslam_cuda: " << context.error().message << '\n'; return 1; }
         std::vector<std::uint32_t> counts(count, 1);
         std::vector<std::uint64_t> offsets(count);
          const auto start = std::chrono::steady_clock::now();
-        const auto timing = context.exclusive_scan(counts, offsets);
+        const auto timing = (*context)->exclusive_scan(counts, offsets);
         const auto elapsed = std::chrono::duration<double, std::milli>(
             std::chrono::steady_clock::now() - start).count();
         std::cout << info.name << ", device " << info.index << ", compute "

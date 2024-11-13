@@ -28,13 +28,15 @@ struct cuda_operation_times {
 
 bool cuda_mapping_available(std::string* diagnostic = nullptr);
 cuda_device_info query_cuda_device(int index);
+operation_result<cuda_device_info> query_cuda_device_checked(int index);
 
 class cuda_scan_context
 {
     struct implementation;
     std::unique_ptr<implementation> state;
+    cuda_scan_context();
 public:
-    cuda_scan_context(int device, std::size_t capacity);
+    static operation_result<std::unique_ptr<cuda_scan_context>> create(int device, std::size_t capacity);
      ~cuda_scan_context();
     cuda_scan_context(const cuda_scan_context&) = delete;
     cuda_scan_context& operator=(const cuda_scan_context&) = delete;
@@ -176,7 +178,7 @@ struct cuda_blocks_options
     float minimum_difference_m{-1.0F};
 };
 
-struct cuda_voxblox_statistics {
+struct cuda_blocks_statistics {
     std::uint64_t uploaded_bytes{}, downloaded_bytes{}, scratch_bytes{};
     std::uint64_t queue_pushes{}, queue_pops{}, accepted_updates{}, candidate_relaxations{};
      std::uint64_t eligible_voxels{}, fixed_seeds{};
@@ -184,7 +186,7 @@ struct cuda_voxblox_statistics {
     double elapsed_ms{};
 };
 
-cuda_voxblox_statistics build_cuda_voxblox_esdf(const tsdf_tiles& tsdf, esdf_tiles& esdf,
+cuda_blocks_statistics build_cuda_blocks_esdf(const tsdf_tiles& tsdf, esdf_tiles& esdf,
     const mapping_config& config, const cuda_blocks_options& options = {});
 }
 

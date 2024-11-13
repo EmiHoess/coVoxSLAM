@@ -18,8 +18,15 @@ cuda_device_info query_cuda_device(int)
      throw std::runtime_error("covoxslam was built without CUDA support");
 }
 
-cuda_scan_context::cuda_scan_context(int, std::size_t) {
-    throw std::runtime_error("covoxslam was built without CUDA support");
+operation_result<cuda_device_info> query_cuda_device_checked(int)
+{
+    return std::unexpected(operation_error{"covoxslam was built without CUDA support"});
+}
+
+cuda_scan_context::cuda_scan_context() = default;
+operation_result<std::unique_ptr<cuda_scan_context>> cuda_scan_context::create(int, std::size_t)
+{
+    return std::unexpected(operation_error{"covoxslam was built without CUDA support"});
 }
 
 cuda_scan_context::~cuda_scan_context() = default;
@@ -115,7 +122,7 @@ cuda_site_esdf_statistics build_cuda_site_esdf(const tsdf_tiles&, esdf_tiles&,
 
 namespace covoxslam
 {
-cuda_voxblox_statistics build_cuda_voxblox_esdf(const tsdf_tiles&, esdf_tiles&,
+cuda_blocks_statistics build_cuda_blocks_esdf(const tsdf_tiles&, esdf_tiles&,
     const mapping_config&, const cuda_blocks_options&)
 {
     throw std::runtime_error("CUDA Voxblox ESDF is unavailable in this build");
