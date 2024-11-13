@@ -29,7 +29,7 @@ inline int run_submap_cli(int argc, char** argv)
         ray_fusion_cli_options fusion_options;
         cuda_projective_options projective_options;
         bool projective_option_set{};
-        cuda_voxblox_cli_options esdf_options;
+        cuda_blocks_cli_options esdf_options;
         dataset_load_options input_options;
         std::filesystem::path root;
         std::filesystem::path output;

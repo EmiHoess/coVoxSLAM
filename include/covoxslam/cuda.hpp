@@ -41,7 +41,7 @@ public:
     cuda_scan_context(const cuda_scan_context&) = delete;
     cuda_scan_context& operator=(const cuda_scan_context&) = delete;
     std::size_t capacity() const noexcept;
-    cuda_operation_times exclusive_scan(
+    operation_result<cuda_operation_times> exclusive_scan(
         std::span<const std::uint32_t> counts, std::span<std::uint64_t> offsets);
 }
 ;

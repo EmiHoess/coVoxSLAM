@@ -43,7 +43,9 @@ int main(int argc, char** argv)
         std::vector<std::uint32_t> counts(count, 1);
         std::vector<std::uint64_t> offsets(count);
          const auto start = std::chrono::steady_clock::now();
-        const auto timing = (*context)->exclusive_scan(counts, offsets);
+        const auto scanned = (*context)->exclusive_scan(counts, offsets);
+        if (!scanned) { std::cerr << "covoxslam_cuda: " << scanned.error().message << '\n'; return 1; }
+        const auto& timing = *scanned;
         const auto elapsed = std::chrono::duration<double, std::milli>(
             std::chrono::steady_clock::now() - start).count();
         std::cout << info.name << ", device " << info.index << ", compute "

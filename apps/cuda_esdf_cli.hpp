@@ -6,12 +6,12 @@
 
 namespace covoxslam
 {
-struct cuda_voxblox_cli_options {
+struct cuda_blocks_cli_options {
     cuda_blocks_options options;
     bool specified{};
 };
 
-inline bool parse_cuda_esdf_option(std::string_view name, std::string_view value, cuda_voxblox_cli_options& config)
+inline bool parse_cuda_esdf_option(std::string_view name, std::string_view value, cuda_blocks_cli_options& config)
 {
     if (name == "--esdf-executor") {
         if (value == "ordered") config.options.executor = cuda_blocks_executor::ordered;
@@ -29,14 +29,14 @@ inline bool parse_cuda_esdf_option(std::string_view name, std::string_view value
 }
 
 inline std::function<void(submap&)> cuda_esdf_finalizer(const mapping_config& config, int device,
-    const cuda_voxblox_cli_options& voxblox = {})
+    const cuda_blocks_cli_options& blocks = {})
 {
-    if (voxblox.specified && config.esdf_generator != esdf_backend::cuda_blocks_batch)
+    if (blocks.specified && config.esdf_generator != esdf_backend::cuda_blocks_batch)
         throw std::invalid_argument("Voxblox execution options require cuda-blocks-batch");
     if (config.esdf_generator != esdf_backend::cuda_projective_block_band &&
         config.esdf_generator != esdf_backend::cuda_blocks_batch) return {};
     query_cuda_device(device);
-    return [config, device, voxblox](submap& completed)
+    return [config, device, blocks](submap& completed)
     {
         const auto record = [&](const auto& statistics) {
             completed.statistics.esdf_ms = statistics.elapsed_ms;
@@ -44,7 +44,7 @@ inline std::function<void(submap&)> cuda_esdf_finalizer(const mapping_config& co
             completed.statistics.cuda_downloaded_bytes += statistics.downloaded_bytes;
         };
         if (config.esdf_generator == esdf_backend::cuda_blocks_batch) {
-            auto options = voxblox.options;
+            auto options = blocks.options;
              options.device = device;
             record(build_cuda_blocks_esdf(completed.tsdf, completed.esdf, config, options));
         }

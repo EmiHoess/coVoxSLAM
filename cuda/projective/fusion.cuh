@@ -1,6 +1,7 @@
 #pragma once
 
 #include "sampling.cuh"
+#include "policy_sampling.cuh"
 
 namespace covoxslam::detail
 {
@@ -83,12 +84,16 @@ __global__ void fuse_projective_tiles(const std::uint32_t* slots, std::size_t sl
         return;
     }
     if (range <= 1e-6F) return;
-    const auto sample = sample_projective_range(point, rays, ray_count, winners, angles, calibration,
+    if (sampling.projected_policy && (range < parameters.minimum_ray_length_m || range > parameters.maximum_ray_length_m)) return;
+    const auto sample = sampling.projected_policy ? sample_projected_policy(point, ray_count, winners, angles, calibration,
+        parameters.voxel_size, status) : sample_projective_range(point, rays, ray_count, winners, angles, calibration,
         sampling.depth_discontinuity_voxels * parameters.voxel_size, sampling.nearest_ray_distance_voxels * parameters.voxel_size,
         parameters.maximum_ray_length_m, sampling.interpolation, status);
     if (!sample.valid) return;
     float distance{}, weight{};
-     if (!projective_observation(rays[sample.ray_index], sample.range, range, parameters, sampling, distance, weight, status)) return;
+    const bool observed = sampling.projected_policy ? projected_policy_observation(sample.range, range, parameters, distance, weight) :
+        projective_observation(rays[sample.ray_index], sample.range, range, parameters, sampling, distance, weight, status);
+     if (!observed) return;
     auto voxel = tiles[slot].voxels[local];
     if (!projective_update(voxel, distance, weight, fusion)) {
         atomicOr(status, 2U);

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "geometry.cuh"
+#include "bracket.cuh"
 #include <cfloat>
 #include <climits>
 
@@ -10,7 +10,8 @@ template<bool emit>
 __device__ std::uint32_t walk_projective_tiles(const cuda_device_ray* rays, std::size_t ray_count,
     std::uint64_t winner, cuda_projective_pose pose, cuda_ray_parameters parameters,
     cuda_tile_coordinate* output, std::uint64_t offset, std::uint32_t expected,
-    std::uint64_t capacity, std::uint32_t* status)
+    std::uint64_t capacity, std::uint32_t* status, std::size_t pixel,
+    cuda_projective_discovery_options options)
 {
     if (winner == UINT64_MAX) return 0;
     const auto ray_index = static_cast<std::uint32_t>(winner);
@@ -20,14 +21,26 @@ __device__ std::uint32_t walk_projective_tiles(const cuda_device_ray* rays, std:
     for (int axis = 0; axis < 3; ++axis) direction[axis] = double(ray.endpoint[axis] - pose.translation[axis]);
     const float range = static_cast<float>(hypot(hypot(direction[0], direction[1]), direction[2]));
      if (!isfinite(range) || range <= 0 || range < parameters.minimum_ray_length_m) return 0;
-    const double end = range > parameters.maximum_ray_length_m ? parameters.maximum_ray_length_m :
+    for (int axis = 0; axis < 3; ++axis) direction[axis] /= range;
+    double end = range > parameters.maximum_ray_length_m ? parameters.maximum_ray_length_m :
         fmin(double(range) + parameters.truncation_distance, double(parameters.maximum_ray_length_m) + parameters.truncation_distance);
+    if (options.calibrated_rays)
+    {
+        const float depth = __uint_as_float(static_cast<std::uint32_t>(winner >> 32));
+        if (!isfinite(depth) || depth <= 1e-6F) { atomicOr(status, 2U); return 0; }
+        const auto local = projective_beam_direction(static_cast<int>(pixel / options.calibration.columns),
+            static_cast<int>(pixel % options.calibration.columns), options.angles, options.calibration);
+        auto inverse = pose;
+        for (int axis = 0; axis < 3; ++axis) { inverse.translation[axis] = 0; inverse.rotation_xyzw[axis] *= -1; }
+        const auto rotated = projective_reference_point(inverse, local);
+        direction[0] = rotated.x; direction[1] = rotated.y; direction[2] = rotated.z;
+         end = fmin(double(depth), double(parameters.maximum_ray_length_m)) + parameters.truncation_distance;
+    }
     const double tile_size = double(parameters.voxel_size) * 8;
     int tile[3], step[3];
     double next[3], delta[3];
     for (int axis = 0; axis < 3; ++axis)
     {
-        direction[axis] /= range;
         const double coordinate = floor(double(pose.translation[axis]) / tile_size);
         if (!isfinite(coordinate) || coordinate < INT_MIN / 8 || coordinate > INT_MAX / 8)
         { atomicOr(status, 1U); return 0; }
@@ -64,12 +77,20 @@ template<bool emit>
 __global__ void visit_projective_tiles(const cuda_device_ray* rays, std::size_t ray_count,
     const std::uint64_t* winners, std::size_t pixel_count, cuda_projective_pose pose, cuda_ray_parameters parameters,
     const std::uint32_t* counts, std::uint32_t* output_counts, const std::uint64_t* offsets,
-    cuda_tile_coordinate* keys, std::uint64_t capacity, std::uint32_t* status)
+    cuda_tile_coordinate* keys, std::uint64_t capacity, std::uint32_t* status,
+    cuda_projective_discovery_options options)
 {
     const auto pixel = static_cast<std::size_t>(blockIdx.x) * blockDim.x + threadIdx.x;
     if (pixel >= pixel_count) return;
+    if constexpr (!emit) output_counts[pixel] = 0;
+    if (atomicAdd(status, 0U)) return;
+    if (options.calibrated_rays) {
+        const auto row = pixel / options.calibration.columns, column = pixel % options.calibration.columns;
+        if ((row % options.factor && row + 1 != options.calibration.rings) ||
+            (column % options.factor && column + 1 != options.calibration.columns)) return;
+    }
     const auto count = walk_projective_tiles<emit>(rays, ray_count, winners[pixel], pose, parameters, keys,
-        emit ? offsets[pixel] : 0, emit ? counts[pixel] : 0, capacity, status);
+        emit ? offsets[pixel] : 0, emit ? counts[pixel] : 0, capacity, status, pixel, options);
     if constexpr (!emit) output_counts[pixel] = count;
     else if (count != counts[pixel]) atomicOr(status, 4U);
 }

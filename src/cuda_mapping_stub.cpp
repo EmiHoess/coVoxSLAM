@@ -36,10 +36,10 @@ std::size_t cuda_scan_context::capacity() const noexcept
     return 0;
 }
 
-cuda_operation_times cuda_scan_context::exclusive_scan(
+operation_result<cuda_operation_times> cuda_scan_context::exclusive_scan(
     std::span<const std::uint32_t>, std::span<std::uint64_t>)
 {
-     throw std::runtime_error("covoxslam was built without CUDA support");
+     return std::unexpected(operation_error{"covoxslam was built without CUDA support"});
 }
 }
 

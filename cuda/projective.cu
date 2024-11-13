@@ -1,6 +1,6 @@
 #include "sparse_mapping.h"
 #include "projective/geometry.cuh"
-#include "projective_projective/sampling.cuh"
+#include "projective/policy_sampling.cuh"
 
 #include <cmath>
 #include <limits>
@@ -90,35 +90,58 @@ bool valid_projective_discovery(std::size_t ray_count, std::size_t pixel_count,
         parameters.maximum_ray_length_m >= parameters.minimum_ray_length_m &&
          (double(parameters.maximum_ray_length_m) + parameters.truncation_distance) / parameters.voxel_size < 10000000;
 }
+
+bool valid_projective_tile_policy(std::size_t pixels, cuda_projective_discovery_options options)
+{
+    if (!options.calibrated_rays) return options.factor == 1;
+    return options.factor && valid_projective_shape(options.calibration) && options.angles &&
+         pixels == std::size_t(options.calibration.rings) * options.calibration.columns;
+}
 }
 
 int cuda_count_projective_tiles(const cuda_device_ray* rays, std::size_t ray_count,
     const std::uint64_t* winners, std::size_t pixel_count, cuda_projective_pose pose,
-    cuda_ray_parameters parameters, std::uint32_t* counts, std::uint32_t* status, void* stream) noexcept
+    cuda_ray_parameters parameters, std::uint32_t* counts, std::uint32_t* status, void* stream,
+    cuda_projective_discovery_options options) noexcept
 {
     if (!valid_projective_discovery(ray_count, pixel_count, pose, parameters) || !status ||
+        !valid_projective_tile_policy(pixel_count, options) ||
         (ray_count && !rays) || (pixel_count && (!winners || !counts))) return static_cast<int>(cudaErrorInvalidValue);
     auto error = cudaMemsetAsync(status, 0, sizeof(*status), static_cast<cudaStream_t>(stream));
     if (error != cudaSuccess || !pixel_count) return static_cast<int>(error);
+    if (options.calibrated_rays) {
+        validate_projective_angles<<<static_cast<unsigned>((std::size_t(options.calibration.rings) + 127) / 128),
+            128, 0, static_cast<cudaStream_t>(stream)>>>(options.angles, options.calibration.rings, status);
+        error = cudaGetLastError();
+        if (error != cudaSuccess) return static_cast<int>(error);
+    }
     visit_projective_tiles<false><<<static_cast<unsigned>((pixel_count + 255) / 256), 256, 0,
         static_cast<cudaStream_t>(stream)>>>(rays, ray_count, winners, pixel_count, pose, parameters,
-            nullptr, counts, nullptr, nullptr, 0, status);
+            nullptr, counts, nullptr, nullptr, 0, status, options);
     return static_cast<int>(cudaGetLastError());
 }
 
 int cuda_emit_projective_tiles(const cuda_device_ray* rays, std::size_t ray_count,
     const std::uint64_t* winners, std::size_t pixel_count, cuda_projective_pose pose,
     cuda_ray_parameters parameters, const std::uint32_t* counts, const std::uint64_t* offsets,
-    cuda_tile_coordinate* keys, std::uint64_t capacity, std::uint32_t* status, void* stream) noexcept
+    cuda_tile_coordinate* keys, std::uint64_t capacity, std::uint32_t* status, void* stream,
+    cuda_projective_discovery_options options) noexcept
 {
     if (!valid_projective_discovery(ray_count, pixel_count, pose, parameters) || !status ||
+        !valid_projective_tile_policy(pixel_count, options) ||
         capacity > std::numeric_limits<std::size_t>::max() / sizeof(cuda_tile_coordinate) ||
         (ray_count && !rays) || (pixel_count && (!winners || !counts || !offsets)) ||
         (capacity && !keys)) return static_cast<int>(cudaErrorInvalidValue);
     if (!pixel_count) return static_cast<int>(cudaSuccess);
+    if (options.calibrated_rays) {
+        validate_projective_angles<<<static_cast<unsigned>((std::size_t(options.calibration.rings) + 127) / 128),
+            128, 0, static_cast<cudaStream_t>(stream)>>>(options.angles, options.calibration.rings, status);
+        const auto error = cudaGetLastError();
+        if (error != cudaSuccess) return static_cast<int>(error);
+    }
     visit_projective_tiles<true><<<static_cast<unsigned>((pixel_count + 255) / 256), 256, 0,
         static_cast<cudaStream_t>(stream)>>>(rays, ray_count, winners, pixel_count, pose, parameters,
-            counts, nullptr, offsets, keys, capacity, status);
+            counts, nullptr, offsets, keys, capacity, status, options);
     return static_cast<int>(cudaGetLastError());
 }
 }

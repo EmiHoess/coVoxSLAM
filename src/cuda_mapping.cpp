@@ -6,6 +6,8 @@
 #include <cuda_runtime_api.h>
 #include "cuda_voxblox_storage.hpp"
 #include <array>
+#include <algorithm>
+#include <vector>
 #include <limits>
 #include <stdexcept>
 
@@ -92,6 +94,7 @@ struct cuda_scan_context::implementation
 {
     int device{};
     std::size_t capacity{};
+    bool failed{};
     cudaStream_t stream{};
     std::array<void*, 3> buffers{};
      std::array<cudaEvent_t, 4> events{};
@@ -135,27 +138,48 @@ operation_result<std::unique_ptr<cuda_scan_context>> cuda_scan_context::create(i
 cuda_scan_context::~cuda_scan_context() = default;
 std::size_t cuda_scan_context::capacity() const noexcept { return state->capacity; }
 
-cuda_operation_times cuda_scan_context::exclusive_scan(
+operation_result<cuda_operation_times> cuda_scan_context::exclusive_scan(
     std::span<const std::uint32_t> counts, std::span<std::uint64_t> offsets)
 {
     if (counts.size() > state->capacity || offsets.size() < counts.size())
-        throw std::length_error("CUDA scan buffers exceed their capacity");
+        return std::unexpected(operation_error{"CUDA scan buffers exceed their capacity"});
+    if (state->failed) return std::unexpected(operation_error{"CUDA scan context is unusable after failure"});
      cuda_operation_times result;
     if (counts.empty()) return result;
-    check_cuda(cudaSetDevice(state->device));
-    check_cuda(cudaEventRecord(state->events[0], state->stream));
-    check_cuda(cudaMemcpyAsync(state->buffers[0], counts.data(), counts.size_bytes(), cudaMemcpyHostToDevice, state->stream));
-    check_cuda(cudaEventRecord(state->events[1], state->stream));
-    check_cuda(static_cast<cudaError_t>(detail::cuda_scan_counts(
+    std::vector<std::uint64_t> staged(counts.size());
+    state->failed = true;
+    if (const auto status = cuda_status(cudaSetDevice(state->device)); !status) return std::unexpected(status.error());
+    struct completion_guard
+    {
+        cudaStream_t stream;
+        ~completion_guard() { cudaStreamSynchronize(stream); }
+    } completion{state->stream};
+    if (const auto status = cuda_status(cudaEventRecord(state->events[0], state->stream)); !status)
+        return std::unexpected(status.error());
+    if (const auto status = cuda_status(cudaMemcpyAsync(state->buffers[0], counts.data(), counts.size_bytes(), cudaMemcpyHostToDevice, state->stream)); !status)
+        return std::unexpected(status.error());
+    if (const auto status = cuda_status(cudaEventRecord(state->events[1], state->stream)); !status)
+        return std::unexpected(status.error());
+    if (const auto status = cuda_status(static_cast<cudaError_t>(detail::cuda_scan_counts(
         static_cast<const std::uint32_t*>(state->buffers[0]), static_cast<std::uint64_t*>(state->buffers[1]),
-        static_cast<std::uint64_t*>(state->buffers[2]), counts.size(), state->stream)));
-    check_cuda(cudaEventRecord(state->events[2], state->stream));
-    check_cuda(cudaMemcpyAsync(offsets.data(), state->buffers[1], counts.size() * 8, cudaMemcpyDeviceToHost, state->stream));
-     check_cuda(cudaEventRecord(state->events[3], state->stream));
-    check_cuda(cudaEventSynchronize(state->events[3]));
-    check_cuda(cudaEventElapsedTime(&result.upload_ms, state->events[0], state->events[1]));
-    check_cuda(cudaEventElapsedTime(&result.scan_ms, state->events[1], state->events[2]));
-    check_cuda(cudaEventElapsedTime(&result.download_ms, state->events[2], state->events[3]));
+        static_cast<std::uint64_t*>(state->buffers[2]), counts.size(), state->stream))); !status)
+        return std::unexpected(status.error());
+    if (const auto status = cuda_status(cudaEventRecord(state->events[2], state->stream)); !status)
+        return std::unexpected(status.error());
+    if (const auto status = cuda_status(cudaMemcpyAsync(staged.data(), state->buffers[1], counts.size() * 8, cudaMemcpyDeviceToHost, state->stream)); !status)
+        return std::unexpected(status.error());
+    if (const auto status = cuda_status(cudaEventRecord(state->events[3], state->stream)); !status)
+        return std::unexpected(status.error());
+    if (const auto status = cuda_status(cudaEventSynchronize(state->events[3])); !status)
+        return std::unexpected(status.error());
+    if (const auto status = cuda_status(cudaEventElapsedTime(&result.upload_ms, state->events[0], state->events[1])); !status)
+        return std::unexpected(status.error());
+    if (const auto status = cuda_status(cudaEventElapsedTime(&result.scan_ms, state->events[1], state->events[2])); !status)
+        return std::unexpected(status.error());
+    if (const auto status = cuda_status(cudaEventElapsedTime(&result.download_ms, state->events[2], state->events[3])); !status)
+        return std::unexpected(status.error());
+    std::copy(staged.begin(), staged.end(), offsets.begin());
+    state->failed = false;
     return result;
 }
 }

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../projective/sampling.cuh"
+#include "sampling.cuh"
 
 namespace covoxslam::detail
 {

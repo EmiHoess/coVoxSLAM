@@ -252,13 +252,23 @@ int cuda_build_projective_range_image(const cuda_device_ray* rays, std::size_t c
 
 namespace covoxslam::detail
 {
+struct cuda_projective_discovery_options
+{
+    cuda_projective_calibration calibration;
+    const float* angles{};
+    bool calibrated_rays{};
+     std::uint32_t factor{1};
+};
+
 int cuda_count_projective_tiles(const cuda_device_ray* rays, std::size_t ray_count,
     const std::uint64_t* winners, std::size_t pixel_count, cuda_projective_pose pose,
-    cuda_ray_parameters parameters, std::uint32_t* counts, std::uint32_t* status, void* stream) noexcept;
+    cuda_ray_parameters parameters, std::uint32_t* counts, std::uint32_t* status, void* stream,
+    cuda_projective_discovery_options options = {}) noexcept;
 int cuda_emit_projective_tiles(const cuda_device_ray* rays, std::size_t ray_count,
     const std::uint64_t* winners, std::size_t pixel_count, cuda_projective_pose pose,
     cuda_ray_parameters parameters, const std::uint32_t* counts, const std::uint64_t* offsets,
-    cuda_tile_coordinate* keys, std::uint64_t capacity, std::uint32_t* status, void* stream) noexcept;
+    cuda_tile_coordinate* keys, std::uint64_t capacity, std::uint32_t* status, void* stream,
+    cuda_projective_discovery_options options = {}) noexcept;
 }
 
 namespace covoxslam::detail
@@ -273,6 +283,7 @@ struct cuda_projective_parameters
     bool weight_dropoff{true};
      bool sparsity_compensation{true};
     float sparsity_compensation_factor{20};
+    bool projected_policy{};
 };
 }
 

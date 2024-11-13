@@ -1,7 +1,7 @@
 #include "sparse_mapping.h"
-#include "voxblox/initialize.cuh"
-#include "voxblox/proposal.cuh"
-#include "voxblox/validate.cuh"
+#include "blocks/initialize.cuh"
+#include "blocks/proposal.cuh"
+#include "blocks/validate.cuh"
 #include <cmath>
 #include <initializer_list>
 
@@ -61,7 +61,7 @@ int cuda_enqueue_voxblox_seeds(std::size_t count, cuda_blocks_parameters config,
 }
 }
 
-#include "voxblox/ordered.cuh"
+#include "blocks/ordered.cuh"
 
 namespace covoxslam::detail
 {
@@ -80,7 +80,7 @@ int cuda_propagate_voxblox_ordered(const cuda_tile_coordinate* keys, std::size_t
 }
 }
 
-#include "voxblox/frontier.cuh"
+#include "blocks/frontier.cuh"
 
 namespace covoxslam::detail
 {
