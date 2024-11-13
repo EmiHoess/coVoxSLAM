@@ -55,17 +55,17 @@ struct voxblox_storage
     }
 };
 
-inline std::array<std::size_t, 12> voxblox_storage_bytes(std::size_t tile_count, const cuda_voxblox_options& options)
+inline std::array<std::size_t, 12> voxblox_storage_bytes(std::size_t tile_count, const cuda_blocks_options& options)
 {
     if (!options.maximum_queue_pops || !options.maximum_rounds || !options.pops_per_launch ||
         options.pops_per_launch > 65536 || !options.frontier_capacity || options.frontier_capacity > 65536 ||
-        tile_count > UINT32_MAX / 512 || (options.executor != cuda_voxblox_executor::ordered &&
-        options.executor != cuda_voxblox_executor::frontier) || (options.distance != cuda_voxblox_distance::full_euclidean &&
-        options.distance != cuda_voxblox_distance::quasi_euclidean) || !std::isfinite(options.minimum_difference_m) ||
+        tile_count > UINT32_MAX / 512 || (options.executor != cuda_blocks_executor::ordered &&
+        options.executor != cuda_blocks_executor::frontier) || (options.distance != cuda_blocks_distance::full_euclidean &&
+        options.distance != cuda_blocks_distance::quasi_euclidean) || !std::isfinite(options.minimum_difference_m) ||
         (options.minimum_difference_m < 0 && options.minimum_difference_m != -1.0F))
         throw std::invalid_argument("invalid CUDA Voxblox execution options");
     const std::size_t count = tile_count * 512;
-    const std::size_t frontier = options.executor == cuda_voxblox_executor::frontier ? options.frontier_capacity : 0;
+    const std::size_t frontier = options.executor == cuda_blocks_executor::frontier ? options.frontier_capacity : 0;
     const std::array<std::size_t, 12> bytes{tile_count * sizeof(cuda_tile_coordinate), tile_count * sizeof(cuda_tsdf_tile),
         count * sizeof(cuda_voxblox_voxel), count * 4, count * 4, count * 4,
         std::size_t(options.bucket_count) * 4, std::size_t(options.bucket_count) * 4, sizeof(cuda_voxblox_queue),

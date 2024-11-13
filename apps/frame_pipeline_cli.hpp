@@ -2,6 +2,7 @@
 
 #include <covoxslam/mapping.hpp>
 #include "projective_cli.hpp"
+#include "ray_fusion_cli.hpp"
 #include "cuda_esdf_cli.hpp"
 #include "map_export_cli.hpp"
 
@@ -17,10 +18,15 @@ namespace covoxslam
 
 inline int run_submap_cli(int argc, char** argv)
 {
+        const auto report_error = [](std::string_view message) {
+            std::cerr << "covoxslam: " << message << '\n';
+            return 2;
+        };
         pipeline_options options;
         mapping_config mapping_options;
         bool mapping_enabled{};
         cuda_mapping_cli_options cuda_options;
+        ray_fusion_cli_options fusion_options;
         cuda_projective_options projective_options;
         bool projective_option_set{};
         cuda_voxblox_cli_options esdf_options;
@@ -44,11 +50,14 @@ inline int run_submap_cli(int argc, char** argv)
         for (int index = 2; index < argc; index += 2)
         {
             const std::string_view option(argv[index]);
-            if (index + 1 >= argc) throw std::invalid_argument("missing submap option value");
+            if (index + 1 >= argc) return report_error("missing submap option value");
             const std::string_view value(argv[index + 1]);
+            const auto fusion_parsed = parse_ray_fusion_option(option, value, fusion_options);
+            if (!fusion_parsed) { std::cerr << fusion_parsed.error().message << '\n'; return 2; }
+            if (*fusion_parsed) continue;
             if (option == "--dataset") root = argv[index + 1];
             else if (option == "--output") {
-                if (value.empty()) throw std::invalid_argument("--output requires a directory");
+                if (value.empty()) return report_error("--output requires a directory");
                  output = argv[index + 1];
             }
             else if (option == "--maximum-frames") options.maximum_frames = count(value);
@@ -59,29 +68,31 @@ inline int run_submap_cli(int argc, char** argv)
             else if (option == "--verification") {
                 if (value == "cached") input_options.verification = dataset_verification_mode::prefer_cache;
                 else if (value == "full") input_options.verification = dataset_verification_mode::force_full;
-                else throw std::invalid_argument("unsupported input verification mode");
+                else return report_error("unsupported input verification mode");
             }
             else if (option == "--pose-source")
             {
                 if (value == "odometry") options.pose_source = pose_source::odometry;
                 else if (value == "ground_truth") options.pose_source = pose_source::ground_truth;
-                else throw std::invalid_argument("unsupported trajectory source");
+                else return report_error("unsupported trajectory source");
             }
             else if (!parse_projective_option(option, value, projective_options, projective_option_set) &&
                      !parse_cuda_esdf_option(option, value, esdf_options) &&
                      !parse_cuda_mapping_option(option, value, mapping_options, mapping_enabled, cuda_options) &&
                      !parse_mapping_option(option, value, mapping_options, mapping_enabled))
-                throw std::invalid_argument("unsupported submap option");
+                return report_error("unsupported submap option");
         }
-         if (root.empty()) throw std::invalid_argument("--submaps requires --dataset directory");
+         if (root.empty()) return report_error("--submaps requires --dataset directory");
         if (!options.submap_duration_ns || !options.ring_stride || !options.column_stride)
-            throw std::invalid_argument("duration and sampling strides must be positive");
+            return report_error("duration and sampling strides must be positive");
         if (!output.empty() && !mapping_enabled)
-            throw std::invalid_argument("--output requires --backend cpu-ray, cuda-ray or cuda-projective");
+            return report_error("--output requires --backend cpu-ray, cuda-ray or cuda-projective");
         if (projective_option_set && !cuda_options.projective)
-            throw std::invalid_argument("projective options require --backend cuda-projective");
+            return report_error("projective options require --backend cuda-projective");
         if (cuda_options.projective && cuda_options.contribution_capacity_set)
-            throw std::invalid_argument("projective mapping uses --projective-candidate-capacity");
+            return report_error("projective mapping uses --projective-candidate-capacity");
+        const auto fusion_selection = validate_ray_fusion_selection(cuda_options.enabled, mapping_enabled, fusion_options);
+        if (!fusion_selection) { std::cerr << fusion_selection.error().message << '\n'; return 2; }
         const auto input = load_dataset(root, input_options);
         const auto finalize = cuda_esdf_finalizer(mapping_options, cuda_options.mapper.device, esdf_options);
         auto mapper_options = mapping_options;
@@ -99,7 +110,14 @@ inline int run_submap_cli(int argc, char** argv)
             else if (cuda_options.enabled) gpu = std::make_unique<cuda_mapper>(mapper_options, cuda_options.mapper);
             else cpu = std::make_unique<cpu_mapper>(mapper_options);
         }
+        if (gpu) {
+            const auto configured = gpu->configure_fusion(fusion_options.mode, fusion_options.short_segment_threshold);
+            if (!configured) { std::cerr << configured.error().message << '\n'; return 2; }
+        }
         const char* backend = projective ? "cuda-projective" : gpu ? "cuda-ray" : "cpu-ray";
+        if (gpu) std::cout << "ray fusion " << cuda_ray_fusion_name(fusion_options.mode)
+                           << ", short threshold " << fusion_options.short_segment_threshold
+                           << ", maximum rays per batch " << cuda_options.mapper.ray_capacity << '\n';
         auto exporter = open_map_export(output, input, mapping_options, backend);
         const auto publish = [&](const submap& completed) { if (exporter) exporter->write(completed); };
         const auto callbacks = projective ? mapping_callbacks(*projective, publish, finalize) :

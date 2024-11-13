@@ -41,6 +41,8 @@ void usage()
               << "  --projective-constant-weight BOOL --projective-weight-dropoff BOOL --projective-sparsity-compensation BOOL\n"
               << "  --projective-voxel-carving BOOL --projective-allow-clear BOOL  BOOL is true or false\n"
               << "  --cuda-device N --cuda-ray-capacity N --cuda-contribution-capacity N --cuda-device-bytes N\n"
+              << "  --ray-fusion serial|weighted-sum|weighted-sum-hybrid|capped-affine|capped-affine-hybrid\n"
+              << "  --ray-fusion-short-segment-threshold N  Inclusive serial threshold for hybrid reducers\n"
               << "  --voxel-size M --truncation-distance M --maximum-ray-length M\n"
               << "  --esdf-generator none|cpu-blocks-batch|cuda-projective-block-band|cuda-blocks-batch  Default cpu-blocks-batch\n"
               << "  --esdf-executor ordered|frontier --esdf-distance full-euclidean|quasi-euclidean\n"
@@ -58,6 +60,10 @@ int main(int argc, char** argv)
 {
     try
     {
+        const auto report_error = [](std::string_view message) {
+            std::cerr << "covoxslam: " << message << '\n';
+            return 2;
+        };
         if (argc >= 2 && std::string_view(argv[1]) == "--submaps")
             return covoxslam::run_submap_cli(argc, argv);
         if (argc == 1 || (argc == 2 && std::string_view(argv[1]) == "--help")) {
@@ -79,15 +85,15 @@ int main(int argc, char** argv)
             const std::string_view option = argv[index];
             if (option != "--dataset" && option != "--frame" && option != "--ring-stride" &&
                 option != "--column-stride" && option != "--point-source" && option != "--verification")
-                throw std::invalid_argument("unknown option: " + std::string(option));
+                return report_error("unknown option: " + std::string(option));
             if (++index >= argc)
-                throw std::invalid_argument(std::string(option) + " needs a value");
+                return report_error(std::string(option) + " needs a value");
              const std::string_view value = argv[index];
             if (option == "--dataset") dataset_path = std::string(value);
             else if (option == "--verification")
             {
                 if (value != "cached" && value != "full")
-                    throw std::invalid_argument("--verification needs cached or full");
+                    return report_error("--verification needs cached or full");
                 input_options.verification = value == "cached" ? covoxslam::dataset_verification_mode::prefer_cache
                     : covoxslam::dataset_verification_mode::force_full;
             }
@@ -103,7 +109,7 @@ int main(int argc, char** argv)
             else if (option == "--point-source")
             {
                 if (value != "raw" && value != "deskewed")
-                    throw std::invalid_argument("--point-source needs raw or deskewed");
+                    return report_error("--point-source needs raw or deskewed");
                 source = value == "raw" ? covoxslam::point_source::raw : covoxslam::point_source::deskewed;
                 sampling_selected = true;
             }
@@ -120,9 +126,9 @@ int main(int argc, char** argv)
                 sampling_selected = true;
             }
         }
-        if (dataset_path.empty()) throw std::invalid_argument("--dataset is required");
+        if (dataset_path.empty()) return report_error("--dataset is required");
         if (sampling_selected && !frame_selected)
-            throw std::invalid_argument("frame sampling options require --frame");
+            return report_error("frame sampling options require --frame");
          const auto dataset = covoxslam::load_dataset(dataset_path, input_options);
         std::cout << "dataset " << dataset.name << '\n'
                   << "frames " << dataset.frames.size() << '\n'
@@ -130,13 +136,13 @@ int main(int argc, char** argv)
         std::cout << "input source " << (dataset.input_source == covoxslam::dataset_input_source::validated_cache
             ? "validated_cache" : "full_scan") << '\n' << "input hash " << dataset.content_fingerprint << '\n';
         if (!frame_selected) return 0;
-        if (frame_index >= dataset.frames.size()) throw std::out_of_range("frame index is out of range");
+        if (frame_index >= dataset.frames.size()) return report_error("frame index is out of range");
         covoxslam::frame_load_options options{};
         options.raw_xyz = source == covoxslam::point_source::raw;
         options.deskewed_xyz = source == covoxslam::point_source::deskewed;
         const auto frame = covoxslam::load_frame(dataset, frame_index, options);
         const auto& points = options.raw_xyz ? frame.raw_xyz : frame.deskewed_xyz;
-        if (points.empty()) throw std::runtime_error("requested point source is unavailable");
+        if (points.empty()) return report_error("requested point source is unavailable");
         const auto rings = sampled_extent(frame.descriptor.rows, ring_stride);
          const auto columns = sampled_extent(frame.descriptor.columns, column_stride);
         std::size_t selected{}, valid{};

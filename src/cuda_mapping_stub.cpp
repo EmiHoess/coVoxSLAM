@@ -80,6 +80,10 @@ cuda_mapper::cuda_mapper(mapping_config, cuda_mapper_options)
 }
 
 cuda_mapper::~cuda_mapper() = default;
+operation_status cuda_mapper::configure_fusion(cuda_ray_fusion_mode, std::uint32_t)
+{
+    return std::unexpected(operation_error{"CUDA ray fusion is unavailable in this build"});
+}
 bool cuda_mapper::is_active() const noexcept { return false; }
 void cuda_mapper::begin(const submap_frame&)
 {
@@ -112,7 +116,7 @@ cuda_site_esdf_statistics build_cuda_site_esdf(const tsdf_tiles&, esdf_tiles&,
 namespace covoxslam
 {
 cuda_voxblox_statistics build_cuda_voxblox_esdf(const tsdf_tiles&, esdf_tiles&,
-    const mapping_config&, const cuda_voxblox_options&)
+    const mapping_config&, const cuda_blocks_options&)
 {
     throw std::runtime_error("CUDA Voxblox ESDF is unavailable in this build");
 }

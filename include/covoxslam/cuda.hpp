@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <covoxslam/result.hpp>
 #include <span>
 #include <string>
 
@@ -94,6 +95,19 @@ public:
 
 namespace covoxslam
 {
+enum class cuda_ray_fusion_mode { serial, weighted_sum, weighted_sum_hybrid, capped_affine, capped_affine_hybrid };
+
+inline const char* cuda_ray_fusion_name(cuda_ray_fusion_mode mode) noexcept
+{
+    switch (mode) {
+    case cuda_ray_fusion_mode::serial: return "serial";
+    case cuda_ray_fusion_mode::weighted_sum: return "weighted-sum";
+    case cuda_ray_fusion_mode::weighted_sum_hybrid: return "weighted-sum-hybrid";
+    case cuda_ray_fusion_mode::capped_affine: return "capped-affine";
+     case cuda_ray_fusion_mode::capped_affine_hybrid: return "capped-affine-hybrid";
+    }
+    return "invalid";
+}
 struct cuda_mapper_options {
     int device{};
     std::size_t ray_capacity{65536};
@@ -114,6 +128,7 @@ public:
     void integrate_scan(std::span<const ray> rays);
     submap finish(const submap_frame& frame);
     bool is_active() const noexcept;
+    operation_status configure_fusion(cuda_ray_fusion_mode mode, std::uint32_t short_segment_threshold = 32);
 }
 ;
 }
@@ -144,14 +159,14 @@ cuda_site_esdf_statistics build_cuda_site_esdf(const tsdf_tiles& tsdf, esdf_tile
 
 namespace covoxslam
 {
-enum class cuda_voxblox_executor { ordered, frontier };
-enum class cuda_voxblox_distance { full_euclidean, quasi_euclidean };
+enum class cuda_blocks_executor { ordered, frontier };
+enum class cuda_blocks_distance { full_euclidean, quasi_euclidean };
 
-struct cuda_voxblox_options
+struct cuda_blocks_options
 {
     int device{};
-    cuda_voxblox_executor executor{cuda_voxblox_executor::ordered};
-     cuda_voxblox_distance distance{cuda_voxblox_distance::full_euclidean};
+    cuda_blocks_executor executor{cuda_blocks_executor::ordered};
+     cuda_blocks_distance distance{cuda_blocks_distance::full_euclidean};
     std::size_t maximum_scratch_bytes{1ULL << 30};
     std::uint64_t maximum_queue_pops{100000000};
     std::uint32_t maximum_rounds{100000};
@@ -170,7 +185,7 @@ struct cuda_voxblox_statistics {
 };
 
 cuda_voxblox_statistics build_cuda_voxblox_esdf(const tsdf_tiles& tsdf, esdf_tiles& esdf,
-    const mapping_config& config, const cuda_voxblox_options& options = {});
+    const mapping_config& config, const cuda_blocks_options& options = {});
 }
 
 namespace covoxslam

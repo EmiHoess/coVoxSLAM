@@ -322,6 +322,7 @@ struct cuda_mapper::implementation
 {
     mapping_config config;
     cuda_mapper_options options;
+    detail::cuda_ray_fusion_options fusion;
     std::unique_ptr<cuda_ray_context> rays;
     std::array<void*, 8> buffers{};
      std::optional<submap_frame> active;
@@ -378,6 +379,16 @@ cuda_mapper::cuda_mapper(mapping_config config, cuda_mapper_options options)
 }
 
 cuda_mapper::~cuda_mapper() = default;
+
+operation_status cuda_mapper::configure_fusion(cuda_ray_fusion_mode mode, std::uint32_t short_segment_threshold)
+{
+    if (state->active) return std::unexpected(operation_error{"cannot change fusion while a submap is active"});
+    const bool hybrid = mode == cuda_ray_fusion_mode::weighted_sum_hybrid || mode == cuda_ray_fusion_mode::capped_affine_hybrid;
+    if (static_cast<unsigned>(mode) > static_cast<unsigned>(cuda_ray_fusion_mode::capped_affine_hybrid) ||
+        (hybrid && !short_segment_threshold)) return std::unexpected(operation_error{"invalid CUDA ray fusion policy"});
+     state->fusion = {static_cast<detail::cuda_ray_fusion_mode>(mode), short_segment_threshold};
+    return {};
+}
 
 void cuda_mapper::begin(const submap_frame& frame)
 {
@@ -479,11 +490,12 @@ void cuda_mapper::integrate_scan(std::span<const ray> rays)
             const auto segments = state->prepare_segments(view);
             auto* status = state->buffer<std::uint32_t>(7) + 1;
             const auto& config = state->config;
-            check_cuda(static_cast<cudaError_t>(detail::cuda_fuse_voxel_segments(view.contributions,
+            check_cuda(static_cast<cudaError_t>(detail::cuda_reduce_voxel_segments(view.contributions,
                 view.count, state->buffer<detail::cuda_voxel_segment>(4), segments,
                 state->buffer<detail::cuda_tile_coordinate>(5), state->buffer<detail::cuda_tsdf_tile>(6),
                 static_cast<std::uint32_t>(state->keys.size()),
-                {config.truncation_distance, config.maximum_weight, config.extraction_distance}, status, stream)));
+                {config.truncation_distance, config.maximum_weight, config.extraction_distance},
+                state->fusion, status, stream)));
             std::uint32_t error{};
             check_cuda(cudaMemcpyAsync(&error, status, sizeof(error), cudaMemcpyDeviceToHost, stream));
             check_cuda(cudaStreamSynchronize(stream));
@@ -678,13 +690,13 @@ cuda_site_esdf_statistics build_cuda_site_esdf(const tsdf_tiles& tsdf, esdf_tile
 namespace covoxslam
 {
 cuda_voxblox_statistics build_cuda_voxblox_esdf(const tsdf_tiles& tsdf, esdf_tiles& esdf,
-    const mapping_config& config, const cuda_voxblox_options& options)
+    const mapping_config& config, const cuda_blocks_options& options)
 {
     const auto start = std::chrono::steady_clock::now();
     const auto difference = options.minimum_difference_m < 0 ? std::max(1.0e-5F, config.voxel_size * 1.0e-3F) : options.minimum_difference_m;
     const detail::cuda_blocks_parameters parameters{config.voxel_size, config.esdf_site_band_m,
         config.esdf_maximum_distance_m, config.esdf_minimum_weight, difference, options.bucket_count,
-        options.distance == cuda_voxblox_distance::full_euclidean};
+        options.distance == cuda_blocks_distance::full_euclidean};
     check_cuda(static_cast<cudaError_t>(detail::cuda_initialize_voxblox(nullptr, nullptr, 0, parameters, {}, nullptr)));
     const auto bytes = detail::voxblox_storage_bytes(tsdf.size(), options);
     if (!config.maximum_tiles || tsdf.size() > config.maximum_tiles) throw std::length_error("CUDA Voxblox tile limit exceeded");
@@ -739,7 +751,7 @@ cuda_voxblox_statistics build_cuda_voxblox_esdf(const tsdf_tiles& tsdf, esdf_til
             throw std::runtime_error("CUDA Voxblox propagation limit exceeded");
         const auto remaining = options.maximum_queue_pops - state.pops;
         int error{};
-        if (options.executor == cuda_voxblox_executor::ordered)
+        if (options.executor == cuda_blocks_executor::ordered)
             error = detail::cuda_propagate_voxblox_ordered(device_keys, tsdf.size(), parameters, work,
                 static_cast<std::uint32_t>(std::min<std::uint64_t>(remaining, options.pops_per_launch)), storage.stream);
         else
