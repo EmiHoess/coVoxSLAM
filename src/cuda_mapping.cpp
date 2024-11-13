@@ -739,7 +739,7 @@ cuda_blocks_statistics build_cuda_blocks_esdf(const tsdf_tiles& tsdf, esdf_tiles
     const detail::cuda_blocks_parameters parameters{config.voxel_size, config.esdf_site_band_m,
         config.esdf_maximum_distance_m, config.esdf_minimum_weight, difference, options.bucket_count,
         options.distance == cuda_blocks_distance::full_euclidean};
-    check_cuda(static_cast<cudaError_t>(detail::cuda_initialize_voxblox(nullptr, nullptr, 0, parameters, {}, nullptr)));
+    check_cuda(static_cast<cudaError_t>(detail::cuda_initialize_blocks(nullptr, nullptr, 0, parameters, {}, nullptr)));
     const auto bytes = detail::voxblox_storage_bytes(tsdf.size(), options);
     if (!config.maximum_tiles || tsdf.size() > config.maximum_tiles) throw std::length_error("CUDA Voxblox tile limit exceeded");
     cuda_blocks_statistics statistics;
@@ -783,9 +783,9 @@ cuda_blocks_statistics build_cuda_blocks_esdf(const tsdf_tiles& tsdf, esdf_tiles
          statistics.downloaded_bytes += sizeof(state);
         if (state.status) throw std::runtime_error("CUDA Voxblox input or state invariant failed");
     };
-    check_cuda(static_cast<cudaError_t>(detail::cuda_initialize_voxblox(device_keys, device_tiles, tsdf.size(), parameters, work, storage.stream)));
+    check_cuda(static_cast<cudaError_t>(detail::cuda_initialize_blocks(device_keys, device_tiles, tsdf.size(), parameters, work, storage.stream)));
     read_state();
-    check_cuda(static_cast<cudaError_t>(detail::cuda_enqueue_voxblox_seeds(values.size(), parameters, work, storage.stream)));
+    check_cuda(static_cast<cudaError_t>(detail::cuda_enqueue_blocks_seeds(values.size(), parameters, work, storage.stream)));
     read_state();
     while (state.size)
     {
@@ -830,7 +830,7 @@ cuda_projective_mapper::cuda_projective_mapper(const sensor& sensor, mapping_con
 {
     static_cast<void>(cpu_mapper(config));
     const auto finite_nonnegative = [](float value) { return std::isfinite(value) && value >= 0; };
-    if ((options.interpolation != cuda_projective_interpolation::nearest &&
+    if (!options.raycast_subsampling_factor || (options.interpolation != cuda_projective_interpolation::nearest &&
          options.interpolation != cuda_projective_interpolation::linear_nearest) ||
         !finite_nonnegative(options.depth_discontinuity_voxels) || !finite_nonnegative(options.nearest_ray_distance_voxels) ||
         !std::isfinite(options.depth_discontinuity_voxels * config.voxel_size) ||
@@ -852,7 +852,7 @@ cuda_projective_mapper::cuda_projective_mapper(const sensor& sensor, mapping_con
         throw std::length_error("projective capacities exceed native limits");
     state->projection = {static_cast<detail::cuda_projective_interpolation>(options.interpolation),
         options.depth_discontinuity_voxels, options.nearest_ray_distance_voxels, options.constant_weight,
-        options.weight_dropoff, options.sparsity_compensation, options.sparsity_compensation_factor};
+        options.weight_dropoff, options.sparsity_compensation, options.sparsity_compensation_factor, options.calibrated_policy};
     state->tracing = {config.voxel_size, config.truncation_distance, config.minimum_ray_length_m,
         config.maximum_ray_length_m, options.voxel_carving, options.allow_clear};
     const auto pixels = state->pixels;
@@ -992,8 +992,10 @@ void cuda_projective_mapper::integrate_scan(std::span<const ray> rays, const pos
     check_cuda(static_cast<cudaError_t>(detail::cuda_build_projective_range_image(device_rays, rays.size(), state->tracing,
         reference, state->calibration, angles, winners, state->pixels, &summary->status, stream)));
     state->checked_summary();
+    const detail::cuda_projective_discovery_options discovery{state->calibration, angles,
+        state->options.calibrated_policy, state->options.calibrated_policy ? state->options.raycast_subsampling_factor : 1U};
     check_cuda(static_cast<cudaError_t>(detail::cuda_count_projective_tiles(device_rays, rays.size(), winners, state->pixels,
-        reference, state->tracing, counts, &summary->status, stream)));
+        reference, state->tracing, counts, &summary->status, stream, discovery)));
     check_cuda(static_cast<cudaError_t>(detail::cuda_scan_counts(counts, offsets, state->buffer<std::uint64_t>(5), state->pixels, stream)));
     check_cuda(static_cast<cudaError_t>(detail::cuda_summarize_ray_contributions(counts, offsets, state->pixels, summary, stream)));
     const auto generated = state->checked_summary();
@@ -1003,7 +1005,7 @@ void cuda_projective_mapper::integrate_scan(std::span<const ray> rays, const pos
     if (generated.contributions) {
         check_cuda(static_cast<cudaError_t>(detail::cuda_emit_projective_tiles(device_rays, rays.size(), winners, state->pixels,
             reference, state->tracing, counts, offsets, state->buffer<detail::cuda_tile_coordinate>(6),
-            state->options.candidate_tile_capacity, &summary->status, stream)));
+            state->options.candidate_tile_capacity, &summary->status, stream, discovery)));
         state->checked_summary();
         const auto selected = state->prepare_tiles(generated.contributions);
         const auto& config = state->config;

@@ -209,6 +209,8 @@ struct cuda_projective_options
     float sparsity_compensation_factor{20};
     bool voxel_carving{true};
     bool allow_clear{};
+    bool calibrated_policy{};
+     std::uint32_t raycast_subsampling_factor{4};
 };
 
 class cuda_projective_mapper

@@ -7,7 +7,7 @@
 
 namespace covoxslam::detail
 {
-bool valid_voxblox_parameters(cuda_blocks_parameters config)
+bool valid_blocks_parameters(cuda_blocks_parameters config)
 {
     return std::isfinite(config.voxel_size) && config.voxel_size > 0 &&
         std::isfinite(config.seed_band_m) && config.seed_band_m >= 0 &&
@@ -19,16 +19,16 @@ bool valid_voxblox_parameters(cuda_blocks_parameters config)
         config.bucket_count >= 2 && config.bucket_count <= 65536;
 }
 
-bool valid_voxblox_workspace(cuda_blocks_workspace work)
+bool valid_blocks_workspace(cuda_blocks_workspace work)
 {
     return work.values && work.next && work.queued && work.heads && work.tails && work.order && work.queue;
 }
 
-int cuda_initialize_voxblox(const cuda_tile_coordinate* keys, const cuda_tsdf_tile* tsdf,
+int cuda_initialize_blocks(const cuda_tile_coordinate* keys, const cuda_tsdf_tile* tsdf,
     std::size_t tile_count, cuda_blocks_parameters config, cuda_blocks_workspace work, void* stream) noexcept
 {
-    if (!valid_voxblox_parameters(config) || tile_count > UINT32_MAX / 512 ||
-        (tile_count && (!keys || !tsdf || !valid_voxblox_workspace(work))))
+    if (!valid_blocks_parameters(config) || tile_count > UINT32_MAX / 512 ||
+        (tile_count && (!keys || !tsdf || !valid_blocks_workspace(work))))
         return static_cast<int>(cudaErrorInvalidValue);
     if (!tile_count) return static_cast<int>(cudaSuccess);
     const auto cuda_stream = static_cast<cudaStream_t>(stream);
@@ -46,10 +46,10 @@ int cuda_initialize_voxblox(const cuda_tile_coordinate* keys, const cuda_tsdf_ti
     return static_cast<int>(cudaGetLastError());
 }
 
-int cuda_enqueue_voxblox_seeds(std::size_t count, cuda_blocks_parameters config,
+int cuda_enqueue_blocks_seeds(std::size_t count, cuda_blocks_parameters config,
     cuda_blocks_workspace work, void* stream) noexcept
 {
-    if (!valid_voxblox_parameters(config) || count > UINT32_MAX || (count && !valid_voxblox_workspace(work)))
+    if (!valid_blocks_parameters(config) || count > UINT32_MAX || (count && !valid_blocks_workspace(work)))
         return static_cast<int>(cudaErrorInvalidValue);
     for (std::size_t begin = 0; begin < count; begin += 262144) {
         const auto end = count - begin < 262144 ? count : begin + 262144;
@@ -68,8 +68,8 @@ namespace covoxslam::detail
 int cuda_propagate_voxblox_ordered(const cuda_tile_coordinate* keys, std::size_t tile_count,
     cuda_blocks_parameters config, cuda_blocks_workspace work, std::uint32_t maximum_pops, void* stream) noexcept
 {
-    if (!valid_voxblox_parameters(config) || !maximum_pops || tile_count > UINT32_MAX / 512 ||
-        (tile_count && (!keys || !valid_voxblox_workspace(work)))) return static_cast<int>(cudaErrorInvalidValue);
+    if (!valid_blocks_parameters(config) || !maximum_pops || tile_count > UINT32_MAX / 512 ||
+        (tile_count && (!keys || !valid_blocks_workspace(work)))) return static_cast<int>(cudaErrorInvalidValue);
     if (!tile_count) return static_cast<int>(cudaSuccess);
     propagate_voxblox_ordered<<<1, 1, 0, static_cast<cudaStream_t>(stream)>>>(keys, tile_count, config, work, maximum_pops);
     const auto completed_error = cudaGetLastError();
@@ -87,8 +87,8 @@ namespace covoxslam::detail
 int cuda_propagate_voxblox_frontier(const cuda_tile_coordinate* keys, std::size_t tile_count,
     cuda_blocks_parameters config, cuda_blocks_workspace work, std::uint32_t capacity, void* stream) noexcept
 {
-    if (!valid_voxblox_parameters(config) || !capacity || capacity > UINT32_MAX / 26 || tile_count > UINT32_MAX / 512 ||
-        (tile_count && (!keys || !valid_voxblox_workspace(work) || !work.sources || !work.winners || !work.proposals)))
+    if (!valid_blocks_parameters(config) || !capacity || capacity > UINT32_MAX / 26 || tile_count > UINT32_MAX / 512 ||
+        (tile_count && (!keys || !valid_blocks_workspace(work) || !work.sources || !work.winners || !work.proposals)))
         return static_cast<int>(cudaErrorInvalidValue);
     if (!tile_count) return static_cast<int>(cudaSuccess);
     const auto cuda_stream = static_cast<cudaStream_t>(stream);
@@ -113,8 +113,8 @@ namespace covoxslam::detail
 int cuda_validate_voxblox(const cuda_tile_coordinate* keys, const cuda_tsdf_tile* tsdf,
     std::size_t tile_count, cuda_blocks_parameters config, cuda_blocks_workspace work, void* stream) noexcept
 {
-    if (!valid_voxblox_parameters(config) || tile_count > UINT32_MAX / 512 ||
-        (tile_count && (!keys || !tsdf || !valid_voxblox_workspace(work)))) return static_cast<int>(cudaErrorInvalidValue);
+    if (!valid_blocks_parameters(config) || tile_count > UINT32_MAX / 512 ||
+        (tile_count && (!keys || !tsdf || !valid_blocks_workspace(work)))) return static_cast<int>(cudaErrorInvalidValue);
     if (!tile_count) return static_cast<int>(cudaSuccess);
     validate_voxblox<<<static_cast<unsigned>((tile_count * 512 + 255) / 256), 256, 0, static_cast<cudaStream_t>(stream)>>>(
         keys, tsdf, tile_count, config, work, true);

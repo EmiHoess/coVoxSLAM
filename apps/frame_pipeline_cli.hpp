@@ -1,7 +1,7 @@
 #pragma once
 
 #include <covoxslam/mapping.hpp>
-#include "projective_cli.hpp"
+#include "projective_policy_cli.hpp"
 #include "ray_fusion_cli.hpp"
 #include "cuda_esdf_cli.hpp"
 #include "map_export_cli.hpp"
@@ -29,6 +29,8 @@ inline int run_submap_cli(int argc, char** argv)
         ray_fusion_cli_options fusion_options;
         cuda_projective_options projective_options;
         bool projective_option_set{};
+        bool projective_policy_option_set{};
+         bool projective_control_set{};
         cuda_blocks_cli_options esdf_options;
         dataset_load_options input_options;
         std::filesystem::path root;
@@ -52,6 +54,9 @@ inline int run_submap_cli(int argc, char** argv)
             const std::string_view option(argv[index]);
             if (index + 1 >= argc) return report_error("missing submap option value");
             const std::string_view value(argv[index + 1]);
+            const auto policy_parsed = parse_projective_policy_option(option, value, projective_options, projective_policy_option_set);
+            if (!policy_parsed) return report_error(policy_parsed.error().message);
+            if (*policy_parsed) continue;
             const auto fusion_parsed = parse_ray_fusion_option(option, value, fusion_options);
             if (!fusion_parsed) { std::cerr << fusion_parsed.error().message << '\n'; return 2; }
             if (*fusion_parsed) continue;
@@ -76,8 +81,10 @@ inline int run_submap_cli(int argc, char** argv)
                 else if (value == "ground_truth") options.pose_source = pose_source::ground_truth;
                 else return report_error("unsupported trajectory source");
             }
-            else if (!parse_projective_option(option, value, projective_options, projective_option_set) &&
-                     !parse_cuda_esdf_option(option, value, esdf_options) &&
+            else if (parse_projective_option(option, value, projective_options, projective_option_set)) {
+                if (option != "--projective-candidate-capacity") projective_control_set = true;
+            }
+            else if (!parse_cuda_esdf_option(option, value, esdf_options) &&
                      !parse_cuda_mapping_option(option, value, mapping_options, mapping_enabled, cuda_options) &&
                      !parse_mapping_option(option, value, mapping_options, mapping_enabled))
                 return report_error("unsupported submap option");
@@ -89,6 +96,10 @@ inline int run_submap_cli(int argc, char** argv)
             return report_error("--output requires --backend cpu-ray, cuda-ray or cuda-projective");
         if (projective_option_set && !cuda_options.projective)
             return report_error("projective options require --backend cuda-projective");
+        if (projective_policy_option_set && !cuda_options.calibrated_policy)
+            return report_error("projective raycast factor requires --backend cuda-projective-calibrated");
+        if (cuda_options.calibrated_policy && projective_control_set)
+            return report_error("calibrated policy uses fixed sampling and weighting controls");
         if (cuda_options.projective && cuda_options.contribution_capacity_set)
             return report_error("projective mapping uses --projective-candidate-capacity");
         const auto fusion_selection = validate_ray_fusion_selection(cuda_options.enabled, mapping_enabled, fusion_options);
@@ -102,6 +113,7 @@ inline int run_submap_cli(int argc, char** argv)
         std::unique_ptr<cuda_projective_mapper> projective;
         if (mapping_enabled) {
             if (cuda_options.projective) {
+                projective_options.calibrated_policy = cuda_options.calibrated_policy;
                 projective_options.device = cuda_options.mapper.device;
                 projective_options.maximum_device_bytes = cuda_options.mapper.maximum_device_bytes;
                 if (cuda_options.ray_capacity_set) projective_options.ray_capacity = cuda_options.mapper.ray_capacity;
@@ -115,6 +127,8 @@ inline int run_submap_cli(int argc, char** argv)
             if (!configured) { std::cerr << configured.error().message << '\n'; return 2; }
         }
         const char* backend = projective ? "cuda-projective" : gpu ? "cuda-ray" : "cpu-ray";
+        if (cuda_options.calibrated_policy) backend = "cuda-projective-calibrated";
+        if (cuda_options.calibrated_policy) std::cout << "projective raycast factor " << projective_options.raycast_subsampling_factor << '\n';
         if (gpu) std::cout << "ray fusion " << cuda_ray_fusion_name(fusion_options.mode)
                            << ", short threshold " << fusion_options.short_segment_threshold
                            << ", maximum rays per batch " << cuda_options.mapper.ray_capacity << '\n';

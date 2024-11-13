@@ -11,6 +11,7 @@ struct cuda_mapping_cli_options
 {
     bool enabled{};
     bool projective{};
+     bool calibrated_policy{};
     bool ray_capacity_set{};
     bool contribution_capacity_set{};
     cuda_mapper_options mapper;
@@ -20,11 +21,12 @@ inline bool parse_cuda_mapping_option(std::string_view name, std::string_view va
     mapping_config& config, bool& enabled, cuda_mapping_cli_options& options)
 {
     if (name == "--backend") {
-        if (value != "cpu-ray" && value != "cuda-ray" && value != "cuda-projective")
+        if (value != "cpu-ray" && value != "cuda-ray" && value != "cuda-projective" && value != "cuda-projective-calibrated")
             throw std::invalid_argument("unsupported mapping backend");
         enabled = true;
         options.enabled = value == "cuda-ray";
-        options.projective = value == "cuda-projective";
+        options.calibrated_policy = value == "cuda-projective-calibrated";
+        options.projective = value == "cuda-projective" || options.calibrated_policy;
         return true;
     }
     if (name != "--cuda-device" && name != "--cuda-ray-capacity" &&

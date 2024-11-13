@@ -13,6 +13,16 @@ inline constexpr cli_option_entry<ray_fusion_option> ray_fusion_options[]{
 };
 static_assert(valid_cli_options(ray_fusion_options));
 
+enum class ray_fusion_value { unknown, serial, weighted_sum, weighted_sum_hybrid, capped_affine, capped_affine_hybrid };
+inline constexpr cli_option_entry<ray_fusion_value> ray_fusion_values[]{
+    {"serial", ray_fusion_value::serial},
+    {"weighted-sum", ray_fusion_value::weighted_sum},
+     {"weighted-sum-hybrid", ray_fusion_value::weighted_sum_hybrid},
+    {"capped-affine", ray_fusion_value::capped_affine},
+    {"capped-affine-hybrid", ray_fusion_value::capped_affine_hybrid}
+};
+static_assert(valid_cli_options(ray_fusion_values));
+
 struct ray_fusion_cli_options {
     cuda_ray_fusion_mode mode{cuda_ray_fusion_mode::serial};
     std::uint32_t short_segment_threshold{32};
@@ -26,12 +36,15 @@ inline operation_result<bool> parse_ray_fusion_option(std::string_view name, std
     switch (lookup_cli_option(name, ray_fusion_options))
     {
     case ray_fusion_option::mode:
-        if (value == "serial") selection.mode = cuda_ray_fusion_mode::serial;
-        else if (value == "weighted-sum") selection.mode = cuda_ray_fusion_mode::weighted_sum;
-        else if (value == "weighted-sum-hybrid") selection.mode = cuda_ray_fusion_mode::weighted_sum_hybrid;
-        else if (value == "capped-affine") selection.mode = cuda_ray_fusion_mode::capped_affine;
-         else if (value == "capped-affine-hybrid") selection.mode = cuda_ray_fusion_mode::capped_affine_hybrid;
-        else return std::unexpected(operation_error{"unsupported ray fusion policy"});
+        switch (lookup_cli_option(value, ray_fusion_values))
+        {
+        case ray_fusion_value::serial: selection.mode = cuda_ray_fusion_mode::serial; break;
+        case ray_fusion_value::weighted_sum: selection.mode = cuda_ray_fusion_mode::weighted_sum; break;
+        case ray_fusion_value::weighted_sum_hybrid: selection.mode = cuda_ray_fusion_mode::weighted_sum_hybrid; break;
+        case ray_fusion_value::capped_affine: selection.mode = cuda_ray_fusion_mode::capped_affine; break;
+         case ray_fusion_value::capped_affine_hybrid: selection.mode = cuda_ray_fusion_mode::capped_affine_hybrid; break;
+        case ray_fusion_value::unknown: return std::unexpected(operation_error{"unsupported ray fusion policy"});
+        }
         selection.mode_set = true;
         break;
     case ray_fusion_option::threshold:
