@@ -1,9 +1,18 @@
 #pragma once
 
 #include "cuda_mapping_cli.hpp"
+#include "cli_lookup.hpp"
 
 namespace covoxslam
 {
+enum class ray_fusion_option { unknown, mode, threshold };
+
+inline constexpr cli_option_entry<ray_fusion_option> ray_fusion_options[]{
+    {"--ray-fusion", ray_fusion_option::mode},
+     {"--ray-fusion-short-segment-threshold", ray_fusion_option::threshold}
+};
+static_assert(valid_cli_options(ray_fusion_options));
+
 struct ray_fusion_cli_options {
     cuda_ray_fusion_mode mode{cuda_ray_fusion_mode::serial};
     std::uint32_t short_segment_threshold{32};
@@ -14,7 +23,9 @@ struct ray_fusion_cli_options {
 inline operation_result<bool> parse_ray_fusion_option(std::string_view name, std::string_view value,
     ray_fusion_cli_options& selection)
 {
-    if (name == "--ray-fusion") {
+    switch (lookup_cli_option(name, ray_fusion_options))
+    {
+    case ray_fusion_option::mode:
         if (value == "serial") selection.mode = cuda_ray_fusion_mode::serial;
         else if (value == "weighted-sum") selection.mode = cuda_ray_fusion_mode::weighted_sum;
         else if (value == "weighted-sum-hybrid") selection.mode = cuda_ray_fusion_mode::weighted_sum_hybrid;
@@ -22,8 +33,8 @@ inline operation_result<bool> parse_ray_fusion_option(std::string_view name, std
          else if (value == "capped-affine-hybrid") selection.mode = cuda_ray_fusion_mode::capped_affine_hybrid;
         else return std::unexpected(operation_error{"unsupported ray fusion policy"});
         selection.mode_set = true;
-    }
-    else if (name == "--ray-fusion-short-segment-threshold")
+        break;
+    case ray_fusion_option::threshold:
     {
         std::uint32_t threshold{};
         const auto parsed = std::from_chars(value.data(), value.data() + value.size(), threshold);
@@ -31,8 +42,11 @@ inline operation_result<bool> parse_ray_fusion_option(std::string_view name, std
             return std::unexpected(operation_error{"expected a positive ray fusion threshold"});
         selection.short_segment_threshold = threshold;
          selection.threshold_set = true;
+        break;
     }
-    else return false;
+    case ray_fusion_option::unknown:
+        return false;
+    }
     return true;
 }
 

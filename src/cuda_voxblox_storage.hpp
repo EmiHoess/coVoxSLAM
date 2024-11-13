@@ -48,10 +48,10 @@ struct voxblox_storage
         return static_cast<value_type*>(buffers[index]);
     }
     cuda_blocks_workspace workspace() const noexcept {
-        return {buffer<cuda_voxblox_voxel>(2), buffer<std::uint32_t>(3), buffer<std::uint32_t>(4),
+        return {buffer<cuda_blocks_voxel>(2), buffer<std::uint32_t>(3), buffer<std::uint32_t>(4),
             buffer<std::uint32_t>(6), buffer<std::uint32_t>(7), buffer<std::uint32_t>(5),
-            buffer<std::uint32_t>(10), buffer<std::uint32_t>(9), buffer<cuda_voxblox_proposal>(11),
-            buffer<cuda_voxblox_queue>(8)};
+            buffer<std::uint32_t>(10), buffer<std::uint32_t>(9), buffer<cuda_blocks_proposal>(11),
+            buffer<cuda_blocks_queue>(8)};
     }
 };
 
@@ -67,9 +67,9 @@ inline std::array<std::size_t, 12> voxblox_storage_bytes(std::size_t tile_count,
     const std::size_t count = tile_count * 512;
     const std::size_t frontier = options.executor == cuda_blocks_executor::frontier ? options.frontier_capacity : 0;
     const std::array<std::size_t, 12> bytes{tile_count * sizeof(cuda_tile_coordinate), tile_count * sizeof(cuda_tsdf_tile),
-        count * sizeof(cuda_voxblox_voxel), count * 4, count * 4, count * 4,
-        std::size_t(options.bucket_count) * 4, std::size_t(options.bucket_count) * 4, sizeof(cuda_voxblox_queue),
-        frontier ? count * 4 : 0, frontier * 4, frontier * 26 * sizeof(cuda_voxblox_proposal)};
+        count * sizeof(cuda_blocks_voxel), count * 4, count * 4, count * 4,
+        std::size_t(options.bucket_count) * 4, std::size_t(options.bucket_count) * 4, sizeof(cuda_blocks_queue),
+        frontier ? count * 4 : 0, frontier * 4, frontier * 26 * sizeof(cuda_blocks_proposal)};
     std::size_t total{};
     for (const auto size : bytes) {
         if (size > options.maximum_scratch_bytes - total) throw std::length_error("CUDA Voxblox scratch budget exceeded");

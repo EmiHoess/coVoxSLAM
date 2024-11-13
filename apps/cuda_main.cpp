@@ -4,14 +4,15 @@
 #include <chrono>
 #include <iostream>
 #include <limits>
-#include <stdexcept>
 #include <string_view>
 #include <vector>
 
 int main(int argc, char** argv)
 {
-    try
-    {
+    const auto report_error = [](std::string_view message) {
+        std::cerr << "covoxslam_cuda: " << message << '\n';
+        return 1;
+    };
         int device{};
         std::size_t count{4096};
          for (int index = 1; index < argc; ++index) {
@@ -22,15 +23,15 @@ int main(int argc, char** argv)
                 return 0;
             }
             if ((option != "--device" && option != "--scan-count") || ++index >= argc)
-                throw std::invalid_argument("expected --device or --scan-count and its value");
+                return report_error("expected --device or --scan-count and its value");
             const std::string_view text(argv[index]);
             std::size_t value{};
             const auto parsed = std::from_chars(text.data(), text.data() + text.size(), value);
              if (parsed.ec != std::errc{} || parsed.ptr != text.data() + text.size())
-                throw std::invalid_argument("expected an unsigned decimal integer");
+                return report_error("expected an unsigned decimal integer");
             if (option == "--device") {
                 if (value > static_cast<std::size_t>(std::numeric_limits<int>::max()))
-                    throw std::invalid_argument("device index exceeds its integer range");
+                    return report_error("device index exceeds its integer range");
                 device = static_cast<int>(value);
             }
             else count = value;
@@ -56,10 +57,4 @@ int main(int argc, char** argv)
                   << "upload ms " << timing.upload_ms << ", scan ms " << timing.scan_ms
                    << ", download ms " << timing.download_ms << ", wall ms " << elapsed << '\n';
         return 0;
-    }
-    catch (const std::exception& error)
-    {
-        std::cerr << "covoxslam_cuda: " << error.what() << '\n';
-        return 1;
-    }
 }

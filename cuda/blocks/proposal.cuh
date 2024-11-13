@@ -4,11 +4,11 @@
 
 namespace covoxslam::detail
 {
-__device__ cuda_voxblox_proposal voxblox_proposal(std::uint32_t source_index, unsigned ordinal,
+__device__ cuda_blocks_proposal voxblox_proposal(std::uint32_t source_index, unsigned ordinal,
     const cuda_tile_coordinate* keys, std::size_t tile_count, cuda_blocks_parameters config,
     cuda_blocks_workspace work)
 {
-    cuda_voxblox_proposal result;
+    cuda_blocks_proposal result;
     const auto source = work.values[source_index];
     if (!(source.flags & 1U) || fabsf(source.distance_m) >= config.maximum_distance_m) return result;
     const unsigned cell = ordinal + (ordinal >= 13 ? 1 : 0);
@@ -48,7 +48,7 @@ __device__ cuda_voxblox_proposal voxblox_proposal(std::uint32_t source_index, un
     return result;
 }
 
-__device__ bool voxblox_accept(const cuda_voxblox_proposal& proposal,
+__device__ bool voxblox_accept(const cuda_blocks_proposal& proposal,
     cuda_blocks_parameters config, cuda_blocks_workspace work)
 {
     auto& target = work.values[proposal.target];

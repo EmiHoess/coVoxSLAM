@@ -1,6 +1,7 @@
 #pragma once
 
 #include "bracket.cuh"
+#include "discovery_sampling.cuh"
 #include <cfloat>
 #include <climits>
 
@@ -84,10 +85,10 @@ __global__ void visit_projective_tiles(const cuda_device_ray* rays, std::size_t 
     if (pixel >= pixel_count) return;
     if constexpr (!emit) output_counts[pixel] = 0;
     if (atomicAdd(status, 0U)) return;
-    if (options.calibrated_rays) {
-        const auto row = pixel / options.calibration.columns, column = pixel % options.calibration.columns;
-        if ((row % options.factor && row + 1 != options.calibration.rings) ||
-            (column % options.factor && column + 1 != options.calibration.columns)) return;
+    if (options.calibrated_rays && !projective_discovery_pixel_selected(pixel,
+        options.calibration.rings, options.calibration.columns, options.factor)) {
+        if constexpr (emit) { if (counts[pixel]) atomicOr(status, 4U); }
+        return;
     }
     const auto count = walk_projective_tiles<emit>(rays, ray_count, winners[pixel], pose, parameters, keys,
         emit ? offsets[pixel] : 0, emit ? counts[pixel] : 0, capacity, status, pixel, options);

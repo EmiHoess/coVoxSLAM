@@ -753,7 +753,7 @@ cuda_blocks_statistics build_cuda_blocks_esdf(const tsdf_tiles& tsdf, esdf_tiles
     std::sort(order.begin(), order.end(), block_index_less);
     std::vector<detail::cuda_tile_coordinate> keys;
     std::vector<detail::cuda_tsdf_tile> tiles(tsdf.size());
-    std::vector<detail::cuda_voxblox_voxel> values(tsdf.size() * 512);
+    std::vector<detail::cuda_blocks_voxel> values(tsdf.size() * 512);
     for (std::size_t slot = 0; slot < order.size(); ++slot)
     {
         const auto key = order[slot];
@@ -776,7 +776,7 @@ cuda_blocks_statistics build_cuda_blocks_esdf(const tsdf_tiles& tsdf, esdf_tiles
     check_cuda(cudaMemcpyAsync(device_tiles, tiles.data(), bytes[1], cudaMemcpyHostToDevice, storage.stream));
     check_cuda(cudaMemcpyAsync(storage.buffers[5], canonical.data(), bytes[5], cudaMemcpyHostToDevice, storage.stream));
     statistics.uploaded_bytes = bytes[0] + bytes[1] + bytes[5];
-    detail::cuda_voxblox_queue state;
+    detail::cuda_blocks_queue state;
     const auto read_state = [&] {
         check_cuda(cudaMemcpyAsync(&state, work.queue, sizeof(state), cudaMemcpyDeviceToHost, storage.stream));
         check_cuda(cudaStreamSynchronize(storage.stream));

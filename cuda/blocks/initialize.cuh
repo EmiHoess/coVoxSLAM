@@ -22,7 +22,7 @@ __global__ void initialize_voxblox(const cuda_tile_coordinate* keys, const cuda_
         atomicOr(&work.queue->status, 1U);
         return;
     }
-    cuda_voxblox_voxel value;
+    cuda_blocks_voxel value;
     if ((source.flags & 1U) && source.weight >= config.minimum_weight)
     {
         value.flags = 1U | (source.distance <= 0 ? 2U : 0U);

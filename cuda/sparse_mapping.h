@@ -163,7 +163,7 @@ int cuda_relax_site_esdf_neighbors(const cuda_tile_coordinate* keys, std::size_t
 
 namespace covoxslam::detail
 {
-struct cuda_voxblox_voxel
+struct cuda_blocks_voxel
 {
     float distance_m{};
     std::int32_t parent[3]{};
@@ -180,13 +180,13 @@ struct cuda_blocks_parameters {
     bool full_euclidean{true};
 };
 
-struct cuda_voxblox_queue
+struct cuda_blocks_queue
 {
     std::uint32_t size{}, cursor{}, status{}, frontier_count{};
     std::uint64_t pushes{}, pops{}, accepted{}, relaxations{}, eligible{}, seeds{};
 };
 
-struct cuda_voxblox_proposal {
+struct cuda_blocks_proposal {
     std::uint32_t target{UINT32_MAX};
     float source_distance_m{}, step_distance_m{};
      std::int32_t parent[3]{};
@@ -194,7 +194,7 @@ struct cuda_voxblox_proposal {
 
 struct cuda_blocks_workspace
 {
-    cuda_voxblox_voxel* values{};
+    cuda_blocks_voxel* values{};
     std::uint32_t* next{};
     std::uint32_t* queued{};
     std::uint32_t* heads{};
@@ -202,12 +202,12 @@ struct cuda_blocks_workspace
     const std::uint32_t* order{};
     std::uint32_t* sources{};
     std::uint32_t* winners{};
-    cuda_voxblox_proposal* proposals{};
-    cuda_voxblox_queue* queue{};
+    cuda_blocks_proposal* proposals{};
+    cuda_blocks_queue* queue{};
 };
 
-static_assert(sizeof(cuda_voxblox_voxel) == 20 && sizeof(cuda_voxblox_queue) == 64);
-static_assert(sizeof(cuda_voxblox_proposal) == 24);
+static_assert(sizeof(cuda_blocks_voxel) == 20 && sizeof(cuda_blocks_queue) == 64);
+static_assert(sizeof(cuda_blocks_proposal) == 24);
 int cuda_initialize_voxblox(const cuda_tile_coordinate* keys, const cuda_tsdf_tile* tsdf,
     std::size_t tile_count, cuda_blocks_parameters config, cuda_blocks_workspace work, void* stream) noexcept;
 int cuda_enqueue_voxblox_seeds(std::size_t count, cuda_blocks_parameters config,

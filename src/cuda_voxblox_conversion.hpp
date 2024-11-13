@@ -9,7 +9,7 @@
 namespace covoxslam::detail
 {
 inline esdf_tiles convert_cuda_voxblox(std::span<const cuda_tile_coordinate> keys,
-    std::span<const cuda_tsdf_tile> input, std::span<const cuda_voxblox_voxel> values, cuda_blocks_parameters config)
+    std::span<const cuda_tsdf_tile> input, std::span<const cuda_blocks_voxel> values, cuda_blocks_parameters config)
 {
     if (keys.size() > UINT32_MAX / tile_voxels || input.size() != keys.size() ||
         values.size() != keys.size() * tile_voxels) throw std::invalid_argument("invalid Voxblox conversion shape");
