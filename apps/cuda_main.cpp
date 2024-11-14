@@ -1,4 +1,5 @@
 #include <covoxslam/cuda.hpp>
+#include "cuda_options.hpp"
 
 #include <charconv>
 #include <chrono>
@@ -17,7 +18,8 @@ int main(int argc, char** argv)
         std::size_t count{4096};
          for (int index = 1; index < argc; ++index) {
             const std::string_view option(argv[index]);
-            if (option == "--help")
+            const auto option_id = covoxslam::lookup_cli_option(option, covoxslam::cuda_cli_options);
+            if (option_id == covoxslam::cuda_cli_option::help)
             {
                 std::cout << "Usage: covoxslam_cuda [--device N] [--scan-count N]\n";
                 return 0;

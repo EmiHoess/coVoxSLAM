@@ -212,11 +212,11 @@ int cuda_initialize_blocks(const cuda_tile_coordinate* keys, const cuda_tsdf_til
     std::size_t tile_count, cuda_blocks_parameters config, cuda_blocks_workspace work, void* stream) noexcept;
 int cuda_enqueue_blocks_seeds(std::size_t count, cuda_blocks_parameters config,
     cuda_blocks_workspace work, void* stream) noexcept;
-int cuda_propagate_voxblox_ordered(const cuda_tile_coordinate* keys, std::size_t tile_count,
+int cuda_propagate_blocks_ordered(const cuda_tile_coordinate* keys, std::size_t tile_count,
     cuda_blocks_parameters config, cuda_blocks_workspace work, std::uint32_t maximum_pops, void* stream) noexcept;
-int cuda_propagate_voxblox_frontier(const cuda_tile_coordinate* keys, std::size_t tile_count,
+int cuda_propagate_blocks_frontier(const cuda_tile_coordinate* keys, std::size_t tile_count,
     cuda_blocks_parameters config, cuda_blocks_workspace work, std::uint32_t capacity, void* stream) noexcept;
-int cuda_validate_voxblox(const cuda_tile_coordinate* keys, const cuda_tsdf_tile* tsdf,
+int cuda_validate_blocks(const cuda_tile_coordinate* keys, const cuda_tsdf_tile* tsdf,
     std::size_t tile_count, cuda_blocks_parameters config, cuda_blocks_workspace work, void* stream) noexcept;
 }
 

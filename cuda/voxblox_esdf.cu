@@ -65,7 +65,7 @@ int cuda_enqueue_blocks_seeds(std::size_t count, cuda_blocks_parameters config,
 
 namespace covoxslam::detail
 {
-int cuda_propagate_voxblox_ordered(const cuda_tile_coordinate* keys, std::size_t tile_count,
+int cuda_propagate_blocks_ordered(const cuda_tile_coordinate* keys, std::size_t tile_count,
     cuda_blocks_parameters config, cuda_blocks_workspace work, std::uint32_t maximum_pops, void* stream) noexcept
 {
     if (!valid_blocks_parameters(config) || !maximum_pops || tile_count > UINT32_MAX / 512 ||
@@ -84,7 +84,7 @@ int cuda_propagate_voxblox_ordered(const cuda_tile_coordinate* keys, std::size_t
 
 namespace covoxslam::detail
 {
-int cuda_propagate_voxblox_frontier(const cuda_tile_coordinate* keys, std::size_t tile_count,
+int cuda_propagate_blocks_frontier(const cuda_tile_coordinate* keys, std::size_t tile_count,
     cuda_blocks_parameters config, cuda_blocks_workspace work, std::uint32_t capacity, void* stream) noexcept
 {
     if (!valid_blocks_parameters(config) || !capacity || capacity > UINT32_MAX / 26 || tile_count > UINT32_MAX / 512 ||
@@ -110,7 +110,7 @@ int cuda_propagate_voxblox_frontier(const cuda_tile_coordinate* keys, std::size_
 
 namespace covoxslam::detail
 {
-int cuda_validate_voxblox(const cuda_tile_coordinate* keys, const cuda_tsdf_tile* tsdf,
+int cuda_validate_blocks(const cuda_tile_coordinate* keys, const cuda_tsdf_tile* tsdf,
     std::size_t tile_count, cuda_blocks_parameters config, cuda_blocks_workspace work, void* stream) noexcept
 {
     if (!valid_blocks_parameters(config) || tile_count > UINT32_MAX / 512 ||

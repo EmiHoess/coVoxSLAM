@@ -794,16 +794,16 @@ cuda_blocks_statistics build_cuda_blocks_esdf(const tsdf_tiles& tsdf, esdf_tiles
         const auto remaining = options.maximum_queue_pops - state.pops;
         int error{};
         if (options.executor == cuda_blocks_executor::ordered)
-            error = detail::cuda_propagate_voxblox_ordered(device_keys, tsdf.size(), parameters, work,
+            error = detail::cuda_propagate_blocks_ordered(device_keys, tsdf.size(), parameters, work,
                 static_cast<std::uint32_t>(std::min<std::uint64_t>(remaining, options.pops_per_launch)), storage.stream);
         else
-            error = detail::cuda_propagate_voxblox_frontier(device_keys, tsdf.size(), parameters, work,
+            error = detail::cuda_propagate_blocks_frontier(device_keys, tsdf.size(), parameters, work,
                 static_cast<std::uint32_t>(std::min<std::uint64_t>(remaining, options.frontier_capacity)), storage.stream);
         check_cuda(static_cast<cudaError_t>(error));
          ++statistics.rounds;
         read_state();
     }
-    check_cuda(static_cast<cudaError_t>(detail::cuda_validate_voxblox(device_keys, device_tiles, tsdf.size(), parameters, work, storage.stream)));
+    check_cuda(static_cast<cudaError_t>(detail::cuda_validate_blocks(device_keys, device_tiles, tsdf.size(), parameters, work, storage.stream)));
     read_state();
     check_cuda(cudaMemcpyAsync(values.data(), work.values, bytes[2], cudaMemcpyDeviceToHost, storage.stream));
     check_cuda(cudaStreamSynchronize(storage.stream));
