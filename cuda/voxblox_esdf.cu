@@ -53,7 +53,7 @@ int cuda_enqueue_blocks_seeds(std::size_t count, cuda_blocks_parameters config,
         return static_cast<int>(cudaErrorInvalidValue);
     for (std::size_t begin = 0; begin < count; begin += 262144) {
         const auto end = count - begin < 262144 ? count : begin + 262144;
-        enqueue_voxblox_seeds<<<1, 1, 0, static_cast<cudaStream_t>(stream)>>>(count, begin, end, config, work);
+        enqueue_blocks_seeds<<<1, 1, 0, static_cast<cudaStream_t>(stream)>>>(count, begin, end, config, work);
          const auto error = cudaGetLastError();
         if (error != cudaSuccess) return static_cast<int>(error);
     }

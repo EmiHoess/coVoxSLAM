@@ -19,12 +19,17 @@ int main(int argc, char** argv)
          for (int index = 1; index < argc; ++index) {
             const std::string_view option(argv[index]);
             const auto option_id = covoxslam::lookup_cli_option(option, covoxslam::cuda_cli_options);
-            if (option_id == covoxslam::cuda_cli_option::help)
+            switch (option_id)
             {
+            case covoxslam::cuda_cli_option::help:
                 std::cout << "Usage: covoxslam_cuda [--device N] [--scan-count N]\n";
                 return 0;
+            case covoxslam::cuda_cli_option::unknown:
+                return report_error("expected --device or --scan-count and its value");
+            case covoxslam::cuda_cli_option::device:
+            case covoxslam::cuda_cli_option::scan_count: break;
             }
-            if ((option != "--device" && option != "--scan-count") || ++index >= argc)
+            if (++index >= argc)
                 return report_error("expected --device or --scan-count and its value");
             const std::string_view text(argv[index]);
             std::size_t value{};

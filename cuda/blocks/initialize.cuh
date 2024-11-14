@@ -26,7 +26,7 @@ __global__ void initialize_voxblox(const cuda_tile_coordinate* keys, const cuda_
     if ((source.flags & 1U) && source.weight >= config.minimum_weight)
     {
         value.flags = 1U | (source.distance <= 0 ? 2U : 0U);
-        value.distance_m = static_cast<float>(voxblox_sign(source.distance)) * config.maximum_distance_m;
+        value.distance_m = static_cast<float>(blocks_sign(source.distance)) * config.maximum_distance_m;
         if (fabsf(source.distance) < config.seed_band_m) {
             value.distance_m = source.distance;
             value.flags |= 4U;

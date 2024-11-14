@@ -66,10 +66,10 @@ __device__ bool voxblox_accept(const cuda_blocks_proposal& proposal,
     }
     else
     {
-        const float potential = source - static_cast<float>(voxblox_sign(source)) * step;
+        const float potential = source - static_cast<float>(blocks_sign(source)) * step;
         if (fabsf(potential - target.distance_m) > step) {
-            candidate = voxblox_sign(potential) == voxblox_sign(target.distance_m) ? potential :
-                static_cast<float>(voxblox_sign(target.distance_m)) * step;
+            candidate = blocks_sign(potential) == blocks_sign(target.distance_m) ? potential :
+                static_cast<float>(blocks_sign(target.distance_m)) * step;
             update = true;
         }
     }

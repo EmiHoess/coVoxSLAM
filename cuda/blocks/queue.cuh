@@ -5,12 +5,12 @@
 
 namespace covoxslam::detail
 {
-__device__ int voxblox_sign(float value)
+__device__ int blocks_sign(float value)
 {
     return value == 0 ? 0 : value < 0 ? -1 : 1;
 }
 
-__device__ void voxblox_push(std::uint32_t voxel, cuda_blocks_parameters config,
+__device__ void blocks_push(std::uint32_t voxel, cuda_blocks_parameters config,
     cuda_blocks_workspace work)
 {
     if (work.queued[voxel]) return;
@@ -28,7 +28,7 @@ __device__ void voxblox_push(std::uint32_t voxel, cuda_blocks_parameters config,
     ++work.queue->pushes;
 }
 
-__device__ std::uint32_t voxblox_pop(cuda_blocks_parameters config, cuda_blocks_workspace work)
+__device__ std::uint32_t blocks_pop(cuda_blocks_parameters config, cuda_blocks_workspace work)
 {
     while (work.queue->cursor < config.bucket_count && work.heads[work.queue->cursor] == UINT32_MAX)
         ++work.queue->cursor;
@@ -50,14 +50,14 @@ __device__ std::uint32_t voxblox_pop(cuda_blocks_parameters config, cuda_blocks_
     return voxel;
 }
 
-__global__ void enqueue_voxblox_seeds(std::size_t count, std::size_t begin, std::size_t end, cuda_blocks_parameters config,
+__global__ void enqueue_blocks_seeds(std::size_t count, std::size_t begin, std::size_t end, cuda_blocks_parameters config,
     cuda_blocks_workspace work)
 {
     if (blockIdx.x || threadIdx.x || work.queue->status) return;
     for (std::size_t rank = begin; rank < end; ++rank) {
         const auto voxel = work.order[rank];
         if (voxel >= count) { work.queue->status |= 1U; return; }
-         if ((work.values[voxel].flags & 5U) == 5U) voxblox_push(voxel, config, work);
+         if ((work.values[voxel].flags & 5U) == 5U) blocks_push(voxel, config, work);
     }
 }
 }

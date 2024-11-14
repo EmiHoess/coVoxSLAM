@@ -23,6 +23,7 @@ struct cuda_resident_hash_entry
 struct cuda_resident_contribution {
     std::uint64_t order{};
     float distance{}, weight{};
+    std::uint32_t input_index{};
 };
 
 struct cuda_resident_state
@@ -49,6 +50,17 @@ struct cuda_resident_view
 };
 
 static_assert(sizeof(cuda_resident_hash_entry) == 16);
-static_assert(sizeof(cuda_resident_contribution) == 16);
+static_assert(sizeof(cuda_resident_contribution) == 24);
+inline bool valid_resident_view(cuda_resident_view view) noexcept
+{
+    return view.state && view.hash && view.keys && view.tiles && view.counts && view.cursors &&
+        view.offsets && view.block_sums && view.contributions && view.contribution_capacity &&
+        view.tile_capacity && view.tile_capacity <= UINT32_MAX / 512 && view.hash_capacity &&
+        !(view.hash_capacity & (view.hash_capacity - 1));
+}
+
 int cuda_initialize_resident_map(cuda_resident_view view, void* stream) noexcept;
+int cuda_begin_resident_batch(cuda_resident_view view, void* stream) noexcept;
+int cuda_walk_resident_rays(cuda_resident_view view, const cuda_device_ray* rays, std::size_t count,
+    cuda_ray_parameters parameters, unsigned stage, void* stream) noexcept;
 }
