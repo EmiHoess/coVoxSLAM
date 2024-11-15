@@ -740,7 +740,7 @@ cuda_blocks_statistics build_cuda_blocks_esdf(const tsdf_tiles& tsdf, esdf_tiles
         config.esdf_maximum_distance_m, config.esdf_minimum_weight, difference, options.bucket_count,
         options.distance == cuda_blocks_distance::full_euclidean};
     check_cuda(static_cast<cudaError_t>(detail::cuda_initialize_blocks(nullptr, nullptr, 0, parameters, {}, nullptr)));
-    const auto bytes = detail::voxblox_storage_bytes(tsdf.size(), options);
+    const auto bytes = detail::blocks_storage_bytes(tsdf.size(), options);
     if (!config.maximum_tiles || tsdf.size() > config.maximum_tiles) throw std::length_error("CUDA Voxblox tile limit exceeded");
     cuda_blocks_statistics statistics;
     for (const auto size : bytes) statistics.scratch_bytes += size;
@@ -764,8 +764,8 @@ cuda_blocks_statistics build_cuda_blocks_esdf(const tsdf_tiles& tsdf, esdf_tiles
              tiles[slot].voxels[local] = {voxel.distance, voxel.weight, voxel.sample_count, voxel.flags};
         }
     }
-    const auto canonical = detail::voxblox_canonical_order(keys);
-    detail::voxblox_storage storage;
+    const auto canonical = detail::blocks_canonical_order(keys);
+    detail::blocks_storage storage;
     check_cuda(cudaStreamCreateWithFlags(&storage.stream, cudaStreamNonBlocking));
     for (std::size_t index = 0; index < bytes.size(); ++index)
         if (bytes[index]) check_cuda(cudaMalloc(&storage.buffers[index], bytes[index]));
@@ -808,7 +808,7 @@ cuda_blocks_statistics build_cuda_blocks_esdf(const tsdf_tiles& tsdf, esdf_tiles
     check_cuda(cudaMemcpyAsync(values.data(), work.values, bytes[2], cudaMemcpyDeviceToHost, storage.stream));
     check_cuda(cudaStreamSynchronize(storage.stream));
     statistics.downloaded_bytes += bytes[2];
-    auto completed = detail::convert_cuda_voxblox(keys, tiles, values, parameters);
+    auto completed = detail::convert_cuda_blocks(keys, tiles, values, parameters);
     statistics.queue_pushes = state.pushes;
     statistics.queue_pops = state.pops;
     statistics.accepted_updates = state.accepted;

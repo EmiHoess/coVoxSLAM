@@ -5,6 +5,7 @@
 #include "ray_fusion_cli.hpp"
 #include "cuda_esdf_cli.hpp"
 #include "map_export_cli.hpp"
+#include "resident_cli.hpp"
 
 #include <charconv>
 #include <iomanip>
@@ -26,6 +27,7 @@ inline int run_submap_cli(int argc, char** argv)
         mapping_config mapping_options;
         bool mapping_enabled{};
         cuda_mapping_cli_options cuda_options;
+        resident_cli_options resident_options;
         ray_fusion_cli_options fusion_options;
         cuda_projective_options projective_options;
         bool projective_option_set{};
@@ -54,6 +56,16 @@ inline int run_submap_cli(int argc, char** argv)
             const std::string_view option(argv[index]);
             if (index + 1 >= argc) return report_error("missing submap option value");
             const std::string_view value(argv[index + 1]);
+            const auto resident_parsed = parse_resident_option(option, value, resident_options);
+
+            if (!resident_parsed) return report_error(resident_parsed.error().message);
+            if (*resident_parsed) {
+                if (option == "--backend") {
+                    mapping_enabled = true;
+                    cuda_options.enabled = cuda_options.projective = cuda_options.calibrated_policy = false;
+                }
+                continue;
+            }
             const auto policy_parsed = parse_projective_policy_option(option, value, projective_options, projective_policy_option_set);
             if (!policy_parsed) return report_error(policy_parsed.error().message);
             if (*policy_parsed) continue;
@@ -104,6 +116,11 @@ inline int run_submap_cli(int argc, char** argv)
             return report_error("projective mapping uses --projective-candidate-capacity");
         const auto fusion_selection = validate_ray_fusion_selection(cuda_options.enabled, mapping_enabled, fusion_options);
         if (!fusion_selection) { std::cerr << fusion_selection.error().message << '\n'; return 2; }
+
+        if (resident_options.specified && !resident_options.selected)
+            return report_error("resident capacities require --backend cuda-ray-resident");
+        if (resident_options.selected && (cuda_options.ray_capacity_set || cuda_options.contribution_capacity_set))
+            return report_error("use --resident-rays and --resident-contributions with resident mapping");
         const auto input = load_dataset(root, input_options);
         const auto finalize = cuda_esdf_finalizer(mapping_options, cuda_options.mapper.device, esdf_options);
         auto mapper_options = mapping_options;
@@ -111,8 +128,19 @@ inline int run_submap_cli(int argc, char** argv)
         std::unique_ptr<cpu_mapper> cpu;
         std::unique_ptr<cuda_mapper> gpu;
         std::unique_ptr<cuda_projective_mapper> projective;
+        std::unique_ptr<cuda_resident_context> resident;
+        std::optional<operation_error> resident_failure;
         if (mapping_enabled) {
-            if (cuda_options.projective) {
+            if (resident_options.selected)
+            {
+                resident_options.mapper.device = cuda_options.mapper.device;
+                resident_options.mapper.maximum_device_bytes = cuda_options.mapper.maximum_device_bytes;
+                auto created = cuda_resident_context::create(mapper_options, resident_options.mapper);
+
+                if (!created) return report_error(created.error().message);
+                resident = std::move(*created);
+            }
+            else if (cuda_options.projective) {
                 projective_options.calibrated_policy = cuda_options.calibrated_policy;
                 projective_options.device = cuda_options.mapper.device;
                 projective_options.maximum_device_bytes = cuda_options.mapper.maximum_device_bytes;
@@ -127,6 +155,7 @@ inline int run_submap_cli(int argc, char** argv)
             if (!configured) { std::cerr << configured.error().message << '\n'; return 2; }
         }
         const char* backend = projective ? "cuda-projective" : gpu ? "cuda-ray" : "cpu-ray";
+        if (resident) backend = "cuda-ray-resident";
         if (cuda_options.calibrated_policy) backend = "cuda-projective-calibrated";
         if (cuda_options.calibrated_policy) std::cout << "projective raycast factor " << projective_options.raycast_subsampling_factor << '\n';
         if (gpu) std::cout << "ray fusion " << cuda_ray_fusion_name(fusion_options.mode)
@@ -134,10 +163,13 @@ inline int run_submap_cli(int argc, char** argv)
                            << ", maximum rays per batch " << cuda_options.mapper.ray_capacity << '\n';
         auto exporter = open_map_export(output, input, mapping_options, backend);
         const auto publish = [&](const submap& completed) { if (exporter) exporter->write(completed); };
-        const auto callbacks = projective ? mapping_callbacks(*projective, publish, finalize) :
+        const auto callbacks = resident ? resident_callbacks(*resident, mapping_options, resident_failure, publish, finalize) :
+            projective ? mapping_callbacks(*projective, publish, finalize) :
             gpu ? mapping_callbacks(*gpu, publish, finalize) :
             cpu ? mapping_callbacks(*cpu, publish, finalize) : pipeline_callbacks{};
         const auto result = run_frame_pipeline(input, options, callbacks);
+
+        if (result.cancelled) return report_error(resident_failure ? resident_failure->message : "mapping cancelled");
         if (exporter) exporter->finish();
         std::cout << std::setprecision(17);
         for (const auto& submap : result.submaps) {

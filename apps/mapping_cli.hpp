@@ -1,6 +1,7 @@
 #pragma once
 
 #include <covoxslam/mapping.hpp>
+#include "cli_lookup.hpp"
 
 #include <charconv>
 #include <cmath>
@@ -10,6 +11,20 @@
 
 namespace covoxslam
 {
+enum class mapping_option
+{
+    unknown, backend, esdf_generator, esdf_maximum_distance, esdf_site_band,
+     esdf_minimum_weight, voxel_size, truncation_distance, minimum_ray_length, maximum_ray_length, maximum_weight
+};
+inline constexpr cli_option_entry<mapping_option> mapping_options[]{
+    {"--backend", mapping_option::backend}, {"--esdf-generator", mapping_option::esdf_generator},
+    {"--esdf-maximum-distance", mapping_option::esdf_maximum_distance},
+     {"--esdf-site-band", mapping_option::esdf_site_band}, {"--esdf-minimum-weight", mapping_option::esdf_minimum_weight},
+    {"--voxel-size", mapping_option::voxel_size}, {"--truncation-distance", mapping_option::truncation_distance},
+    {"--minimum-ray-length", mapping_option::minimum_ray_length},
+    {"--maximum-ray-length", mapping_option::maximum_ray_length}, {"--maximum-weight", mapping_option::maximum_weight}
+};
+
 inline float mapping_scalar(std::string_view text)
 {
     float result{};

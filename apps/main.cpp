@@ -38,6 +38,7 @@ void usage()
               << "  --submaps --dataset PATH --backend cpu-ray|cuda-ray|cuda-projective  Build local TSDF maps\n"
               << "  --projective-interpolation nearest|linear-nearest --projective-candidate-capacity N\n"
               << "  --backend cuda-projective-calibrated --projective-raycast-subsampling-factor N  Default factor 4\n"
+              << "  --backend cuda-ray-resident --resident-tiles N --resident-rays N --resident-contributions N  Bounded resident mapping\n"
               << "  --projective-depth-discontinuity N --projective-nearest-ray-distance N --projective-sparsity-factor N\n"
               << "  --projective-constant-weight BOOL --projective-weight-dropoff BOOL --projective-sparsity-compensation BOOL\n"
               << "  --projective-voxel-carving BOOL --projective-allow-clear BOOL  BOOL is true or false\n"

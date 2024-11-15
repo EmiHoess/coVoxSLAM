@@ -7,7 +7,7 @@
 
 namespace covoxslam::detail
 {
-inline std::vector<std::uint32_t> voxblox_canonical_order(std::span<const cuda_tile_coordinate> keys)
+inline std::vector<std::uint32_t> blocks_canonical_order(std::span<const cuda_tile_coordinate> keys)
 {
     std::map<std::tuple<int, int, int>, std::array<std::uint32_t, 8>> blocks;
     const auto divide = [](int value) { return value / 2 - (value % 2 < 0 ? 1 : 0); };
@@ -30,14 +30,14 @@ inline std::vector<std::uint32_t> voxblox_canonical_order(std::span<const cuda_t
     return order;
 }
 
-struct voxblox_storage
+struct blocks_storage
 {
     cudaStream_t stream{};
     std::array<void*, 12> buffers{};
-    voxblox_storage() = default;
-    voxblox_storage(const voxblox_storage&) = delete;
-    voxblox_storage& operator=(const voxblox_storage&) = delete;
-    ~voxblox_storage()
+    blocks_storage() = default;
+    blocks_storage(const blocks_storage&) = delete;
+    blocks_storage& operator=(const blocks_storage&) = delete;
+    ~blocks_storage()
     {
         if (stream) cudaStreamSynchronize(stream);
         for (auto buffer : buffers) if (buffer) cudaFree(buffer);
@@ -55,7 +55,7 @@ struct voxblox_storage
     }
 };
 
-inline std::array<std::size_t, 12> voxblox_storage_bytes(std::size_t tile_count, const cuda_blocks_options& options)
+inline std::array<std::size_t, 12> blocks_storage_bytes(std::size_t tile_count, const cuda_blocks_options& options)
 {
     if (!options.maximum_queue_pops || !options.maximum_rounds || !options.pops_per_launch ||
         options.pops_per_launch > 65536 || !options.frontier_capacity || options.frontier_capacity > 65536 ||

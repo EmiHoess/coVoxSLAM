@@ -8,7 +8,7 @@
 
 namespace covoxslam::detail
 {
-inline esdf_tiles convert_cuda_voxblox(std::span<const cuda_tile_coordinate> keys,
+inline esdf_tiles convert_cuda_blocks(std::span<const cuda_tile_coordinate> keys,
     std::span<const cuda_tsdf_tile> input, std::span<const cuda_blocks_voxel> values, cuda_blocks_parameters config)
 {
     if (keys.size() > UINT32_MAX / tile_voxels || input.size() != keys.size() ||
