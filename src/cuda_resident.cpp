@@ -1,6 +1,7 @@
 #include "cuda_resident_internal.hpp"
 #include <bit>
 #include <chrono>
+#include <cmath>
 
 namespace covoxslam
 {
@@ -169,5 +170,78 @@ operation_result<cuda_resident_statistics> cuda_resident_context::flush()
     statistics.mapping.integration_ms += std::chrono::duration<double, std::milli>(
         std::chrono::steady_clock::now() - start).count();
     return statistics;
+}
+
+operation_result<tsdf_tiles> cuda_resident_context::download()
+{
+    const auto completed = flush();
+
+    if (!completed) return std::unexpected(completed.error());
+    auto& data = *state;
+    data.failed = true;
+    const auto count = completed->mapping.allocated_tiles;
+
+    if (count > data.options.tile_capacity)
+        return std::unexpected(operation_error{"resident tile count exceeds its capacity"});
+    std::vector<detail::cuda_tile_coordinate> keys(static_cast<std::size_t>(count));
+    std::vector<detail::cuda_tsdf_tile> tiles(keys.size());
+    operation_status status;
+    if (count) {
+        status = data.check(cudaMemcpyAsync(keys.data(), data.view.keys, keys.size() * sizeof(keys[0]), cudaMemcpyDeviceToHost, data.stream));
+
+        if (status) status = data.check(cudaMemcpyAsync(tiles.data(), data.view.tiles, tiles.size() * sizeof(tiles[0]), cudaMemcpyDeviceToHost, data.stream));
+        if (status) {
+            ++data.statistics.explicit_waits;
+            status = data.check(cudaStreamSynchronize(data.stream));
+        }
+    }
+
+    if (!status) return std::unexpected(status.error());
+    tsdf_tiles result;
+    result.reserve(keys.size());
+
+    for (std::size_t index = 0; index < keys.size(); ++index)
+    {
+        const auto key = keys[index];
+        constexpr int bound = 1 << 20;
+
+        if (key.x < -bound || key.x >= bound || key.y < -bound || key.y >= bound || key.z < -bound || key.z >= bound)
+            return std::unexpected(operation_error{"resident tile coordinate is unsupported"});
+        tsdf_tile tile;
+
+        for (std::size_t local = 0; local < tile_voxels; ++local) {
+            const auto& source = tiles[index].voxels[local];
+
+            if (!std::isfinite(source.distance) || !std::isfinite(source.weight) || source.weight < 0 ||
+                source.weight > data.config.maximum_weight || (source.flags & ~3U) ||
+                std::abs(source.distance) > data.config.truncation_distance)
+                return std::unexpected(operation_error{"invalid resident TSDF voxel"});
+             tile.voxels[local] = {source.distance, source.weight, source.sample_count, source.flags};
+        }
+        if (!result.emplace(int3{key.x, key.y, key.z}, std::move(tile)).second)
+            return std::unexpected(operation_error{"duplicate resident tile coordinate"});
+    }
+    data.statistics.mapping.cuda_downloaded_bytes += keys.size() * sizeof(keys[0]) + tiles.size() * sizeof(tiles[0]);
+    data.failed = false;
+    return result;
+}
+
+operation_status cuda_resident_context::reset()
+{
+    auto& data = *state;
+    data.failed = true;
+    auto status = data.check(cudaSetDevice(data.options.device));
+
+    if (status) status = data.check(cudaStreamSynchronize(data.stream));
+    if (status) status = data.check(detail::cuda_initialize_resident_map(data.view, data.stream));
+
+    if (status) status = data.check(cudaStreamSynchronize(data.stream));
+    if (!status) return status;
+
+    for (auto& slot : data.staging) slot.pending = false;
+    data.next_slot = 0;
+    data.statistics = {};
+     data.failed = false;
+    return {};
 }
 }

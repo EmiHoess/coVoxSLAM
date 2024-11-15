@@ -19,4 +19,12 @@ operation_result<cuda_resident_statistics> cuda_resident_context::flush()
 {
     return std::unexpected(operation_error{"resident mapping requires a CUDA enabled build"});
 }
+operation_result<tsdf_tiles> cuda_resident_context::download()
+{
+    return std::unexpected(operation_error{"resident mapping requires a CUDA enabled build"});
+}
+operation_status cuda_resident_context::reset()
+{
+    return std::unexpected(operation_error{"resident mapping requires a CUDA enabled build"});
+}
 }

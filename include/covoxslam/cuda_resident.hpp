@@ -36,5 +36,7 @@ public:
     std::size_t device_bytes() const noexcept;
     operation_status submit(std::span<const ray> rays);
     operation_result<cuda_resident_statistics> flush();
+    operation_result<tsdf_tiles> download();
+    operation_status reset();
 };
 }
