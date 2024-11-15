@@ -11,4 +11,12 @@ operation_result<std::unique_ptr<cuda_resident_context>> cuda_resident_context::
 {
     return std::unexpected(operation_error{"resident mapping requires a CUDA enabled build"});
 }
+operation_status cuda_resident_context::submit(std::span<const ray>)
+{
+    return std::unexpected(operation_error{"resident mapping requires a CUDA enabled build"});
+}
+operation_result<cuda_resident_statistics> cuda_resident_context::flush()
+{
+    return std::unexpected(operation_error{"resident mapping requires a CUDA enabled build"});
+}
 }

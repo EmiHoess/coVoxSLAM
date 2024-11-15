@@ -15,6 +15,13 @@ struct cuda_resident_options
     bool allow_clear{};
 };
 
+struct cuda_resident_statistics
+{
+    mapping_statistics mapping;
+    std::uint64_t batches{}, explicit_waits{};
+     std::uint32_t maximum_segment_length{};
+};
+
 class cuda_resident_context
 {
     struct implementation;
@@ -27,5 +34,7 @@ public:
     cuda_resident_context(const cuda_resident_context&) = delete;
      cuda_resident_context& operator=(const cuda_resident_context&) = delete;
     std::size_t device_bytes() const noexcept;
+    operation_status submit(std::span<const ray> rays);
+    operation_result<cuda_resident_statistics> flush();
 };
 }

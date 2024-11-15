@@ -17,6 +17,14 @@ struct cuda_resident_context::implementation
     std::array<void*, 12> allocations{};
     std::size_t allocation_count{}, bytes{};
     bool failed{};
+    struct staging_slot {
+        detail::cuda_device_ray* rays{};
+        cudaEvent_t complete{};
+        bool pending{};
+    };
+    std::array<staging_slot, 4> staging{};
+    std::size_t next_slot{};
+    cuda_resident_statistics statistics;
 
     operation_status check(int code)
     {
@@ -46,6 +54,12 @@ struct cuda_resident_context::implementation
     {
         cudaSetDevice(options.device);
         if (stream) cudaStreamSynchronize(stream);
+
+        for (auto& slot : staging) {
+
+            if (slot.complete) cudaEventDestroy(slot.complete);
+            if (slot.rays) cudaFreeHost(slot.rays);
+        }
 
         for (auto allocation : allocations)
 
