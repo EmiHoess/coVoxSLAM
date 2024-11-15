@@ -41,7 +41,7 @@ int cuda_initialize_blocks(const cuda_tile_coordinate* keys, const cuda_tsdf_til
     if (error != cudaSuccess) return static_cast<int>(error);
      error = cudaMemsetAsync(work.queue, 0, sizeof(*work.queue), cuda_stream);
     if (error != cudaSuccess) return static_cast<int>(error);
-    initialize_voxblox<<<static_cast<unsigned>((count + 255) / 256), 256, 0, cuda_stream>>>(
+    initialize_blocks<<<static_cast<unsigned>((count + 255) / 256), 256, 0, cuda_stream>>>(
         keys, tsdf, tile_count, config, work);
     return static_cast<int>(cudaGetLastError());
 }
@@ -71,10 +71,10 @@ int cuda_propagate_blocks_ordered(const cuda_tile_coordinate* keys, std::size_t 
     if (!valid_blocks_parameters(config) || !maximum_pops || tile_count > UINT32_MAX / 512 ||
         (tile_count && (!keys || !valid_blocks_workspace(work)))) return static_cast<int>(cudaErrorInvalidValue);
     if (!tile_count) return static_cast<int>(cudaSuccess);
-    propagate_voxblox_ordered<<<1, 1, 0, static_cast<cudaStream_t>(stream)>>>(keys, tile_count, config, work, maximum_pops);
+    propagate_blocks_ordered<<<1, 1, 0, static_cast<cudaStream_t>(stream)>>>(keys, tile_count, config, work, maximum_pops);
     const auto completed_error = cudaGetLastError();
     if (completed_error != cudaSuccess) return static_cast<int>(completed_error);
-    validate_voxblox<<<static_cast<unsigned>((tile_count * 512 + 255) / 256), 256, 0, static_cast<cudaStream_t>(stream)>>>(
+    validate_blocks<<<static_cast<unsigned>((tile_count * 512 + 255) / 256), 256, 0, static_cast<cudaStream_t>(stream)>>>(
         keys, nullptr, tile_count, config, work, false);
      return static_cast<int>(cudaGetLastError());
 }
@@ -92,17 +92,17 @@ int cuda_propagate_blocks_frontier(const cuda_tile_coordinate* keys, std::size_t
         return static_cast<int>(cudaErrorInvalidValue);
     if (!tile_count) return static_cast<int>(cudaSuccess);
     const auto cuda_stream = static_cast<cudaStream_t>(stream);
-    dequeue_voxblox_frontier<<<1, 1, 0, cuda_stream>>>(config, work, capacity);
+    dequeue_blocks_frontier<<<1, 1, 0, cuda_stream>>>(config, work, capacity);
     auto error = cudaGetLastError();
     if (error != cudaSuccess) return static_cast<int>(error);
     const auto blocks = static_cast<unsigned>((std::uint64_t(capacity) * 26 + 255) / 256);
-    propose_voxblox_frontier<<<blocks, 256, 0, cuda_stream>>>(keys, tile_count, config, work);
+    propose_blocks_frontier<<<blocks, 256, 0, cuda_stream>>>(keys, tile_count, config, work);
      error = cudaGetLastError();
     if (error != cudaSuccess) return static_cast<int>(error);
-    commit_voxblox_frontier<<<1, 1, 0, cuda_stream>>>(config, work);
+    commit_blocks_frontier<<<1, 1, 0, cuda_stream>>>(config, work);
     const auto completed_error = cudaGetLastError();
     if (completed_error != cudaSuccess) return static_cast<int>(completed_error);
-    validate_voxblox<<<static_cast<unsigned>((tile_count * 512 + 255) / 256), 256, 0, static_cast<cudaStream_t>(stream)>>>(
+    validate_blocks<<<static_cast<unsigned>((tile_count * 512 + 255) / 256), 256, 0, static_cast<cudaStream_t>(stream)>>>(
         keys, nullptr, tile_count, config, work, false);
     return static_cast<int>(cudaGetLastError());
 }
@@ -116,7 +116,7 @@ int cuda_validate_blocks(const cuda_tile_coordinate* keys, const cuda_tsdf_tile*
     if (!valid_blocks_parameters(config) || tile_count > UINT32_MAX / 512 ||
         (tile_count && (!keys || !tsdf || !valid_blocks_workspace(work)))) return static_cast<int>(cudaErrorInvalidValue);
     if (!tile_count) return static_cast<int>(cudaSuccess);
-    validate_voxblox<<<static_cast<unsigned>((tile_count * 512 + 255) / 256), 256, 0, static_cast<cudaStream_t>(stream)>>>(
+    validate_blocks<<<static_cast<unsigned>((tile_count * 512 + 255) / 256), 256, 0, static_cast<cudaStream_t>(stream)>>>(
         keys, tsdf, tile_count, config, work, true);
     return static_cast<int>(cudaGetLastError());
 }

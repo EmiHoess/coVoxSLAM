@@ -5,7 +5,7 @@
 
 namespace covoxslam::detail
 {
-__global__ void initialize_voxblox(const cuda_tile_coordinate* keys, const cuda_tsdf_tile* tsdf,
+__global__ void initialize_blocks(const cuda_tile_coordinate* keys, const cuda_tsdf_tile* tsdf,
     std::size_t tile_count, cuda_blocks_parameters config, cuda_blocks_workspace work)
 {
     const auto index = static_cast<std::size_t>(blockIdx.x) * blockDim.x + threadIdx.x;

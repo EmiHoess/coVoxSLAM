@@ -36,12 +36,16 @@ int main(int argc, char** argv)
             const auto parsed = std::from_chars(text.data(), text.data() + text.size(), value);
              if (parsed.ec != std::errc{} || parsed.ptr != text.data() + text.size())
                 return report_error("expected an unsigned decimal integer");
-            if (option == "--device") {
+            switch (option_id) {
+            case covoxslam::cuda_cli_option::device:
+
                 if (value > static_cast<std::size_t>(std::numeric_limits<int>::max()))
                     return report_error("device index exceeds its integer range");
                 device = static_cast<int>(value);
+                break;
+            case covoxslam::cuda_cli_option::scan_count: count = value; break;
+            default: return report_error("expected --device or --scan-count and its value");
             }
-            else count = value;
         }
         const auto queried = covoxslam::query_cuda_device_checked(device);
         if (!queried) { std::cerr << "covoxslam_cuda: " << queried.error().message << '\n'; return 1; }

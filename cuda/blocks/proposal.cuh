@@ -4,7 +4,7 @@
 
 namespace covoxslam::detail
 {
-__device__ cuda_blocks_proposal voxblox_proposal(std::uint32_t source_index, unsigned ordinal,
+__device__ cuda_blocks_proposal blocks_proposal(std::uint32_t source_index, unsigned ordinal,
     const cuda_tile_coordinate* keys, std::size_t tile_count, cuda_blocks_parameters config,
     cuda_blocks_workspace work)
 {
@@ -48,7 +48,7 @@ __device__ cuda_blocks_proposal voxblox_proposal(std::uint32_t source_index, uns
     return result;
 }
 
-__device__ bool voxblox_accept(const cuda_blocks_proposal& proposal,
+__device__ bool blocks_accept(const cuda_blocks_proposal& proposal,
     cuda_blocks_parameters config, cuda_blocks_workspace work)
 {
     auto& target = work.values[proposal.target];
