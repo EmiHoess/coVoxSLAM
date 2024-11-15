@@ -57,6 +57,12 @@ pipeline_result run_frame_pipeline(
     if (!options.submap_duration_ns || !options.ring_stride || !options.column_stride)
         throw std::invalid_argument("invalid submap duration or sampling strides");
      pipeline_result result;
+    const auto stop_requested = [&] {
+        result.cancelled = result.cancelled || (callbacks.cancelled && callbacks.cancelled());
+        return result.cancelled;
+    };
+
+    if (stop_requested()) return result;
     if (input.frames.empty()) return result;
     const auto trajectory = pose_stream(input, options.pose_source);
     if (trajectory.empty()) throw std::invalid_argument("selected trajectory is empty");
@@ -65,11 +71,15 @@ pipeline_result run_frame_pipeline(
     const auto finish = [&]
     {
         if (callbacks.finish) callbacks.finish(current);
+
+        if (stop_requested()) return;
         result.submaps.push_back(std::move(current));
         active = false;
     }
     ;
     for (std::size_t index = 0; index < input.frames.size(); ++index) {
+
+        if (stop_requested()) return result;
         if (options.maximum_frames && result.frames_loaded >= options.maximum_frames)
             break;
         const auto& descriptor = input.frames[index];
@@ -80,6 +90,7 @@ pipeline_result run_frame_pipeline(
             options.submap_duration_ns)
         {
             finish();
+            if (result.cancelled) return result;
             if (options.maximum_submaps && result.submaps.size() >= options.maximum_submaps)
                 break;
         }
@@ -91,6 +102,8 @@ pipeline_result run_frame_pipeline(
              current.initial_pose = sample_pose(trajectory, descriptor.start_stamp_ns);
             current.anchor = to_pose4(current.initial_pose);
             if (callbacks.begin) callbacks.begin(current);
+
+            if (stop_requested()) return result;
             active = true;
         }
         const auto frame = load_frame(input, index);
@@ -100,6 +113,8 @@ pipeline_result run_frame_pipeline(
             sample_pose(trajectory, descriptor.start_stamp_ns));
         if (callbacks.integrate_scan)
             callbacks.integrate_scan(current, descriptor, rays, scan_pose);
+
+        if (stop_requested()) return result;
         current.frame_ids.push_back(descriptor.frame_id);
          current.end_stamp_ns = std::max(current.end_stamp_ns, frame.beam_stamp_ns(
             ((descriptor.columns - 1) / options.column_stride) * options.column_stride));

@@ -61,6 +61,7 @@ inline bool valid_resident_view(cuda_resident_view view) noexcept
 }
 
 int cuda_initialize_resident_map(cuda_resident_view view, void* stream) noexcept;
+int cuda_restore_resident_keys(cuda_resident_view view, std::uint32_t count, void* stream) noexcept;
 int cuda_begin_resident_batch(cuda_resident_view view, void* stream) noexcept;
 int cuda_finish_resident_batch(cuda_resident_view view, cuda_fusion_parameters parameters, void* stream) noexcept;
 int cuda_walk_resident_rays(cuda_resident_view view, const cuda_device_ray* rays, std::size_t count,

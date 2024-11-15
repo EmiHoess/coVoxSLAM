@@ -6,6 +6,27 @@ namespace covoxslam::detail
 {
 namespace
 {
+__global__ void restore_resident_keys(cuda_resident_view view, std::uint32_t count)
+{
+    const auto index = static_cast<std::uint32_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+    if (!index) view.state->tile_count = count;
+
+    if (index >= count) return;
+    const auto key = resident_key(view.keys[index]);
+    if (key == UINT64_MAX) { atomicOr(&view.state->error, resident_coordinate_error); return; }
+    auto bucket = static_cast<std::uint32_t>(resident_hash(key) & (view.hash_capacity - 1));
+
+    for (std::uint32_t probe = 0; probe < view.hash_capacity; ++probe)
+    {
+        const auto previous = atomicCAS(reinterpret_cast<unsigned long long*>(&view.hash[bucket].key), UINT64_MAX, key);
+
+        if (previous == UINT64_MAX) { view.hash[bucket].slot = index; return; }
+        if (previous == key) { atomicOr(&view.state->error, resident_scatter_error); return; }
+         bucket = (bucket + 1) & (view.hash_capacity - 1);
+    }
+    atomicOr(&view.state->error, resident_hash_capacity_error);
+}
+
 __global__ void initialize_resident_map(cuda_resident_view view)
 {
     const auto index = static_cast<std::size_t>(blockIdx.x) * blockDim.x + threadIdx.x;
@@ -37,6 +58,14 @@ int cuda_initialize_resident_map(cuda_resident_view view, void* stream) noexcept
     const auto voxels = static_cast<std::size_t>(view.tile_capacity) * 512;
     const auto count = voxels > view.hash_capacity ? voxels : view.hash_capacity;
      initialize_resident_map<<<static_cast<unsigned>((count + 255) / 256), 256, 0, static_cast<cudaStream_t>(stream)>>>(view);
+    return static_cast<int>(cudaGetLastError());
+}
+
+int cuda_restore_resident_keys(cuda_resident_view view, std::uint32_t count, void* stream) noexcept
+{
+
+    if (!valid_resident_view(view) || count > view.tile_capacity) return static_cast<int>(cudaErrorInvalidValue);
+    restore_resident_keys<<<count ? (count + 255) / 256 : 1, 256, 0, static_cast<cudaStream_t>(stream)>>>(view, count);
     return static_cast<int>(cudaGetLastError());
 }
 

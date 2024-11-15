@@ -38,5 +38,6 @@ public:
     operation_result<cuda_resident_statistics> flush();
     operation_result<tsdf_tiles> download();
     operation_status reset();
+    operation_status restore(const tsdf_tiles& tiles);
 };
 }

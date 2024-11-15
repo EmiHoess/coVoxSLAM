@@ -45,12 +45,14 @@ struct pipeline_callbacks
     std::function<void(const submap_frame&, const frame_descriptor&,
                        std::span<const ray>, const pose&)> integrate_scan;
     std::function<void(const submap_frame&)> finish;
+    std::function<bool()> cancelled;
 };
 
 struct pipeline_result {
     std::size_t frames_loaded{};
      std::size_t rays_generated{};
     std::vector<submap_frame> submaps;
+    bool cancelled{};
 }
 ;
 

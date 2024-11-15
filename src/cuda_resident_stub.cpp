@@ -27,4 +27,8 @@ operation_status cuda_resident_context::reset()
 {
     return std::unexpected(operation_error{"resident mapping requires a CUDA enabled build"});
 }
+operation_status cuda_resident_context::restore(const tsdf_tiles&)
+{
+    return std::unexpected(operation_error{"resident mapping requires a CUDA enabled build"});
+}
 }
