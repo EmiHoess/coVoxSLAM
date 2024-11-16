@@ -14,6 +14,7 @@ struct cuda_resident_options
     std::size_t maximum_device_bytes{2ULL << 30};
     bool voxel_carving{true};
     bool allow_clear{};
+    cuda_resident_order order{cuda_resident_order::ordered};
 };
 
 struct cuda_resident_statistics

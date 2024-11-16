@@ -26,6 +26,12 @@ inline constexpr cli_option_entry<mapping_option> mapping_options[]{
     {"--maximum-ray-length", mapping_option::maximum_ray_length}, {"--maximum-weight", mapping_option::maximum_weight}
 };
 
+enum class esdf_value { unknown, none, cpu_blocks, projective_band, blocks_batch };
+inline constexpr cli_option_entry<esdf_value> esdf_values[]{
+    {"none", esdf_value::none}, {"cpu-blocks-batch", esdf_value::cpu_blocks},
+     {"cuda-projective-block-band", esdf_value::projective_band}, {"cuda-blocks-batch", esdf_value::blocks_batch}
+};
+
 inline float mapping_scalar(std::string_view text)
 {
     float result{};
@@ -45,17 +51,19 @@ inline operation_result<bool> parse_mapping_option(std::string_view name, std::s
         if (value != "cpu-ray") return std::unexpected(operation_error{"unsupported mapping backend"});
         enabled = true;
         return true;
+    case mapping_option::esdf_generator:
+        switch (lookup_cli_option(value, esdf_values))
+        {
+        case esdf_value::none: config.esdf_generator = esdf_backend::none; break;
+        case esdf_value::cpu_blocks: config.esdf_generator = esdf_backend::cpu_blocks_batch; break;
+        case esdf_value::projective_band: config.esdf_generator = esdf_backend::cuda_projective_block_band; break;
+         case esdf_value::blocks_batch: config.esdf_generator = esdf_backend::cuda_blocks_batch; break;
+        case esdf_value::unknown: return std::unexpected(operation_error{"unsupported ESDF generator"});
+        }
+        return true;
     default: break;
     }
-    if (name == "--esdf-generator")
-    {
-        if (value == "none") config.esdf_generator = esdf_backend::none;
-        else if (value == "cpu-blocks-batch") config.esdf_generator = esdf_backend::cpu_blocks_batch;
-        else if (value == "cuda-projective-block-band") config.esdf_generator = esdf_backend::cuda_projective_block_band;
-        else if (value == "cuda-blocks-batch") config.esdf_generator = esdf_backend::cuda_blocks_batch;
-        else throw std::invalid_argument("unsupported ESDF generator");
-    }
-    else if (name == "--esdf-maximum-distance") config.esdf_maximum_distance_m = mapping_scalar(value);
+    if (name == "--esdf-maximum-distance") config.esdf_maximum_distance_m = mapping_scalar(value);
     else if (name == "--esdf-site-band") config.esdf_site_band_m = mapping_scalar(value);
     else if (name == "--esdf-minimum-weight") config.esdf_minimum_weight = mapping_scalar(value);
     else if (name == "--voxel-size") config.voxel_size = mapping_scalar(value);

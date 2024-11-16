@@ -1,6 +1,6 @@
 #pragma once
 
-#include "cuda_voxblox_conversion.hpp"
+#include "cuda_blocks_conversion.hpp"
 #include <array>
 #include <map>
 #include <tuple>

@@ -15,7 +15,8 @@ operation_result<std::unique_ptr<cuda_resident_context>> cuda_resident_context::
 {
 
     if (!config.valid() || !options.tile_capacity || options.tile_capacity > UINT32_MAX / 512 ||
-        options.tile_capacity > config.maximum_tiles || !options.ray_capacity || !options.contribution_capacity)
+        options.tile_capacity > config.maximum_tiles || !options.ray_capacity || !options.contribution_capacity ||
+        !valid_resident_order(options.order))
         return std::unexpected(operation_error{"invalid resident mapping configuration or capacities"});
     const auto voxels = static_cast<std::size_t>(options.tile_capacity) * 512;
     const auto buckets = std::bit_ceil(options.tile_capacity * 2U);
@@ -125,7 +126,10 @@ operation_status cuda_resident_context::submit(std::span<const ray> input)
 
         if (status) status = data.check(detail::cuda_walk_resident_rays(data.view, data.rays, input.size(), parameters, stage, data.stream));
     }
-    if (status) status = data.check(detail::cuda_finish_resident_batch(data.view,
+    const auto finish = data.options.order == cuda_resident_order::ordered ? detail::cuda_finish_resident_batch :
+         detail::cuda_finish_resident_arrival_batch;
+
+    if (status) status = data.check(finish(data.view,
         {config.truncation_distance, config.maximum_weight, config.extraction_distance}, data.stream));
 
     if (status) status = data.check(cudaEventRecord(slot.complete, data.stream));

@@ -101,4 +101,28 @@ int cuda_finish_resident_batch(cuda_resident_view view, cuda_fusion_parameters c
     finish_resident_statistics<<<1, 1, 0, queue>>>(view);
     return static_cast<int>(cudaGetLastError());
 }
+
+int cuda_finish_resident_arrival_batch(cuda_resident_view view, cuda_fusion_parameters config, void* stream) noexcept
+{
+
+    if (!valid_resident_view(view) || !std::isfinite(config.truncation_distance) || config.truncation_distance <= 0 ||
+        !std::isfinite(config.maximum_weight) || config.maximum_weight <= 0 ||
+        !std::isfinite(config.extraction_distance) || config.extraction_distance < 0 ||
+        config.extraction_distance > config.truncation_distance) return static_cast<int>(cudaErrorInvalidValue);
+    const auto blocks = static_cast<unsigned>((static_cast<std::size_t>(view.tile_capacity) * 512 + 255) / 256);
+     const auto queue = static_cast<cudaStream_t>(stream);
+    validate_resident_segments<<<blocks, 256, 0, queue>>>(view);
+    auto error = cudaGetLastError();
+
+    if (error != cudaSuccess) return static_cast<int>(error);
+    prepare_resident_arrival<<<blocks, 256, 0, queue>>>(view, config);
+    error = cudaGetLastError();
+    if (error != cudaSuccess) return static_cast<int>(error);
+    publish_resident_fusion<<<blocks, 256, 0, queue>>>(view);
+    error = cudaGetLastError();
+
+    if (error != cudaSuccess) return static_cast<int>(error);
+    finish_resident_statistics<<<1, 1, 0, queue>>>(view);
+    return static_cast<int>(cudaGetLastError());
+}
 }

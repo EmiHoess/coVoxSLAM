@@ -1,10 +1,10 @@
 #include <covoxslam/cuda.hpp>
 #include "sparse_mapping.h"
 #include "cuda_site_conversion.hpp"
-#include "cuda_voxblox_conversion.hpp"
+#include "cuda_blocks_conversion.hpp"
 
 #include <cuda_runtime_api.h>
-#include "cuda_voxblox_storage.hpp"
+#include "cuda_blocks_storage.hpp"
 #include <array>
 #include <algorithm>
 #include <vector>
