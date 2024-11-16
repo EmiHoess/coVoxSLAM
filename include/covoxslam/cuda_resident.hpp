@@ -1,6 +1,7 @@
 #pragma once
 
 #include <covoxslam/cuda.hpp>
+#include <covoxslam/resident_policy.hpp>
 
 namespace covoxslam
 {

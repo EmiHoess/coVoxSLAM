@@ -1,6 +1,7 @@
 #pragma once
 
 #include <covoxslam/mapping.hpp>
+#include <covoxslam/result.hpp>
 #include "cli_lookup.hpp"
 
 #include <charconv>
@@ -34,14 +35,19 @@ inline float mapping_scalar(std::string_view text)
     return result;
 }
 
-inline bool parse_mapping_option(std::string_view name, std::string_view value,
+inline operation_result<bool> parse_mapping_option(std::string_view name, std::string_view value,
                                 mapping_config& config, bool& enabled)
 {
-    if (name == "--backend") {
-        if (value != "cpu-ray") throw std::invalid_argument("unsupported mapping backend");
+    switch (lookup_cli_option(name, mapping_options))
+    {
+    case mapping_option::backend:
+
+        if (value != "cpu-ray") return std::unexpected(operation_error{"unsupported mapping backend"});
         enabled = true;
+        return true;
+    default: break;
     }
-    else if (name == "--esdf-generator")
+    if (name == "--esdf-generator")
     {
         if (value == "none") config.esdf_generator = esdf_backend::none;
         else if (value == "cpu-blocks-batch") config.esdf_generator = esdf_backend::cpu_blocks_batch;

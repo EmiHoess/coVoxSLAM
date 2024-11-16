@@ -97,9 +97,13 @@ inline int run_submap_cli(int argc, char** argv)
                 if (option != "--projective-candidate-capacity") projective_control_set = true;
             }
             else if (!parse_cuda_esdf_option(option, value, esdf_options) &&
-                     !parse_cuda_mapping_option(option, value, mapping_options, mapping_enabled, cuda_options) &&
-                     !parse_mapping_option(option, value, mapping_options, mapping_enabled))
-                return report_error("unsupported submap option");
+                     !parse_cuda_mapping_option(option, value, mapping_options, mapping_enabled, cuda_options))
+            {
+                const auto parsed = parse_mapping_option(option, value, mapping_options, mapping_enabled);
+
+                if (!parsed) return report_error(parsed.error().message);
+                if (!*parsed) return report_error("unsupported submap option");
+            }
         }
          if (root.empty()) return report_error("--submaps requires --dataset directory");
         if (!options.submap_duration_ns || !options.ring_stride || !options.column_stride)
