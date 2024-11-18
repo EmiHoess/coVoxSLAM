@@ -9,6 +9,7 @@ namespace covoxslam
 cuda_resident_context::cuda_resident_context() = default;
 cuda_resident_context::~cuda_resident_context() = default;
 std::size_t cuda_resident_context::device_bytes() const noexcept { return state->bytes; }
+cuda_resident_order cuda_resident_context::fusion_order() const noexcept { return state->options.order; }
 
 operation_result<std::unique_ptr<cuda_resident_context>> cuda_resident_context::create(
     mapping_config config, cuda_resident_options options)

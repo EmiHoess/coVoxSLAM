@@ -44,6 +44,7 @@ inline float mapping_scalar(std::string_view text)
 inline operation_result<bool> parse_mapping_option(std::string_view name, std::string_view value,
                                 mapping_config& config, bool& enabled)
 {
+    float* scalar{};
     switch (lookup_cli_option(name, mapping_options))
     {
     case mapping_option::backend:
@@ -61,15 +62,26 @@ inline operation_result<bool> parse_mapping_option(std::string_view name, std::s
         case esdf_value::unknown: return std::unexpected(operation_error{"unsupported ESDF generator"});
         }
         return true;
+    case mapping_option::voxel_size: scalar = &config.voxel_size; break;
+    case mapping_option::truncation_distance: scalar = &config.truncation_distance; break;
+    case mapping_option::minimum_ray_length: scalar = &config.minimum_ray_length_m; break;
+     case mapping_option::maximum_ray_length: scalar = &config.maximum_ray_length_m; break;
     default: break;
+    }
+
+    if (scalar)
+    {
+        float parsed_value{};
+        const auto parsed = std::from_chars(value.data(), value.data() + value.size(), parsed_value);
+
+        if (parsed.ec != std::errc{} || parsed.ptr != value.data() + value.size() || !std::isfinite(parsed_value))
+            return std::unexpected(operation_error{"expected a finite mapping scalar"});
+        *scalar = parsed_value;
+        return true;
     }
     if (name == "--esdf-maximum-distance") config.esdf_maximum_distance_m = mapping_scalar(value);
     else if (name == "--esdf-site-band") config.esdf_site_band_m = mapping_scalar(value);
     else if (name == "--esdf-minimum-weight") config.esdf_minimum_weight = mapping_scalar(value);
-    else if (name == "--voxel-size") config.voxel_size = mapping_scalar(value);
-    else if (name == "--truncation-distance") config.truncation_distance = mapping_scalar(value);
-    else if (name == "--minimum-ray-length") config.minimum_ray_length_m = mapping_scalar(value);
-     else if (name == "--maximum-ray-length") config.maximum_ray_length_m = mapping_scalar(value);
     else if (name == "--maximum-weight") config.maximum_weight = mapping_scalar(value);
     else return false;
     return true;

@@ -165,7 +165,8 @@ inline int run_submap_cli(int argc, char** argv)
         if (gpu) std::cout << "ray fusion " << cuda_ray_fusion_name(fusion_options.mode)
                            << ", short threshold " << fusion_options.short_segment_threshold
                            << ", maximum rays per batch " << cuda_options.mapper.ray_capacity << '\n';
-        auto exporter = open_map_export(output, input, mapping_options, backend);
+        auto exporter = open_map_export(output, input, mapping_options, backend,
+            resident ? resident_order_name(resident->fusion_order()) : "unspecified");
         const auto publish = [&](const submap& completed) { if (exporter) exporter->write(completed); };
         const auto callbacks = resident ? resident_callbacks(*resident, mapping_options, resident_failure, publish, finalize) :
             projective ? mapping_callbacks(*projective, publish, finalize) :

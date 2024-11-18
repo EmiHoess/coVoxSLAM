@@ -175,7 +175,7 @@ void validate_export_submap(const submap& value)
                     source->weight < config.esdf_minimum_weight || std::abs(source->distance) >= config.esdf_site_band_m ||
                     std::bit_cast<std::uint32_t>(source->distance) !=
                         std::bit_cast<std::uint32_t>(voxel.signed_distance_m))
-                    throw std::invalid_argument("inconsistent Voxblox fixed seed export");
+                    throw std::invalid_argument("inconsistent blocks fixed seed export");
             }
             if (!std::isfinite(voxel.signed_distance_m) ||
                 std::abs(voxel.signed_distance_m) > config.esdf_maximum_distance_m ||
@@ -255,6 +255,7 @@ void map_exporter::write(const submap& value)
     }
     const auto& statistics = value.statistics;
     metadata << "],\"mapping_backend\":\"" << json_escape(manifest.mapping_backend)
+             << "\",\"fusion_order\":\"" << json_escape(manifest.fusion_order)
              << "\",\"esdf_backend\":\"" << json_escape(manifest.esdf_backend)
              << "\",\"tsdf_tiles\":" << value.tsdf.size() << ",\"esdf_tiles\":" << value.esdf.size();
     write_mapping_parameters(metadata, value.config);
@@ -287,7 +288,8 @@ void map_exporter::finish()
     auto run = export_stream(temporary);
     run << "{\"schema\":\"covoxslam.run.v1\",\"dataset_fingerprint\":\""
         << json_escape(manifest.dataset_fingerprint) << "\",\"mapping_backend\":\""
-         << json_escape(manifest.mapping_backend) << "\",\"esdf_backend\":\""
+         << json_escape(manifest.mapping_backend) << "\",\"fusion_order\":\"" << json_escape(manifest.fusion_order)
+        << "\",\"esdf_backend\":\""
         << json_escape(manifest.esdf_backend) << "\",\"pgo_backend\":\"none\",\"problem_hash\":\"\",\"submap_count\":"
         << count;
     write_mapping_parameters(run, *initial_config);

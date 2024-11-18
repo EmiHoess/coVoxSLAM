@@ -12,13 +12,13 @@ inline esdf_tiles convert_cuda_blocks(std::span<const cuda_tile_coordinate> keys
     std::span<const cuda_tsdf_tile> input, std::span<const cuda_blocks_voxel> values, cuda_blocks_parameters config)
 {
     if (keys.size() > UINT32_MAX / tile_voxels || input.size() != keys.size() ||
-        values.size() != keys.size() * tile_voxels) throw std::invalid_argument("invalid Voxblox conversion shape");
+        values.size() != keys.size() * tile_voxels) throw std::invalid_argument("invalid blocks conversion shape");
     esdf_tiles output;
     for (std::size_t slot = 0; slot < keys.size(); ++slot)
     {
         const int3 block{keys[slot].x, keys[slot].y, keys[slot].z};
         if (slot && !block_index_less({keys[slot - 1].x, keys[slot - 1].y, keys[slot - 1].z}, block))
-            throw std::invalid_argument("Voxblox keys must be strictly ordered");
+            throw std::invalid_argument("blocks keys must be strictly ordered");
         esdf_tile tile;
         bool active{};
         for (std::size_t local = 0; local < tile_voxels; ++local) {
@@ -32,11 +32,11 @@ inline esdf_tiles convert_cuda_blocks(std::span<const cuda_tile_coordinate> keys
                 (seed && (std::memcmp(&source.distance, &value.distance_m, sizeof(float)) != 0 ||
                     value.parent[0] || value.parent[1] || value.parent[2])) ||
                 (!observed && (value.distance_m || value.parent[0] || value.parent[1] || value.parent[2])))
-                throw std::invalid_argument("invalid Voxblox seed or observed domain");
+                throw std::invalid_argument("invalid blocks seed or observed domain");
             const int coordinates[3]{position.x, position.y, position.z};
             for (int axis = 0; axis < 3; ++axis) {
                 const auto parent = std::int64_t(coordinates[axis]) + value.parent[axis];
-                if (parent < INT32_MIN || parent > INT32_MAX) throw std::out_of_range("Voxblox parent exceeds coordinate domain");
+                if (parent < INT32_MIN || parent > INT32_MAX) throw std::out_of_range("blocks parent exceeds coordinate domain");
             }
             const bool clipped = std::abs(value.distance_m) >= config.maximum_distance_m;
             const float distance = std::copysign(std::min(std::abs(value.distance_m), config.maximum_distance_m), value.distance_m);

@@ -36,6 +36,7 @@ public:
     cuda_resident_context(const cuda_resident_context&) = delete;
      cuda_resident_context& operator=(const cuda_resident_context&) = delete;
     std::size_t device_bytes() const noexcept;
+    cuda_resident_order fusion_order() const noexcept;
     operation_status submit(std::span<const ray> rays);
     operation_result<cuda_resident_statistics> flush();
     operation_result<tsdf_tiles> download();

@@ -16,12 +16,12 @@ inline bool parse_cuda_esdf_option(std::string_view name, std::string_view value
     if (name == "--esdf-executor") {
         if (value == "ordered") config.options.executor = cuda_blocks_executor::ordered;
         else if (value == "frontier") config.options.executor = cuda_blocks_executor::frontier;
-        else throw std::invalid_argument("unsupported CUDA Voxblox executor");
+        else throw std::invalid_argument("unsupported CUDA blocks executor");
     }
     else if (name == "--esdf-distance") {
         if (value == "full-euclidean") config.options.distance = cuda_blocks_distance::full_euclidean;
          else if (value == "quasi-euclidean") config.options.distance = cuda_blocks_distance::quasi_euclidean;
-        else throw std::invalid_argument("unsupported CUDA Voxblox distance mode");
+        else throw std::invalid_argument("unsupported CUDA blocks distance mode");
     }
     else return false;
     config.specified = true;
@@ -32,7 +32,7 @@ inline std::function<void(submap&)> cuda_esdf_finalizer(const mapping_config& co
     const cuda_blocks_cli_options& blocks = {})
 {
     if (blocks.specified && config.esdf_generator != esdf_backend::cuda_blocks_batch)
-        throw std::invalid_argument("Voxblox execution options require cuda-blocks-batch");
+        throw std::invalid_argument("blocks execution options require cuda-blocks-batch");
     if (config.esdf_generator != esdf_backend::cuda_projective_block_band &&
         config.esdf_generator != esdf_backend::cuda_blocks_batch) return {};
     query_cuda_device(device);

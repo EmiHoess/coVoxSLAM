@@ -26,7 +26,7 @@ inline std::vector<std::uint32_t> blocks_canonical_order(std::span<const cuda_ti
                     const auto slot = children[x / 8 + 2 * (y / 8 + 2 * (z / 8))];
                     if (slot) order.push_back((slot - 1) * 512 + x % 8 + 8 * (y % 8 + 8 * (z % 8)));
                 }
-    if (order.size() != keys.size() * 512) throw std::logic_error("incomplete Voxblox canonical topology");
+    if (order.size() != keys.size() * 512) throw std::logic_error("incomplete blocks canonical topology");
     return order;
 }
 
@@ -63,7 +63,7 @@ inline std::array<std::size_t, 12> blocks_storage_bytes(std::size_t tile_count, 
         options.executor != cuda_blocks_executor::frontier) || (options.distance != cuda_blocks_distance::full_euclidean &&
         options.distance != cuda_blocks_distance::quasi_euclidean) || !std::isfinite(options.minimum_difference_m) ||
         (options.minimum_difference_m < 0 && options.minimum_difference_m != -1.0F))
-        throw std::invalid_argument("invalid CUDA Voxblox execution options");
+        throw std::invalid_argument("invalid CUDA blocks execution options");
     const std::size_t count = tile_count * 512;
     const std::size_t frontier = options.executor == cuda_blocks_executor::frontier ? options.frontier_capacity : 0;
     const std::array<std::size_t, 12> bytes{tile_count * sizeof(cuda_tile_coordinate), tile_count * sizeof(cuda_tsdf_tile),
@@ -72,7 +72,7 @@ inline std::array<std::size_t, 12> blocks_storage_bytes(std::size_t tile_count, 
         frontier ? count * 4 : 0, frontier * 4, frontier * 26 * sizeof(cuda_blocks_proposal)};
     std::size_t total{};
     for (const auto size : bytes) {
-        if (size > options.maximum_scratch_bytes - total) throw std::length_error("CUDA Voxblox scratch budget exceeded");
+        if (size > options.maximum_scratch_bytes - total) throw std::length_error("CUDA blocks scratch budget exceeded");
          total += size;
     }
     return bytes;

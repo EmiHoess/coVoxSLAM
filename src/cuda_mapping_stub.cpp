@@ -125,7 +125,7 @@ namespace covoxslam
 cuda_blocks_statistics build_cuda_blocks_esdf(const tsdf_tiles&, esdf_tiles&,
     const mapping_config&, const cuda_blocks_options&)
 {
-    throw std::runtime_error("CUDA Voxblox ESDF is unavailable in this build");
+    throw std::runtime_error("CUDA blocks ESDF is unavailable in this build");
 }
 }
 

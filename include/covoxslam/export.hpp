@@ -14,6 +14,7 @@ struct export_manifest {
     std::string dataset_fingerprint;
     std::string mapping_backend{"cpu-ray"};
      std::string esdf_backend{"cpu-blocks-batch"};
+    std::string fusion_order{"unspecified"};
 };
 
 class map_exporter

@@ -741,11 +741,11 @@ cuda_blocks_statistics build_cuda_blocks_esdf(const tsdf_tiles& tsdf, esdf_tiles
         options.distance == cuda_blocks_distance::full_euclidean};
     check_cuda(static_cast<cudaError_t>(detail::cuda_initialize_blocks(nullptr, nullptr, 0, parameters, {}, nullptr)));
     const auto bytes = detail::blocks_storage_bytes(tsdf.size(), options);
-    if (!config.maximum_tiles || tsdf.size() > config.maximum_tiles) throw std::length_error("CUDA Voxblox tile limit exceeded");
+    if (!config.maximum_tiles || tsdf.size() > config.maximum_tiles) throw std::length_error("CUDA blocks tile limit exceeded");
     cuda_blocks_statistics statistics;
     for (const auto size : bytes) statistics.scratch_bytes += size;
      if (statistics.scratch_bytes > query_cuda_device(options.device).total_memory_bytes)
-        throw std::length_error("CUDA Voxblox exceeds device memory");
+        throw std::length_error("CUDA blocks exceeds device memory");
     check_cuda(cudaSetDevice(options.device));
     if (tsdf.empty()) { esdf.clear(); return statistics; }
     std::vector<int3> order;
@@ -781,7 +781,7 @@ cuda_blocks_statistics build_cuda_blocks_esdf(const tsdf_tiles& tsdf, esdf_tiles
         check_cuda(cudaMemcpyAsync(&state, work.queue, sizeof(state), cudaMemcpyDeviceToHost, storage.stream));
         check_cuda(cudaStreamSynchronize(storage.stream));
          statistics.downloaded_bytes += sizeof(state);
-        if (state.status) throw std::runtime_error("CUDA Voxblox input or state invariant failed");
+        if (state.status) throw std::runtime_error("CUDA blocks input or state invariant failed");
     };
     check_cuda(static_cast<cudaError_t>(detail::cuda_initialize_blocks(device_keys, device_tiles, tsdf.size(), parameters, work, storage.stream)));
     read_state();
@@ -790,7 +790,7 @@ cuda_blocks_statistics build_cuda_blocks_esdf(const tsdf_tiles& tsdf, esdf_tiles
     while (state.size)
     {
         if (statistics.rounds >= options.maximum_rounds || state.pops >= options.maximum_queue_pops)
-            throw std::runtime_error("CUDA Voxblox propagation limit exceeded");
+            throw std::runtime_error("CUDA blocks propagation limit exceeded");
         const auto remaining = options.maximum_queue_pops - state.pops;
         int error{};
         if (options.executor == cuda_blocks_executor::ordered)
