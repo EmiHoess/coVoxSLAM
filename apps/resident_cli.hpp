@@ -14,6 +14,12 @@ inline constexpr cli_option_entry<resident_option> resident_options[]{
      {"--resident-rays", resident_option::rays}, {"--resident-contributions", resident_option::contributions}
 };
 static_assert(valid_cli_options(resident_options));
+enum class resident_backend { unknown, ordered, arrival };
+inline constexpr cli_option_entry<resident_backend> resident_backends[]{
+    {"cuda-ray-resident", resident_backend::ordered},
+     {"cuda-ray-resident-unordered", resident_backend::arrival}
+};
+static_assert(valid_cli_options(resident_backends));
 struct resident_cli_options
 {
     cuda_resident_options mapper;
@@ -27,8 +33,14 @@ inline operation_result<bool> parse_resident_option(std::string_view name, std::
 
     if (id == resident_option::unknown) return false;
     if (id == resident_option::backend) {
-        options.selected = value == "cuda-ray-resident";
-         return options.selected;
+        switch (lookup_cli_option(value, resident_backends))
+        {
+        case resident_backend::ordered: options.mapper.order = cuda_resident_order::ordered; break;
+        case resident_backend::arrival: options.mapper.order = cuda_resident_order::arrival; break;
+        case resident_backend::unknown: options.selected = false; return false;
+        }
+        options.selected = true;
+        return true;
     }
     std::uint32_t count{};
     const auto parsed = std::from_chars(value.data(), value.data() + value.size(), count);

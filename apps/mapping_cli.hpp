@@ -66,7 +66,11 @@ inline operation_result<bool> parse_mapping_option(std::string_view name, std::s
     case mapping_option::truncation_distance: scalar = &config.truncation_distance; break;
     case mapping_option::minimum_ray_length: scalar = &config.minimum_ray_length_m; break;
      case mapping_option::maximum_ray_length: scalar = &config.maximum_ray_length_m; break;
-    default: break;
+    case mapping_option::maximum_weight: scalar = &config.maximum_weight; break;
+    case mapping_option::esdf_maximum_distance: scalar = &config.esdf_maximum_distance_m; break;
+     case mapping_option::esdf_site_band: scalar = &config.esdf_site_band_m; break;
+    case mapping_option::esdf_minimum_weight: scalar = &config.esdf_minimum_weight; break;
+    case mapping_option::unknown: return false;
     }
 
     if (scalar)
@@ -79,12 +83,7 @@ inline operation_result<bool> parse_mapping_option(std::string_view name, std::s
         *scalar = parsed_value;
         return true;
     }
-    if (name == "--esdf-maximum-distance") config.esdf_maximum_distance_m = mapping_scalar(value);
-    else if (name == "--esdf-site-band") config.esdf_site_band_m = mapping_scalar(value);
-    else if (name == "--esdf-minimum-weight") config.esdf_minimum_weight = mapping_scalar(value);
-    else if (name == "--maximum-weight") config.maximum_weight = mapping_scalar(value);
-    else return false;
-    return true;
+    return false;
 }
 
 template<class mapper_type>

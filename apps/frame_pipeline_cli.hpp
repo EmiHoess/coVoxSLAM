@@ -122,7 +122,7 @@ inline int run_submap_cli(int argc, char** argv)
         if (!fusion_selection) { std::cerr << fusion_selection.error().message << '\n'; return 2; }
 
         if (resident_options.specified && !resident_options.selected)
-            return report_error("resident capacities require --backend cuda-ray-resident");
+            return report_error("resident capacities require a resident backend");
         if (resident_options.selected && (cuda_options.ray_capacity_set || cuda_options.contribution_capacity_set))
             return report_error("use --resident-rays and --resident-contributions with resident mapping");
         const auto input = load_dataset(root, input_options);
@@ -159,7 +159,8 @@ inline int run_submap_cli(int argc, char** argv)
             if (!configured) { std::cerr << configured.error().message << '\n'; return 2; }
         }
         const char* backend = projective ? "cuda-projective" : gpu ? "cuda-ray" : "cpu-ray";
-        if (resident) backend = "cuda-ray-resident";
+        if (resident) backend = resident->fusion_order() == cuda_resident_order::arrival ?
+            "cuda-ray-resident-unordered" : "cuda-ray-resident";
         if (cuda_options.calibrated_policy) backend = "cuda-projective-calibrated";
         if (cuda_options.calibrated_policy) std::cout << "projective raycast factor " << projective_options.raycast_subsampling_factor << '\n';
         if (gpu) std::cout << "ray fusion " << cuda_ray_fusion_name(fusion_options.mode)
