@@ -6,14 +6,6 @@
 
 namespace covoxslam::detail
 {
-inline bool valid_resident_reduction_view(cuda_resident_view view, cuda_resident_reduction_view reduction,
-    cuda_resident_reduction mode) noexcept
-{
-    return valid_resident_map(view) && valid_reduction_storage(reduction, mode) &&
-        (mode == cuda_resident_reduction::direct_atomic || (view.contribution_capacity && view.block_sums &&
-        (mode != cuda_resident_reduction::segment || view.offsets)));
-}
-
 __global__ void open_resident_reduction(cuda_resident_view view)
 {
     if (view.state->error) return;

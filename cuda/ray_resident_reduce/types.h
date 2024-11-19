@@ -39,5 +39,13 @@ int cuda_finish_resident_reduction(cuda_resident_view view, cuda_resident_reduct
     cuda_resident_reduction mode, void* stream, cuda_fusion_parameters config) noexcept;
 int cuda_walk_resident_reduction(cuda_resident_view view, cuda_resident_reduction_view reduction,
     const cuda_device_ray* rays, std::size_t count, cuda_ray_parameters parameters,
-    unsigned stage, void* stream) noexcept;
+    cuda_resident_reduction mode, unsigned stage, void* stream) noexcept;
+
+inline bool valid_resident_reduction_view(cuda_resident_view view, cuda_resident_reduction_view reduction,
+    cuda_resident_reduction mode) noexcept
+{
+    return valid_resident_map(view) && valid_reduction_storage(reduction, mode) &&
+        (mode == cuda_resident_reduction::direct_atomic || (view.contribution_capacity && view.block_sums &&
+        (mode != cuda_resident_reduction::segment || view.offsets)));
+}
 }

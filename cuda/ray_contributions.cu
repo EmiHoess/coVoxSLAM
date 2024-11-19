@@ -1,5 +1,6 @@
 #include "sparse_mapping.h"
 #include "ray_resident/record.cuh"
+#include "ray_resident_reduce/record.cuh"
 
 #include <cuda_runtime.h>
 #include <math_constants.h>
@@ -15,7 +16,8 @@ namespace
 template<bool emit, unsigned resident_stage = 3>
 __device__ std::uint32_t walk_ray(const cuda_device_ray& ray, cuda_ray_parameters config,
     cuda_ray_contribution* output, std::uint64_t offset, std::uint32_t expected,
-    std::uint64_t capacity, std::uint32_t* status, cuda_resident_view resident = {}, std::uint32_t input_index = 0)
+    std::uint64_t capacity, std::uint32_t* status, cuda_resident_view resident = {}, std::uint32_t input_index = 0,
+    cuda_resident_reduction_view reduction = {})
 {
     float direction[3];
     for (int axis = 0; axis < 3; ++axis) {
@@ -39,7 +41,7 @@ __device__ std::uint32_t walk_ray(const cuda_device_ray& ray, cuda_ray_parameter
         direction[axis] /= distance;
         const double coordinate = floor((double(ray.origin[axis]) + direction[axis] * start) / config.voxel_size);
         if (!isfinite(coordinate) || coordinate < INT_MIN || coordinate > INT_MAX) {
-            atomicOr(status, resident_stage < 3 ? unsigned(resident_traversal_error) : 1U);
+            atomicOr(status, resident_stage != 3 ? unsigned(resident_traversal_error) : 1U);
             return 0;
         }
         voxel[axis] = static_cast<int>(coordinate);
@@ -63,18 +65,22 @@ __device__ std::uint32_t walk_ray(const cuda_device_ray& ray, cuda_ray_parameter
         for (int axis = 0; axis < 3; ++axis) {
             const float center = static_cast<float>((double(voxel[axis]) + 0.5) * config.voxel_size);
             if (!isfinite(center)) {
-                atomicOr(status, resident_stage < 3 ? unsigned(resident_traversal_error) : 1U);
+                atomicOr(status, resident_stage != 3 ? unsigned(resident_traversal_error) : 1U);
                 return count;
             }
              projected += (center - ray.origin[axis]) * direction[axis];
         }
         if (!isfinite(projected)) {
-            atomicOr(status, resident_stage < 3 ? unsigned(resident_traversal_error) : 1U);
+            atomicOr(status, resident_stage != 3 ? unsigned(resident_traversal_error) : 1U);
             return count;
         }
         if (boundary > entered && projected >= start && projected <= end)
         {
-            if constexpr (resident_stage < 3) {
+            if constexpr (resident_stage >= 4) {
+                if (!record_resident_reduction<resident_stage>(resident, reduction, voxel,
+                    distance - projected, ray.weight, input_index, count, config.truncation_distance)) return count;
+            }
+            else if constexpr (resident_stage < 3) {
                 if (!record_resident_voxel<resident_stage>(resident, voxel,
                     fminf(config.truncation_distance, fmaxf(-config.truncation_distance, distance - projected)),
                     ray.weight, ray.ordinal, count, input_index)) return count;
@@ -101,7 +107,7 @@ __device__ std::uint32_t walk_ray(const cuda_device_ray& ray, cuda_ray_parameter
             const auto candidate = static_cast<long long>(voxel[axis]) + step[axis];
              if (candidate < INT_MIN || candidate > INT_MAX)
             {
-                atomicOr(status, resident_stage < 3 ? unsigned(resident_traversal_error) : 1U);
+                atomicOr(status, resident_stage != 3 ? unsigned(resident_traversal_error) : 1U);
                 return count;
             }
             voxel[axis] = static_cast<int>(candidate);
@@ -109,7 +115,7 @@ __device__ std::uint32_t walk_ray(const cuda_device_ray& ray, cuda_ray_parameter
         }
         entered = boundary;
     }
-    if (!complete) atomicOr(status, resident_stage < 3 ? unsigned(resident_traversal_error) : 2U);
+    if (!complete) atomicOr(status, resident_stage != 3 ? unsigned(resident_traversal_error) : 2U);
     if constexpr (emit) if (count != expected) atomicOr(status, 4U);
     return count;
 }
@@ -125,6 +131,24 @@ __global__ void walk_resident_rays(cuda_resident_view view, const cuda_device_ra
         &view.state->error, view, static_cast<std::uint32_t>(index));
     if constexpr (stage == 1)
         atomicAdd(count ? &view.state->batch_integrated : &view.state->batch_rejected, 1U);
+}
+
+template<unsigned stage>
+__global__ void walk_reduction_rays(cuda_resident_view view, cuda_resident_reduction_view reduction,
+    const cuda_device_ray* rays, std::size_t size, cuda_ray_parameters parameters)
+{
+    const auto index = static_cast<std::size_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+
+    if (index >= size || atomicAdd(&view.state->error, 0U)) return;
+    if (!view.state->batch_open) { atomicOr(&view.state->error, resident_scatter_error); return; }
+    const auto count = walk_ray<false, stage>(rays[index], parameters, nullptr, 0, 0, 0,
+        &view.state->error, view, static_cast<std::uint32_t>(index), reduction);
+    if constexpr (stage == 4 || stage == 7)
+    {
+        if (reduction.ray_counts) reduction.ray_counts[index] = count;
+        atomicAdd(count ? &view.state->batch_integrated : &view.state->batch_rejected, 1U);
+         atomicAdd(reinterpret_cast<unsigned long long*>(&view.state->batch_contributions), static_cast<unsigned long long>(count));
+    }
 }
 
 __global__ void count_rays(const cuda_device_ray* rays, std::size_t size, cuda_ray_parameters config,
@@ -167,6 +191,29 @@ int cuda_walk_resident_rays(cuda_resident_view view, const cuda_device_ray* rays
     case 1: walk_resident_rays<1><<<blocks, 256, 0, queue>>>(view, rays, count, parameters); break;
     case 2: walk_resident_rays<2><<<blocks, 256, 0, queue>>>(view, rays, count, parameters); break;
     }
+    return static_cast<int>(cudaGetLastError());
+}
+
+int cuda_walk_resident_reduction(cuda_resident_view view, cuda_resident_reduction_view reduction,
+    const cuda_device_ray* rays, std::size_t count, cuda_ray_parameters parameters,
+    cuda_resident_reduction mode, unsigned stage, void* stream) noexcept
+{
+
+    if (!valid_resident_reduction_view(view, reduction, mode) || !valid_ray_parameters(parameters) ||
+        count > UINT32_MAX || (count && !rays) || stage > 2 ||
+        (reduction.ray_counts && count > reduction.ray_capacity) ||
+        (mode == cuda_resident_reduction::direct_atomic && stage == 2)) return static_cast<int>(cudaErrorInvalidValue);
+    if (!count) return static_cast<int>(cudaSuccess);
+    const auto blocks = static_cast<unsigned>(1 + (count - 1) / 256);
+    const auto queue = static_cast<cudaStream_t>(stream);
+
+    if (!stage) walk_reduction_rays<0><<<blocks, 256, 0, queue>>>(view, reduction, rays, count, parameters);
+    else if (mode == cuda_resident_reduction::direct_atomic)
+        walk_reduction_rays<7><<<blocks, 256, 0, queue>>>(view, reduction, rays, count, parameters);
+    else if (stage == 1) walk_reduction_rays<4><<<blocks, 256, 0, queue>>>(view, reduction, rays, count, parameters);
+    else if (mode == cuda_resident_reduction::index)
+        walk_reduction_rays<5><<<blocks, 256, 0, queue>>>(view, reduction, rays, count, parameters);
+    else walk_reduction_rays<6><<<blocks, 256, 0, queue>>>(view, reduction, rays, count, parameters);
     return static_cast<int>(cudaGetLastError());
 }
 
