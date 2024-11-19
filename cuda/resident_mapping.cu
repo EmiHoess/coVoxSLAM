@@ -1,10 +1,7 @@
 #include "ray_resident/hash.cuh"
 #include "ray_resident/fusion.cuh"
 #include "ray_resident_unordered/integrate.cuh"
-#include "ray_resident_reduce/common.cuh"
-#include "ray_resident_reduce_index/reduce.cuh"
-#include "ray_resident_reduce_segment/reduce.cuh"
-#include "ray_resident_reduce_atomic/reduce.cuh"
+#include "ray_resident_reduce/integrate.cuh"
 #include <cmath>
 
 namespace covoxslam::detail
@@ -41,7 +38,7 @@ __global__ void initialize_resident_map(cuda_resident_view view)
     if (index < static_cast<std::size_t>(view.tile_capacity) * 512) {
         view.tiles[index / 512].voxels[index % 512] = {};
         view.counts[index] = view.cursors[index] = 0;
-        view.offsets[index] = 0;
+        if (view.offsets) view.offsets[index] = 0;
     }
 }
 __global__ void begin_resident_batch(cuda_resident_view view)
@@ -59,7 +56,7 @@ __global__ void begin_resident_batch(cuda_resident_view view)
 
 int cuda_initialize_resident_map(cuda_resident_view view, void* stream) noexcept
 {
-    if (!valid_resident_view(view)) return static_cast<int>(cudaErrorInvalidValue);
+    if (!valid_resident_map(view)) return static_cast<int>(cudaErrorInvalidValue);
     const auto voxels = static_cast<std::size_t>(view.tile_capacity) * 512;
     const auto count = voxels > view.hash_capacity ? voxels : view.hash_capacity;
      initialize_resident_map<<<static_cast<unsigned>((count + 255) / 256), 256, 0, static_cast<cudaStream_t>(stream)>>>(view);
@@ -69,14 +66,14 @@ int cuda_initialize_resident_map(cuda_resident_view view, void* stream) noexcept
 int cuda_restore_resident_keys(cuda_resident_view view, std::uint32_t count, void* stream) noexcept
 {
 
-    if (!valid_resident_view(view) || count > view.tile_capacity) return static_cast<int>(cudaErrorInvalidValue);
+    if (!valid_resident_map(view) || count > view.tile_capacity) return static_cast<int>(cudaErrorInvalidValue);
     restore_resident_keys<<<count ? (count + 255) / 256 : 1, 256, 0, static_cast<cudaStream_t>(stream)>>>(view, count);
     return static_cast<int>(cudaGetLastError());
 }
 
 int cuda_begin_resident_batch(cuda_resident_view view, void* stream) noexcept
 {
-    if (!valid_resident_view(view)) return static_cast<int>(cudaErrorInvalidValue);
+    if (!valid_resident_map(view)) return static_cast<int>(cudaErrorInvalidValue);
     const auto voxels = static_cast<std::size_t>(view.tile_capacity) * 512;
     begin_resident_batch<<<static_cast<unsigned>((voxels + 255) / 256), 256, 0, static_cast<cudaStream_t>(stream)>>>(view);
     return static_cast<int>(cudaGetLastError());
@@ -127,6 +124,60 @@ int cuda_finish_resident_arrival_batch(cuda_resident_view view, cuda_fusion_para
 
     if (error != cudaSuccess) return static_cast<int>(error);
     finish_resident_statistics<<<1, 1, 0, queue>>>(view);
+    return static_cast<int>(cudaGetLastError());
+}
+
+int cuda_begin_resident_reduction(cuda_resident_view view, cuda_resident_reduction_view reduction,
+    cuda_resident_reduction mode, void* stream) noexcept
+{
+
+    if (!valid_resident_reduction_view(view, reduction, mode)) return static_cast<int>(cudaErrorInvalidValue);
+    const auto queue = static_cast<cudaStream_t>(stream);
+    open_resident_reduction<<<1, 1, 0, queue>>>(view);
+    auto error = static_cast<int>(cudaGetLastError());
+    if (!error) error = cuda_begin_resident_batch(view, stream);
+    if (error) return error;
+    const auto voxels = static_cast<std::size_t>(view.tile_capacity) * 512;
+    const auto count = voxels > reduction.ray_capacity ? voxels : reduction.ray_capacity;
+     clear_resident_reduction<<<static_cast<unsigned>((count + 255) / 256), 256, 0, queue>>>(view, reduction);
+    return static_cast<int>(cudaGetLastError());
+}
+
+int cuda_finish_resident_reduction(cuda_resident_view view, cuda_resident_reduction_view reduction,
+    cuda_resident_reduction mode, void* stream, cuda_fusion_parameters config) noexcept
+{
+    if (!valid_resident_reduction_view(view, reduction, mode) ||
+        !std::isfinite(config.truncation_distance) || config.truncation_distance <= 0 ||
+        !std::isfinite(config.maximum_weight) || config.maximum_weight <= 0 ||
+        !std::isfinite(config.extraction_distance) || config.extraction_distance < 0 ||
+        config.extraction_distance > config.truncation_distance) return static_cast<int>(cudaErrorInvalidValue);
+    const auto voxels = static_cast<std::size_t>(view.tile_capacity) * 512;
+    const auto blocks = static_cast<unsigned>((voxels + 255) / 256);
+    const auto queue = static_cast<cudaStream_t>(stream);
+    auto error = cudaSuccess;
+
+    if (mode == cuda_resident_reduction::index) {
+        reduce_resident_indices<<<blocks, 256, 0, queue>>>(view, reduction, config);
+        error = cudaGetLastError();
+    }
+    if (error != cudaSuccess) return static_cast<int>(error);
+    validate_resident_reduction_counts<<<blocks, 256, 0, queue>>>(view, mode == cuda_resident_reduction::segment);
+    error = cudaGetLastError();
+
+    if (error != cudaSuccess) return static_cast<int>(error);
+    check_resident_reduction_total<<<1, 1, 0, queue>>>(view, mode != cuda_resident_reduction::direct_atomic);
+    error = cudaGetLastError();
+    if (error != cudaSuccess) return static_cast<int>(error);
+    if (mode == cuda_resident_reduction::segment)
+        reduce_resident_segments<<<static_cast<unsigned>((voxels + 7) / 8), 256, 0, queue>>>(view, reduction, config);
+    else prepare_resident_sums<<<blocks, 256, 0, queue>>>(view, reduction, config);
+    error = cudaGetLastError();
+
+    if (error != cudaSuccess) return static_cast<int>(error);
+    publish_resident_fusion<<<blocks, 256, 0, queue>>>(view);
+    error = cudaGetLastError();
+    if (error != cudaSuccess) return static_cast<int>(error);
+    finish_resident_reduction_statistics<<<1, 1, 0, queue>>>(view);
     return static_cast<int>(cudaGetLastError());
 }
 }

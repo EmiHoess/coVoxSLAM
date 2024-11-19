@@ -32,6 +32,8 @@ struct cuda_resident_state
      std::uint32_t batch_integrated{}, batch_rejected{};
     std::uint64_t batch_contributions{}, batch_touched{}, batches{};
     std::uint64_t integrated{}, rejected{}, contributions{}, touched{};
+    std::uint64_t batch_validated{};
+    std::uint32_t batch_open{};
 };
 
 struct cuda_resident_view
@@ -56,6 +58,12 @@ inline bool valid_resident_view(cuda_resident_view view) noexcept
 {
     return view.state && view.hash && view.keys && view.tiles && view.pending && view.counts && view.cursors &&
         view.offsets && view.block_sums && view.contributions && view.contribution_capacity &&
+        view.tile_capacity && view.tile_capacity <= UINT32_MAX / 512 && view.hash_capacity &&
+        !(view.hash_capacity & (view.hash_capacity - 1));
+}
+
+inline bool valid_resident_map(cuda_resident_view view) noexcept {
+    return view.state && view.hash && view.keys && view.tiles && view.pending && view.counts && view.cursors &&
         view.tile_capacity && view.tile_capacity <= UINT32_MAX / 512 && view.hash_capacity &&
         !(view.hash_capacity & (view.hash_capacity - 1));
 }
