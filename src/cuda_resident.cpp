@@ -10,22 +10,41 @@ cuda_resident_context::cuda_resident_context() = default;
 cuda_resident_context::~cuda_resident_context() = default;
 std::size_t cuda_resident_context::device_bytes() const noexcept { return state->bytes; }
 cuda_resident_order cuda_resident_context::fusion_order() const noexcept { return state->options.order; }
+cuda_resident_reduction cuda_resident_context::reduction_mode() const noexcept { return state->options.reduction; }
 
 operation_result<std::unique_ptr<cuda_resident_context>> cuda_resident_context::create(
     mapping_config config, cuda_resident_options options)
 {
 
     if (!config.valid() || !options.tile_capacity || options.tile_capacity > UINT32_MAX / 512 ||
-        options.tile_capacity > config.maximum_tiles || !options.ray_capacity || !options.contribution_capacity ||
-        !valid_resident_order(options.order))
+        options.tile_capacity > config.maximum_tiles || !options.ray_capacity ||
+        (!options.contribution_capacity && options.reduction != cuda_resident_reduction::direct_atomic) ||
+        !valid_resident_order(options.order) || !valid_resident_reduction(options.reduction))
         return std::unexpected(operation_error{"invalid resident mapping configuration or capacities"});
     const auto voxels = static_cast<std::size_t>(options.tile_capacity) * 512;
     const auto buckets = std::bit_ceil(options.tile_capacity * 2U);
-    const auto sums = (voxels + 255) / 256;
-    const auto bytes = sizeof(detail::cuda_resident_state) + std::size_t(buckets) * sizeof(detail::cuda_resident_hash_entry) +
-        options.tile_capacity * sizeof(detail::cuda_tile_coordinate) + voxels * (2 * sizeof(detail::cuda_tsdf_voxel) + 16) +
-        sums * sizeof(std::uint64_t) + options.contribution_capacity * sizeof(detail::cuda_resident_contribution) +
+    const auto mode = options.reduction;
+    const bool segmented = mode == cuda_resident_reduction::none || mode == cuda_resident_reduction::segment;
+    const bool indexed = mode == cuda_resident_reduction::index;
+    const auto sums = ((segmented ? voxels : static_cast<std::size_t>(options.ray_capacity)) + 255) / 256;
+    auto bytes = sizeof(detail::cuda_resident_state) + std::size_t(buckets) * sizeof(detail::cuda_resident_hash_entry) +
+        options.tile_capacity * sizeof(detail::cuda_tile_coordinate) + voxels * (2 * sizeof(detail::cuda_tsdf_voxel) + 8) +
         options.ray_capacity * sizeof(detail::cuda_device_ray);
+    if (segmented) bytes += voxels * sizeof(std::uint64_t);
+
+    if (mode != cuda_resident_reduction::direct_atomic) bytes += sums * sizeof(std::uint64_t);
+    switch (mode)
+    {
+    case cuda_resident_reduction::none:
+        bytes += options.contribution_capacity * sizeof(detail::cuda_resident_contribution); break;
+    case cuda_resident_reduction::segment:
+        bytes += options.contribution_capacity * sizeof(detail::cuda_resident_reduction_sample); break;
+    case cuda_resident_reduction::index:
+        bytes += options.contribution_capacity * (sizeof(detail::cuda_resident_reduction_sample) + sizeof(std::uint32_t)) +
+            options.ray_capacity * (sizeof(std::uint32_t) + sizeof(std::uint64_t)) + voxels * 2 * sizeof(double);
+        break;
+    case cuda_resident_reduction::direct_atomic: bytes += voxels * 2 * sizeof(double); break;
+    }
 
     if (options.maximum_device_bytes && bytes > options.maximum_device_bytes)
         return std::unexpected(operation_error{"resident storage exceeds the device byte budget"});
@@ -59,10 +78,28 @@ operation_result<std::unique_ptr<cuda_resident_context>> cuda_resident_context::
     if (status) status = data.allocate(view.counts, voxels);
 
     if (status) status = data.allocate(view.cursors, voxels);
-    if (status) status = data.allocate(view.offsets, voxels);
+    if (status && segmented) status = data.allocate(view.offsets, voxels);
 
-    if (status) status = data.allocate(view.block_sums, sums);
-    if (status) status = data.allocate(view.contributions, options.contribution_capacity);
+    if (status && mode != cuda_resident_reduction::direct_atomic) status = data.allocate(view.block_sums, sums);
+    if (status && mode == cuda_resident_reduction::none) status = data.allocate(view.contributions, options.contribution_capacity);
+
+    auto& reduction = data.reduction;
+
+    if (mode != cuda_resident_reduction::none && mode != cuda_resident_reduction::direct_atomic)
+        if (status) status = data.allocate(reduction.samples, options.contribution_capacity);
+    if (indexed)
+    {
+        reduction.ray_capacity = options.ray_capacity;
+        if (status) status = data.allocate(reduction.voxel_indices, options.contribution_capacity);
+
+        if (status) status = data.allocate(reduction.ray_counts, options.ray_capacity);
+        if (status) status = data.allocate(reduction.ray_offsets, options.ray_capacity);
+    }
+    if (indexed || mode == cuda_resident_reduction::direct_atomic) {
+        if (status) status = data.allocate(reduction.weights, voxels);
+
+        if (status) status = data.allocate(reduction.weighted_distances, voxels);
+    }
 
     if (status) status = data.allocate(data.rays, options.ray_capacity);
 
@@ -85,6 +122,8 @@ operation_status cuda_resident_context::submit(std::span<const ray> input)
 {
     auto& data = *state;
 
+    if (data.options.reduction != cuda_resident_reduction::none)
+        return std::unexpected(operation_error{"resident reduction submission is not enabled"});
     if (data.failed) return std::unexpected(operation_error{"resident mapping is failed until reset"});
     if (input.size() > data.options.ray_capacity) {
         data.failed = true;

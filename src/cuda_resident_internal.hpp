@@ -2,6 +2,7 @@
 
 #include <covoxslam/cuda_resident.hpp>
 #include "ray_resident/types.h"
+#include "ray_resident_reduce/types.h"
 #include <cuda_runtime_api.h>
 #include <array>
 
@@ -12,9 +13,10 @@ struct cuda_resident_context::implementation
     mapping_config config;
     cuda_resident_options options;
     detail::cuda_resident_view view;
+    detail::cuda_resident_reduction_view reduction;
      detail::cuda_device_ray* rays{};
     cudaStream_t stream{};
-    std::array<void*, 12> allocations{};
+    std::array<void*, 16> allocations{};
     std::size_t allocation_count{}, bytes{};
     bool failed{};
     struct staging_slot {
