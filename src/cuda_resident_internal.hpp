@@ -37,6 +37,26 @@ struct cuda_resident_context::implementation
         return {};
     }
 
+    operation_status integrate_reduction(std::size_t count, detail::cuda_ray_parameters parameters)
+    {
+        const auto mode = options.reduction;
+        auto status = check(detail::cuda_begin_resident_reduction(view, reduction, mode, stream));
+
+        if (status) status = check(detail::cuda_walk_resident_reduction(view, reduction, rays, count, parameters, mode, 0, stream));
+        if (status) status = check(detail::cuda_walk_resident_reduction(view, reduction, rays, count, parameters, mode, 1, stream));
+        if (status && mode != cuda_resident_reduction::direct_atomic) {
+            if (mode == cuda_resident_reduction::index)
+                status = check(detail::cuda_scan_counts(reduction.ray_counts, reduction.ray_offsets, view.block_sums, count, stream));
+            else status = check(detail::cuda_scan_counts(view.counts, view.offsets, view.block_sums,
+                static_cast<std::size_t>(options.tile_capacity) * 512, stream));
+
+            if (status) status = check(detail::cuda_walk_resident_reduction(view, reduction, rays, count, parameters, mode, 2, stream));
+        }
+        if (status) status = check(detail::cuda_finish_resident_reduction(view, reduction, mode, stream,
+            {config.truncation_distance, config.maximum_weight, config.extraction_distance}));
+        return status;
+    }
+
     template<class value_type>
     operation_status allocate(value_type*& pointer, std::size_t count)
     {

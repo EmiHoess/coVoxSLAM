@@ -122,8 +122,6 @@ operation_status cuda_resident_context::submit(std::span<const ray> input)
 {
     auto& data = *state;
 
-    if (data.options.reduction != cuda_resident_reduction::none)
-        return std::unexpected(operation_error{"resident reduction submission is not enabled"});
     if (data.failed) return std::unexpected(operation_error{"resident mapping is failed until reset"});
     if (input.size() > data.options.ray_capacity) {
         data.failed = true;
@@ -157,20 +155,26 @@ operation_status cuda_resident_context::submit(std::span<const ray> input)
         config.minimum_ray_length_m, config.maximum_ray_length_m, data.options.voxel_carving, data.options.allow_clear};
 
     if (bytes) status = data.check(cudaMemcpyAsync(data.rays, slot.rays, bytes, cudaMemcpyHostToDevice, data.stream));
-    if (status) status = data.check(detail::cuda_begin_resident_batch(data.view, data.stream));
-
-    for (unsigned stage = 0; stage < 3 && status; ++stage)
+    if (data.options.reduction != cuda_resident_reduction::none)
     {
-        if (stage == 2) status = data.check(detail::cuda_scan_counts(data.view.counts, data.view.offsets,
-            data.view.block_sums, static_cast<std::size_t>(data.options.tile_capacity) * 512, data.stream));
-
-        if (status) status = data.check(detail::cuda_walk_resident_rays(data.view, data.rays, input.size(), parameters, stage, data.stream));
+        if (status) status = data.integrate_reduction(input.size(), parameters);
     }
-    const auto finish = data.options.order == cuda_resident_order::ordered ? detail::cuda_finish_resident_batch :
-         detail::cuda_finish_resident_arrival_batch;
+    else {
+        if (status) status = data.check(detail::cuda_begin_resident_batch(data.view, data.stream));
 
-    if (status) status = data.check(finish(data.view,
-        {config.truncation_distance, config.maximum_weight, config.extraction_distance}, data.stream));
+        for (unsigned stage = 0; stage < 3 && status; ++stage)
+        {
+            if (stage == 2) status = data.check(detail::cuda_scan_counts(data.view.counts, data.view.offsets,
+                data.view.block_sums, static_cast<std::size_t>(data.options.tile_capacity) * 512, data.stream));
+
+            if (status) status = data.check(detail::cuda_walk_resident_rays(data.view, data.rays, input.size(), parameters, stage, data.stream));
+        }
+        const auto finish = data.options.order == cuda_resident_order::ordered ? detail::cuda_finish_resident_batch :
+             detail::cuda_finish_resident_arrival_batch;
+
+        if (status) status = data.check(finish(data.view,
+            {config.truncation_distance, config.maximum_weight, config.extraction_distance}, data.stream));
+    }
 
     if (status) status = data.check(cudaEventRecord(slot.complete, data.stream));
     if (!status) return status;

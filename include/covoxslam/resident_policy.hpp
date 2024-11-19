@@ -32,4 +32,16 @@ constexpr const char* resident_order_name(cuda_resident_order value) noexcept
     }
     return "invalid";
 }
+
+constexpr const char* resident_fusion_name(cuda_resident_order order, cuda_resident_reduction reduction) noexcept
+{
+    switch (reduction)
+    {
+    case cuda_resident_reduction::none: return resident_order_name(order);
+    case cuda_resident_reduction::index: return "batch-weighted-fp64-index";
+     case cuda_resident_reduction::segment: return "batch-weighted-fp64-segment";
+    case cuda_resident_reduction::direct_atomic: return "batch-weighted-fp64-atomic";
+    }
+    return "invalid";
+}
 }
