@@ -5,6 +5,18 @@
 namespace covoxslam
 {
 enum class cuda_resident_order : std::uint32_t { ordered, arrival };
+enum class cuda_resident_reduction : std::uint32_t { none, index, segment, direct_atomic };
+
+constexpr bool valid_resident_reduction(cuda_resident_reduction value) noexcept
+{
+    switch (value) {
+    case cuda_resident_reduction::none:
+    case cuda_resident_reduction::index:
+    case cuda_resident_reduction::segment:
+     case cuda_resident_reduction::direct_atomic: return true;
+    }
+    return false;
+}
 
 constexpr bool valid_resident_order(cuda_resident_order value) noexcept
 {

@@ -1,6 +1,7 @@
 #include "ray_resident/hash.cuh"
 #include "ray_resident/fusion.cuh"
 #include "ray_resident_unordered/integrate.cuh"
+#include "ray_resident_reduce/common.cuh"
 #include <cmath>
 
 namespace covoxslam::detail

@@ -7,6 +7,18 @@
 
 namespace covoxslam
 {
+enum class cuda_mapping_option
+{
+    unknown, backend, device, ray_capacity, contribution_capacity, device_bytes, maximum_tiles
+};
+inline constexpr cli_option_entry<cuda_mapping_option> cuda_mapping_options[]{
+    {"--backend", cuda_mapping_option::backend}, {"--cuda-device", cuda_mapping_option::device},
+     {"--cuda-ray-capacity", cuda_mapping_option::ray_capacity},
+    {"--cuda-contribution-capacity", cuda_mapping_option::contribution_capacity},
+    {"--cuda-device-bytes", cuda_mapping_option::device_bytes}, {"--maximum-tiles", cuda_mapping_option::maximum_tiles}
+};
+static_assert(valid_cli_options(cuda_mapping_options));
+
 struct cuda_mapping_cli_options
 {
     bool enabled{};
