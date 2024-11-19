@@ -96,9 +96,12 @@ inline int run_submap_cli(int argc, char** argv)
             else if (parse_projective_option(option, value, projective_options, projective_option_set)) {
                 if (option != "--projective-candidate-capacity") projective_control_set = true;
             }
-            else if (!parse_cuda_esdf_option(option, value, esdf_options) &&
-                     !parse_cuda_mapping_option(option, value, mapping_options, mapping_enabled, cuda_options))
+            else if (!parse_cuda_esdf_option(option, value, esdf_options))
             {
+                const auto cuda_parsed = parse_cuda_mapping_option(option, value, mapping_options, mapping_enabled, cuda_options);
+
+                if (!cuda_parsed) return report_error(cuda_parsed.error().message);
+                if (*cuda_parsed) continue;
                 const auto parsed = parse_mapping_option(option, value, mapping_options, mapping_enabled);
 
                 if (!parsed) return report_error(parsed.error().message);

@@ -2,6 +2,9 @@
 #include "ray_resident/fusion.cuh"
 #include "ray_resident_unordered/integrate.cuh"
 #include "ray_resident_reduce/common.cuh"
+#include "ray_resident_reduce_index/reduce.cuh"
+#include "ray_resident_reduce_segment/reduce.cuh"
+#include "ray_resident_reduce_atomic/reduce.cuh"
 #include <cmath>
 
 namespace covoxslam::detail
