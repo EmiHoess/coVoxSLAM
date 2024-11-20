@@ -44,4 +44,16 @@ constexpr const char* resident_fusion_name(cuda_resident_order order, cuda_resid
     }
     return "invalid";
 }
+
+constexpr const char* resident_backend_name(cuda_resident_order order, cuda_resident_reduction reduction) noexcept
+{
+    switch (reduction) {
+    case cuda_resident_reduction::none:
+        return order == cuda_resident_order::ordered ? "cuda-ray-resident" : "cuda-ray-resident-unordered";
+    case cuda_resident_reduction::index: return "cuda-ray-resident-unordered-reduce-index";
+    case cuda_resident_reduction::segment: return "cuda-ray-resident-unordered-reduce-segment";
+     case cuda_resident_reduction::direct_atomic: return "cuda-ray-resident-unordered-reduce-atomic";
+    }
+    return "invalid";
+}
 }

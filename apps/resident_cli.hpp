@@ -14,10 +14,13 @@ inline constexpr cli_option_entry<resident_option> resident_options[]{
      {"--resident-rays", resident_option::rays}, {"--resident-contributions", resident_option::contributions}
 };
 static_assert(valid_cli_options(resident_options));
-enum class resident_backend { unknown, ordered, arrival };
+enum class resident_backend { unknown, ordered, arrival, reduce_index, reduce_segment, reduce_atomic };
 inline constexpr cli_option_entry<resident_backend> resident_backends[]{
     {"cuda-ray-resident", resident_backend::ordered},
-     {"cuda-ray-resident-unordered", resident_backend::arrival}
+     {"cuda-ray-resident-unordered", resident_backend::arrival},
+    {"cuda-ray-resident-unordered-reduce-index", resident_backend::reduce_index},
+    {"cuda-ray-resident-unordered-reduce-segment", resident_backend::reduce_segment},
+    {"cuda-ray-resident-unordered-reduce-atomic", resident_backend::reduce_atomic}
 };
 static_assert(valid_cli_options(resident_backends));
 struct resident_cli_options
@@ -33,10 +36,15 @@ inline operation_result<bool> parse_resident_option(std::string_view name, std::
 
     if (id == resident_option::unknown) return false;
     if (id == resident_option::backend) {
+        options.mapper.reduction = cuda_resident_reduction::none;
+        options.mapper.order = cuda_resident_order::arrival;
         switch (lookup_cli_option(value, resident_backends))
         {
         case resident_backend::ordered: options.mapper.order = cuda_resident_order::ordered; break;
         case resident_backend::arrival: options.mapper.order = cuda_resident_order::arrival; break;
+        case resident_backend::reduce_index: options.mapper.reduction = cuda_resident_reduction::index; break;
+        case resident_backend::reduce_segment: options.mapper.reduction = cuda_resident_reduction::segment; break;
+        case resident_backend::reduce_atomic: options.mapper.reduction = cuda_resident_reduction::direct_atomic; break;
         case resident_backend::unknown: options.selected = false; return false;
         }
         options.selected = true;
@@ -45,8 +53,8 @@ inline operation_result<bool> parse_resident_option(std::string_view name, std::
     std::uint32_t count{};
     const auto parsed = std::from_chars(value.data(), value.data() + value.size(), count);
 
-    if (parsed.ec != std::errc{} || parsed.ptr != value.data() + value.size() || !count)
-        return std::unexpected(operation_error{"resident capacities must be positive uint32 values"});
+    if (parsed.ec != std::errc{} || parsed.ptr != value.data() + value.size() || (!count && id != resident_option::contributions))
+        return std::unexpected(operation_error{"resident capacities require uint32 values and positive tile and ray limits"});
     switch (id)
     {
     case resident_option::tiles: options.mapper.tile_capacity = count; break;
@@ -103,6 +111,9 @@ inline pipeline_callbacks resident_callbacks(cuda_resident_context& mapper, mapp
         std::cout << "tsdf " << frame.id << ": " << completed.tsdf.size() << " tiles, "
                   << statistics->mapping.voxel_updates << " updates, " << statistics->batches
                    << " resident batches, " << statistics->explicit_waits << " explicit waits\n";
+        std::cout << resident_fusion_name(mapper.fusion_order(), mapper.reduction_mode()) << ", "
+                  << statistics->mapping.cuda_voxel_segments << " voxel groups, " << statistics->maximum_segment_length
+                  << " maximum contributions per voxel, " << mapper.device_bytes() << " device bytes\n";
         std::cout << "esdf " << frame.id << ": " << esdf_backend_name(config.esdf_generator)
                   << ", " << completed.esdf.size() << " tiles, " << completed.statistics.esdf_ms << " ms\n";
     };

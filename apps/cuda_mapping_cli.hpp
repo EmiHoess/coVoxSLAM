@@ -56,16 +56,20 @@ inline operation_result<bool> parse_cuda_mapping_option(std::string_view name, s
         return true;
     default: break;
     }
-    if (name == "--cuda-ray-capacity") {
+    switch (id)
+    {
+    case cuda_mapping_option::ray_capacity:
         options.mapper.ray_capacity = count;
         options.ray_capacity_set = true;
-    }
-    else if (name == "--cuda-contribution-capacity") {
+        break;
+    case cuda_mapping_option::contribution_capacity:
         options.mapper.contribution_capacity = count;
         options.contribution_capacity_set = true;
+        break;
+    case cuda_mapping_option::device_bytes: options.mapper.maximum_device_bytes = count; break;
+     case cuda_mapping_option::maximum_tiles: config.maximum_tiles = count; break;
+    default: return false;
     }
-     else if (name == "--cuda-device-bytes") options.mapper.maximum_device_bytes = count;
-    else config.maximum_tiles = count;
     return true;
 }
 }
