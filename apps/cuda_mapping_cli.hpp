@@ -32,7 +32,8 @@ struct cuda_mapping_cli_options
 inline operation_result<bool> parse_cuda_mapping_option(std::string_view name, std::string_view value,
     mapping_config& config, bool& enabled, cuda_mapping_cli_options& options)
 {
-    switch (lookup_cli_option(name, cuda_mapping_options)) {
+    const auto id = lookup_cli_option(name, cuda_mapping_options);
+    switch (id) {
     case cuda_mapping_option::backend:
         if (value != "cpu-ray" && value != "cuda-ray" && value != "cuda-projective" && value != "cuda-projective-calibrated")
             return std::unexpected(operation_error{"unsupported mapping backend"});
@@ -41,21 +42,21 @@ inline operation_result<bool> parse_cuda_mapping_option(std::string_view name, s
         options.calibrated_policy = value == "cuda-projective-calibrated";
         options.projective = value == "cuda-projective" || options.calibrated_policy;
         return true;
+    case cuda_mapping_option::unknown: return false;
     default: break;
     }
-    if (name != "--cuda-device" && name != "--cuda-ray-capacity" &&
-        name != "--cuda-contribution-capacity" && name != "--cuda-device-bytes" && name != "--maximum-tiles")
-        return false;
     std::size_t count{};
     const auto parsed = std::from_chars(value.data(), value.data() + value.size(), count);
     if (parsed.ec != std::errc{} || parsed.ptr != value.data() + value.size())
         return std::unexpected(operation_error{"expected an unsigned CUDA capacity or device index"});
-    if (name == "--cuda-device")
-    {
+    switch (id) {
+    case cuda_mapping_option::device:
         if (count > std::numeric_limits<int>::max()) return std::unexpected(operation_error{"CUDA device index out of range"});
         options.mapper.device = static_cast<int>(count);
+        return true;
+    default: break;
     }
-    else if (name == "--cuda-ray-capacity") {
+    if (name == "--cuda-ray-capacity") {
         options.mapper.ray_capacity = count;
         options.ray_capacity_set = true;
     }

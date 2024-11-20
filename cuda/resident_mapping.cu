@@ -132,8 +132,9 @@ int cuda_begin_resident_reduction(cuda_resident_view view, cuda_resident_reducti
 {
 
     if (!valid_resident_reduction_view(view, reduction, mode)) return static_cast<int>(cudaErrorInvalidValue);
+    reduction = resident_reduction_storage(reduction, mode);
     const auto queue = static_cast<cudaStream_t>(stream);
-    open_resident_reduction<<<1, 1, 0, queue>>>(view);
+    open_resident_reduction<<<1, 1, 0, queue>>>(view, mode);
     auto error = static_cast<int>(cudaGetLastError());
     if (!error) error = cuda_begin_resident_batch(view, stream);
     if (error) return error;
@@ -154,7 +155,10 @@ int cuda_finish_resident_reduction(cuda_resident_view view, cuda_resident_reduct
     const auto voxels = static_cast<std::size_t>(view.tile_capacity) * 512;
     const auto blocks = static_cast<unsigned>((voxels + 255) / 256);
     const auto queue = static_cast<cudaStream_t>(stream);
-    auto error = cudaSuccess;
+    require_resident_reduction<<<1, 1, 0, queue>>>(view, mode);
+    auto error = cudaGetLastError();
+
+    if (error != cudaSuccess) return static_cast<int>(error);
 
     if (mode == cuda_resident_reduction::index) {
         reduce_resident_indices<<<blocks, 256, 0, queue>>>(view, reduction, config);

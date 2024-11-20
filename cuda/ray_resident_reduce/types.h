@@ -48,4 +48,16 @@ inline bool valid_resident_reduction_view(cuda_resident_view view, cuda_resident
         (mode == cuda_resident_reduction::direct_atomic || (view.contribution_capacity && view.block_sums &&
         (mode != cuda_resident_reduction::segment || view.offsets)));
 }
+
+inline cuda_resident_reduction_view resident_reduction_storage(cuda_resident_reduction_view view,
+    cuda_resident_reduction mode) noexcept
+{
+    if (mode != cuda_resident_reduction::index) {
+        view.ray_counts = nullptr;
+         view.ray_capacity = 0;
+    }
+
+    if (mode == cuda_resident_reduction::segment) view.weights = view.weighted_distances = nullptr;
+    return view;
+}
 }

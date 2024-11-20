@@ -6,13 +6,21 @@
 
 namespace covoxslam::detail
 {
-__global__ void open_resident_reduction(cuda_resident_view view)
+__global__ void open_resident_reduction(cuda_resident_view view, cuda_resident_reduction mode)
 {
     if (view.state->error) return;
 
     if (view.state->batch_open) { view.state->error = resident_scatter_error; return; }
     view.state->batch_open = 1;
+    view.state->batch_reduction = static_cast<std::uint32_t>(mode);
      view.state->batch_validated = 0;
+}
+
+__global__ void require_resident_reduction(cuda_resident_view view, cuda_resident_reduction mode)
+{
+
+    if (!view.state->batch_open || view.state->batch_reduction != static_cast<std::uint32_t>(mode))
+        view.state->error |= resident_scatter_error;
 }
 
 __global__ void clear_resident_reduction(cuda_resident_view view, cuda_resident_reduction_view reduction)

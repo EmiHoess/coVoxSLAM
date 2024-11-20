@@ -135,12 +135,15 @@ __global__ void walk_resident_rays(cuda_resident_view view, const cuda_device_ra
 
 template<unsigned stage>
 __global__ void walk_reduction_rays(cuda_resident_view view, cuda_resident_reduction_view reduction,
-    const cuda_device_ray* rays, std::size_t size, cuda_ray_parameters parameters)
+    const cuda_device_ray* rays, std::size_t size, cuda_ray_parameters parameters, cuda_resident_reduction mode)
 {
     const auto index = static_cast<std::size_t>(blockIdx.x) * blockDim.x + threadIdx.x;
 
     if (index >= size || atomicAdd(&view.state->error, 0U)) return;
-    if (!view.state->batch_open) { atomicOr(&view.state->error, resident_scatter_error); return; }
+    if (!view.state->batch_open || view.state->batch_reduction != static_cast<std::uint32_t>(mode)) {
+        atomicOr(&view.state->error, resident_scatter_error);
+        return;
+    }
     const auto count = walk_ray<false, stage>(rays[index], parameters, nullptr, 0, 0, 0,
         &view.state->error, view, static_cast<std::uint32_t>(index), reduction);
     if constexpr (stage == 4 || stage == 7)
@@ -198,6 +201,7 @@ int cuda_walk_resident_reduction(cuda_resident_view view, cuda_resident_reductio
     const cuda_device_ray* rays, std::size_t count, cuda_ray_parameters parameters,
     cuda_resident_reduction mode, unsigned stage, void* stream) noexcept
 {
+    reduction = resident_reduction_storage(reduction, mode);
 
     if (!valid_resident_reduction_view(view, reduction, mode) || !valid_ray_parameters(parameters) ||
         count > UINT32_MAX || (count && !rays) || stage > 2 ||
@@ -207,13 +211,13 @@ int cuda_walk_resident_reduction(cuda_resident_view view, cuda_resident_reductio
     const auto blocks = static_cast<unsigned>(1 + (count - 1) / 256);
     const auto queue = static_cast<cudaStream_t>(stream);
 
-    if (!stage) walk_reduction_rays<0><<<blocks, 256, 0, queue>>>(view, reduction, rays, count, parameters);
+    if (!stage) walk_reduction_rays<0><<<blocks, 256, 0, queue>>>(view, reduction, rays, count, parameters, mode);
     else if (mode == cuda_resident_reduction::direct_atomic)
-        walk_reduction_rays<7><<<blocks, 256, 0, queue>>>(view, reduction, rays, count, parameters);
-    else if (stage == 1) walk_reduction_rays<4><<<blocks, 256, 0, queue>>>(view, reduction, rays, count, parameters);
+        walk_reduction_rays<7><<<blocks, 256, 0, queue>>>(view, reduction, rays, count, parameters, mode);
+    else if (stage == 1) walk_reduction_rays<4><<<blocks, 256, 0, queue>>>(view, reduction, rays, count, parameters, mode);
     else if (mode == cuda_resident_reduction::index)
-        walk_reduction_rays<5><<<blocks, 256, 0, queue>>>(view, reduction, rays, count, parameters);
-    else walk_reduction_rays<6><<<blocks, 256, 0, queue>>>(view, reduction, rays, count, parameters);
+        walk_reduction_rays<5><<<blocks, 256, 0, queue>>>(view, reduction, rays, count, parameters, mode);
+    else walk_reduction_rays<6><<<blocks, 256, 0, queue>>>(view, reduction, rays, count, parameters, mode);
     return static_cast<int>(cudaGetLastError());
 }
 

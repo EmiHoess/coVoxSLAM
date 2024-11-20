@@ -33,7 +33,7 @@ struct cuda_resident_state
     std::uint64_t batch_contributions{}, batch_touched{}, batches{};
     std::uint64_t integrated{}, rejected{}, contributions{}, touched{};
     std::uint64_t batch_validated{};
-    std::uint32_t batch_open{};
+    std::uint32_t batch_open{}, batch_reduction{};
 };
 
 struct cuda_resident_view
