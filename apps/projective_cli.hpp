@@ -4,6 +4,25 @@
 
 namespace covoxslam
 {
+enum class projective_option
+{
+    unknown, interpolation, depth_discontinuity, nearest_ray_distance, sparsity_factor,
+     candidate_capacity, constant_weight, weight_dropoff, sparsity_compensation, voxel_carving, allow_clear
+};
+inline constexpr cli_option_entry<projective_option> projective_options[]{
+    {"--projective-interpolation", projective_option::interpolation},
+    {"--projective-depth-discontinuity", projective_option::depth_discontinuity},
+    {"--projective-nearest-ray-distance", projective_option::nearest_ray_distance},
+    {"--projective-sparsity-factor", projective_option::sparsity_factor},
+    {"--projective-candidate-capacity", projective_option::candidate_capacity},
+    {"--projective-constant-weight", projective_option::constant_weight},
+     {"--projective-weight-dropoff", projective_option::weight_dropoff},
+    {"--projective-sparsity-compensation", projective_option::sparsity_compensation},
+    {"--projective-voxel-carving", projective_option::voxel_carving},
+    {"--projective-allow-clear", projective_option::allow_clear}
+};
+static_assert(valid_cli_options(projective_options));
+
 inline bool parse_projective_option(std::string_view name, std::string_view value, cuda_projective_options& options, bool& selected)
 {
     if (name == "--projective-interpolation") {

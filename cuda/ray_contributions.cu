@@ -1,6 +1,7 @@
 #include "sparse_mapping.h"
 #include "ray_resident/record.cuh"
 #include "ray_resident_reduce/record.cuh"
+#include "ray_resident_step_tasks/tasks.cuh"
 
 #include <cuda_runtime.h>
 #include <math_constants.h>
