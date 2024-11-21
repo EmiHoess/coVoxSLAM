@@ -12,6 +12,7 @@ __global__ void open_resident_reduction(cuda_resident_view view, cuda_resident_r
 
     if (view.state->batch_open) { view.state->error = resident_scatter_error; return; }
     view.state->batch_open = 1;
+    view.state->batch_task_phase = 0;
     view.state->batch_reduction = static_cast<std::uint32_t>(mode);
      view.state->batch_validated = 0;
 }

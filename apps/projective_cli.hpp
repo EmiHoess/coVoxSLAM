@@ -23,14 +23,27 @@ inline constexpr cli_option_entry<projective_option> projective_options[]{
 };
 static_assert(valid_cli_options(projective_options));
 
-inline bool parse_projective_option(std::string_view name, std::string_view value, cuda_projective_options& options, bool& selected)
+enum class projective_interpolation_value { unknown, nearest, linear_nearest };
+inline constexpr cli_option_entry<projective_interpolation_value> projective_interpolation_values[]{
+    {"nearest", projective_interpolation_value::nearest}, {"linear-nearest", projective_interpolation_value::linear_nearest}
+};
+static_assert(valid_cli_options(projective_interpolation_values));
+
+inline operation_result<bool> parse_projective_option(std::string_view name, std::string_view value, cuda_projective_options& options, bool& selected)
 {
-    if (name == "--projective-interpolation") {
-        if (value == "nearest") options.interpolation = cuda_projective_interpolation::nearest;
-        else if (value == "linear-nearest") options.interpolation = cuda_projective_interpolation::linear_nearest;
-        else throw std::invalid_argument("unsupported projective interpolation");
+    switch (lookup_cli_option(name, projective_options))
+    {
+    case projective_option::interpolation:
+        switch (lookup_cli_option(value, projective_interpolation_values)) {
+        case projective_interpolation_value::nearest: options.interpolation = cuda_projective_interpolation::nearest; break;
+         case projective_interpolation_value::linear_nearest: options.interpolation = cuda_projective_interpolation::linear_nearest; break;
+        default: return std::unexpected(operation_error{"unsupported projective interpolation"});
+        }
+        selected = true;
+        return true;
+    default: break;
     }
-    else if (name == "--projective-depth-discontinuity") options.depth_discontinuity_voxels = mapping_scalar(value);
+    if (name == "--projective-depth-discontinuity") options.depth_discontinuity_voxels = mapping_scalar(value);
     else if (name == "--projective-nearest-ray-distance") options.nearest_ray_distance_voxels = mapping_scalar(value);
     else if (name == "--projective-sparsity-factor") options.sparsity_compensation_factor = mapping_scalar(value);
     else if (name == "--projective-candidate-capacity") {

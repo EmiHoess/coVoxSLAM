@@ -38,4 +38,7 @@ inline bool valid_resident_tasks(cuda_resident_task_view view) noexcept {
     return view.tasks && view.prepared && view.counts && view.accepted && view.offsets &&
         view.state && view.capacity && view.capacity <= UINT32_MAX && view.ray_capacity;
 }
+
+int cuda_expand_resident_tasks(cuda_resident_view view, cuda_resident_task_view tasks,
+    const cuda_device_ray* rays, std::size_t count, cuda_ray_parameters config, void* stream) noexcept;
 }

@@ -72,6 +72,12 @@ inline int run_submap_cli(int argc, char** argv)
             const auto fusion_parsed = parse_ray_fusion_option(option, value, fusion_options);
             if (!fusion_parsed) { std::cerr << fusion_parsed.error().message << '\n'; return 2; }
             if (*fusion_parsed) continue;
+            const auto projective_parsed = parse_projective_option(option, value, projective_options, projective_option_set);
+            if (!projective_parsed) return report_error(projective_parsed.error().message);
+            if (*projective_parsed) {
+                if (option != "--projective-candidate-capacity") projective_control_set = true;
+                continue;
+            }
             if (option == "--dataset") root = argv[index + 1];
             else if (option == "--output") {
                 if (value.empty()) return report_error("--output requires a directory");
@@ -92,9 +98,6 @@ inline int run_submap_cli(int argc, char** argv)
                 if (value == "odometry") options.pose_source = pose_source::odometry;
                 else if (value == "ground_truth") options.pose_source = pose_source::ground_truth;
                 else return report_error("unsupported trajectory source");
-            }
-            else if (parse_projective_option(option, value, projective_options, projective_option_set)) {
-                if (option != "--projective-candidate-capacity") projective_control_set = true;
             }
             else if (!parse_cuda_esdf_option(option, value, esdf_options))
             {
