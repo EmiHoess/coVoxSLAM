@@ -201,7 +201,7 @@ __global__ void walk_reduction_rays(cuda_resident_view view, cuda_resident_reduc
     const auto index = static_cast<std::size_t>(blockIdx.x) * blockDim.x + threadIdx.x;
 
     if (index >= size || atomicAdd(&view.state->error, 0U)) return;
-    if (!view.state->batch_open || view.state->batch_reduction != static_cast<std::uint32_t>(mode)) {
+    if (!view.state->batch_open || view.state->batch_reduction != static_cast<std::uint32_t>(mode) || view.state->batch_task_phase) {
         atomicOr(&view.state->error, resident_scatter_error);
         return;
     }

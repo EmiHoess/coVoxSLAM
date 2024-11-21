@@ -41,4 +41,7 @@ inline bool valid_resident_tasks(cuda_resident_task_view view) noexcept {
 
 int cuda_expand_resident_tasks(cuda_resident_view view, cuda_resident_task_view tasks,
     const cuda_device_ray* rays, std::size_t count, cuda_ray_parameters config, void* stream) noexcept;
+int cuda_process_resident_tasks(cuda_resident_view view, cuda_resident_reduction_view reduction,
+    cuda_resident_task_view tasks, const cuda_device_ray* rays, std::size_t count,
+    cuda_ray_parameters config, unsigned stage, void* stream) noexcept;
 }
