@@ -3,6 +3,7 @@
 #include <covoxslam/cuda_resident.hpp>
 #include "ray_resident/types.h"
 #include "ray_resident_reduce/types.h"
+#include "ray_resident_step_tasks/types.h"
 #include <cuda_runtime_api.h>
 #include <array>
 
@@ -14,9 +15,10 @@ struct cuda_resident_context::implementation
     cuda_resident_options options;
     detail::cuda_resident_view view;
     detail::cuda_resident_reduction_view reduction;
+    detail::cuda_resident_task_view tasks;
      detail::cuda_device_ray* rays{};
     cudaStream_t stream{};
-    std::array<void*, 16> allocations{};
+    std::array<void*, 24> allocations{};
     std::size_t allocation_count{}, bytes{};
     bool failed{};
     struct staging_slot {
@@ -52,6 +54,21 @@ struct cuda_resident_context::implementation
 
             if (status) status = check(detail::cuda_walk_resident_reduction(view, reduction, rays, count, parameters, mode, 2, stream));
         }
+        if (status) status = check(detail::cuda_finish_resident_reduction(view, reduction, mode, stream,
+            {config.truncation_distance, config.maximum_weight, config.extraction_distance}));
+        return status;
+    }
+
+    operation_status integrate_tasks(std::size_t count, detail::cuda_ray_parameters parameters)
+    {
+        constexpr auto mode = cuda_resident_reduction::direct_atomic;
+        auto status = check(detail::cuda_begin_resident_reduction(view, reduction, mode, stream));
+
+        if (status) status = check(detail::cuda_expand_resident_tasks(view, tasks, rays, count, parameters, stream));
+
+        for (unsigned stage = 0; stage < 2 && status; ++stage)
+            status = check(detail::cuda_process_resident_tasks(view, reduction, tasks, rays, count, parameters, stage, stream));
+
         if (status) status = check(detail::cuda_finish_resident_reduction(view, reduction, mode, stream,
             {config.truncation_distance, config.maximum_weight, config.extraction_distance}));
         return status;

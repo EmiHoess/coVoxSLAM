@@ -16,6 +16,7 @@ struct cuda_resident_options
     bool allow_clear{};
     cuda_resident_order order{cuda_resident_order::ordered};
     cuda_resident_reduction reduction{cuda_resident_reduction::none};
+    bool step_tasks{};
 };
 
 struct cuda_resident_statistics
@@ -39,6 +40,7 @@ public:
     std::size_t device_bytes() const noexcept;
     cuda_resident_order fusion_order() const noexcept;
     cuda_resident_reduction reduction_mode() const noexcept;
+    bool uses_step_tasks() const noexcept;
     operation_status submit(std::span<const ray> rays);
     operation_result<cuda_resident_statistics> flush();
     operation_result<tsdf_tiles> download();

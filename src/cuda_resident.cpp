@@ -11,6 +11,7 @@ cuda_resident_context::~cuda_resident_context() = default;
 std::size_t cuda_resident_context::device_bytes() const noexcept { return state->bytes; }
 cuda_resident_order cuda_resident_context::fusion_order() const noexcept { return state->options.order; }
 cuda_resident_reduction cuda_resident_context::reduction_mode() const noexcept { return state->options.reduction; }
+bool cuda_resident_context::uses_step_tasks() const noexcept { return state->options.step_tasks; }
 
 operation_result<std::unique_ptr<cuda_resident_context>> cuda_resident_context::create(
     mapping_config config, cuda_resident_options options)
@@ -18,6 +19,7 @@ operation_result<std::unique_ptr<cuda_resident_context>> cuda_resident_context::
 
     if (!config.valid() || !options.tile_capacity || options.tile_capacity > UINT32_MAX / 512 ||
         options.tile_capacity > config.maximum_tiles || !options.ray_capacity ||
+        (options.step_tasks && (options.reduction != cuda_resident_reduction::direct_atomic || !options.contribution_capacity)) ||
         (!options.contribution_capacity && options.reduction != cuda_resident_reduction::direct_atomic) ||
         !valid_resident_order(options.order) || !valid_resident_reduction(options.reduction))
         return std::unexpected(operation_error{"invalid resident mapping configuration or capacities"});
@@ -32,7 +34,7 @@ operation_result<std::unique_ptr<cuda_resident_context>> cuda_resident_context::
         options.ray_capacity * sizeof(detail::cuda_device_ray);
     if (segmented) bytes += voxels * sizeof(std::uint64_t);
 
-    if (mode != cuda_resident_reduction::direct_atomic) bytes += sums * sizeof(std::uint64_t);
+    if (mode != cuda_resident_reduction::direct_atomic || options.step_tasks) bytes += sums * sizeof(std::uint64_t);
     switch (mode)
     {
     case cuda_resident_reduction::none:
@@ -45,6 +47,11 @@ operation_result<std::unique_ptr<cuda_resident_context>> cuda_resident_context::
         break;
     case cuda_resident_reduction::direct_atomic: bytes += voxels * 2 * sizeof(double); break;
     }
+
+    if (options.step_tasks)
+        bytes += options.contribution_capacity * sizeof(detail::cuda_resident_step_task) +
+            options.ray_capacity * (sizeof(detail::cuda_resident_prepared_ray) + 2 * sizeof(std::uint32_t) + sizeof(std::uint64_t)) +
+            sizeof(detail::cuda_resident_task_state);
 
     if (options.maximum_device_bytes && bytes > options.maximum_device_bytes)
         return std::unexpected(operation_error{"resident storage exceeds the device byte budget"});
@@ -80,7 +87,7 @@ operation_result<std::unique_ptr<cuda_resident_context>> cuda_resident_context::
     if (status) status = data.allocate(view.cursors, voxels);
     if (status && segmented) status = data.allocate(view.offsets, voxels);
 
-    if (status && mode != cuda_resident_reduction::direct_atomic) status = data.allocate(view.block_sums, sums);
+    if (status && (mode != cuda_resident_reduction::direct_atomic || options.step_tasks)) status = data.allocate(view.block_sums, sums);
     if (status && mode == cuda_resident_reduction::none) status = data.allocate(view.contributions, options.contribution_capacity);
 
     auto& reduction = data.reduction;
@@ -102,6 +109,21 @@ operation_result<std::unique_ptr<cuda_resident_context>> cuda_resident_context::
     }
 
     if (status) status = data.allocate(data.rays, options.ray_capacity);
+
+    if (options.step_tasks)
+    {
+        auto& tasks = data.tasks;
+        tasks.capacity = options.contribution_capacity;
+         tasks.ray_capacity = options.ray_capacity;
+        if (status) status = data.allocate(tasks.tasks, options.contribution_capacity);
+
+        if (status) status = data.allocate(tasks.prepared, options.ray_capacity);
+        if (status) status = data.allocate(tasks.counts, options.ray_capacity);
+        if (status) status = data.allocate(tasks.accepted, options.ray_capacity);
+
+        if (status) status = data.allocate(tasks.offsets, options.ray_capacity);
+        if (status) status = data.allocate(tasks.state, 1);
+    }
 
     for (auto& slot : data.staging)
     {
@@ -155,7 +177,10 @@ operation_status cuda_resident_context::submit(std::span<const ray> input)
         config.minimum_ray_length_m, config.maximum_ray_length_m, data.options.voxel_carving, data.options.allow_clear};
 
     if (bytes) status = data.check(cudaMemcpyAsync(data.rays, slot.rays, bytes, cudaMemcpyHostToDevice, data.stream));
-    if (data.options.reduction != cuda_resident_reduction::none)
+    if (data.options.step_tasks) {
+        if (status) status = data.integrate_tasks(input.size(), parameters);
+    }
+    else if (data.options.reduction != cuda_resident_reduction::none)
     {
         if (status) status = data.integrate_reduction(input.size(), parameters);
     }
