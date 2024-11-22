@@ -33,8 +33,9 @@ constexpr const char* resident_order_name(cuda_resident_order value) noexcept
     return "invalid";
 }
 
-constexpr const char* resident_fusion_name(cuda_resident_order order, cuda_resident_reduction reduction) noexcept
+constexpr const char* resident_fusion_name(cuda_resident_order order, cuda_resident_reduction reduction, bool step_tasks = false) noexcept
 {
+    if (step_tasks) return "batch-weighted-fp64-tasks";
     switch (reduction)
     {
     case cuda_resident_reduction::none: return resident_order_name(order);
@@ -45,8 +46,9 @@ constexpr const char* resident_fusion_name(cuda_resident_order order, cuda_resid
     return "invalid";
 }
 
-constexpr const char* resident_backend_name(cuda_resident_order order, cuda_resident_reduction reduction) noexcept
+constexpr const char* resident_backend_name(cuda_resident_order order, cuda_resident_reduction reduction, bool step_tasks = false) noexcept
 {
+    if (step_tasks) return "cuda-ray-resident-step-tasks";
     switch (reduction) {
     case cuda_resident_reduction::none:
         return order == cuda_resident_order::ordered ? "cuda-ray-resident" : "cuda-ray-resident-unordered";

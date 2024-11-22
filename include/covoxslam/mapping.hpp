@@ -156,6 +156,7 @@ struct mapping_statistics {
     std::uint64_t cuda_downloaded_bytes{};
      std::uint64_t cuda_contributing_rays{};
     std::uint64_t cuda_voxel_segments{};
+    double cuda_task_expansion_ms{}, cuda_task_evaluation_ms{}, cuda_task_fusion_ms{};
 }
 ;
 

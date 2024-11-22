@@ -45,6 +45,16 @@ inline operation_result<bool> parse_projective_option(std::string_view name, std
     case projective_option::depth_discontinuity: scalar = &options.depth_discontinuity_voxels; break;
      case projective_option::nearest_ray_distance: scalar = &options.nearest_ray_distance_voxels; break;
     case projective_option::sparsity_factor: scalar = &options.sparsity_compensation_factor; break;
+    case projective_option::candidate_capacity: {
+        std::size_t capacity{};
+        const auto parsed = std::from_chars(value.data(), value.data() + value.size(), capacity);
+
+        if (parsed.ec != std::errc{} || parsed.ptr != value.data() + value.size())
+            return std::unexpected(operation_error{"expected projective candidate capacity"});
+        options.candidate_tile_capacity = capacity;
+        selected = true;
+        return true;
+    }
     default: break;
     }
 
@@ -58,14 +68,7 @@ inline operation_result<bool> parse_projective_option(std::string_view name, std
          selected = true;
         return true;
     }
-    if (name == "--projective-candidate-capacity") {
-        std::size_t capacity{};
-        const auto parsed = std::from_chars(value.data(), value.data() + value.size(), capacity);
-        if (parsed.ec != std::errc{} || parsed.ptr != value.data() + value.size())
-            throw std::invalid_argument("expected projective candidate capacity");
-        options.candidate_tile_capacity = capacity;
-    }
-    else {
+    {
         bool* selected{};
         if (name == "--projective-constant-weight") selected = &options.constant_weight;
         else if (name == "--projective-weight-dropoff") selected = &options.weight_dropoff;

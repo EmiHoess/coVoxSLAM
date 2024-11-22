@@ -14,13 +14,14 @@ inline constexpr cli_option_entry<resident_option> resident_options[]{
      {"--resident-rays", resident_option::rays}, {"--resident-contributions", resident_option::contributions}
 };
 static_assert(valid_cli_options(resident_options));
-enum class resident_backend { unknown, ordered, arrival, reduce_index, reduce_segment, reduce_atomic };
+enum class resident_backend { unknown, ordered, arrival, reduce_index, reduce_segment, reduce_atomic, step_tasks };
 inline constexpr cli_option_entry<resident_backend> resident_backends[]{
     {"cuda-ray-resident", resident_backend::ordered},
      {"cuda-ray-resident-unordered", resident_backend::arrival},
     {"cuda-ray-resident-unordered-reduce-index", resident_backend::reduce_index},
     {"cuda-ray-resident-unordered-reduce-segment", resident_backend::reduce_segment},
-    {"cuda-ray-resident-unordered-reduce-atomic", resident_backend::reduce_atomic}
+    {"cuda-ray-resident-unordered-reduce-atomic", resident_backend::reduce_atomic},
+    {"cuda-ray-resident-step-tasks", resident_backend::step_tasks}
 };
 static_assert(valid_cli_options(resident_backends));
 struct resident_cli_options
@@ -37,6 +38,7 @@ inline operation_result<bool> parse_resident_option(std::string_view name, std::
     if (id == resident_option::unknown) return false;
     if (id == resident_option::backend) {
         options.mapper.reduction = cuda_resident_reduction::none;
+        options.mapper.step_tasks = false;
         options.mapper.order = cuda_resident_order::arrival;
         switch (lookup_cli_option(value, resident_backends))
         {
@@ -45,6 +47,10 @@ inline operation_result<bool> parse_resident_option(std::string_view name, std::
         case resident_backend::reduce_index: options.mapper.reduction = cuda_resident_reduction::index; break;
         case resident_backend::reduce_segment: options.mapper.reduction = cuda_resident_reduction::segment; break;
         case resident_backend::reduce_atomic: options.mapper.reduction = cuda_resident_reduction::direct_atomic; break;
+        case resident_backend::step_tasks:
+            options.mapper.reduction = cuda_resident_reduction::direct_atomic;
+             options.mapper.step_tasks = true;
+            break;
         case resident_backend::unknown: options.selected = false; return false;
         }
         options.selected = true;
@@ -111,9 +117,13 @@ inline pipeline_callbacks resident_callbacks(cuda_resident_context& mapper, mapp
         std::cout << "tsdf " << frame.id << ": " << completed.tsdf.size() << " tiles, "
                   << statistics->mapping.voxel_updates << " updates, " << statistics->batches
                    << " resident batches, " << statistics->explicit_waits << " explicit waits\n";
-        std::cout << resident_fusion_name(mapper.fusion_order(), mapper.reduction_mode()) << ", "
+        std::cout << resident_fusion_name(mapper.fusion_order(), mapper.reduction_mode(), mapper.uses_step_tasks()) << ", "
                   << statistics->mapping.cuda_voxel_segments << " voxel groups, " << statistics->maximum_segment_length
                   << " maximum contributions per voxel, " << mapper.device_bytes() << " device bytes\n";
+        if (mapper.uses_step_tasks())
+            std::cout << "task expansion " << statistics->mapping.cuda_task_expansion_ms << " ms, evaluation "
+                      << statistics->mapping.cuda_task_evaluation_ms << " ms, fusion "
+                      << statistics->mapping.cuda_task_fusion_ms << " ms\n";
         std::cout << "esdf " << frame.id << ": " << esdf_backend_name(config.esdf_generator)
                   << ", " << completed.esdf.size() << " tiles, " << completed.statistics.esdf_ms << " ms\n";
     };

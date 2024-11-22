@@ -267,6 +267,9 @@ void map_exporter::write(const submap& value)
              << ",\"cuda_downloaded_bytes\":" << statistics.cuda_downloaded_bytes
              << ",\"cuda_contributing_rays\":" << statistics.cuda_contributing_rays
              << ",\"cuda_voxel_segments\":" << statistics.cuda_voxel_segments
+             << ",\"cuda_task_expansion_ms\":" << statistics.cuda_task_expansion_ms
+             << ",\"cuda_task_evaluation_ms\":" << statistics.cuda_task_evaluation_ms
+             << ",\"cuda_task_fusion_ms\":" << statistics.cuda_task_fusion_ms
              << ",\"integration_ms\":" << statistics.integration_ms
              << ",\"esdf_ms\":" << statistics.esdf_ms << "}\n";
     poses.flush();

@@ -132,6 +132,12 @@ operation_result<std::unique_ptr<cuda_resident_context>> cuda_resident_context::
         status = data.check(cudaHostAlloc(reinterpret_cast<void**>(&slot.rays),
             options.ray_capacity * sizeof(detail::cuda_device_ray), cudaHostAllocDefault));
         if (status) status = data.check(cudaEventCreateWithFlags(&slot.complete, cudaEventDisableTiming));
+
+        if (options.step_tasks)
+            for (auto& event : slot.task_events) {
+                if (!status) break;
+                status = data.check(cudaEventCreateWithFlags(&event, cudaEventDefault));
+            }
     }
     if (status) status = data.check(detail::cuda_initialize_resident_map(view, data.stream));
 
@@ -156,6 +162,7 @@ operation_status cuda_resident_context::submit(std::span<const ray> input)
     if (status && slot.pending) {
         ++data.statistics.explicit_waits;
         status = data.check(cudaEventSynchronize(slot.complete));
+        if (status) status = data.harvest(slot);
     }
     if (!status) return status;
 
@@ -178,7 +185,7 @@ operation_status cuda_resident_context::submit(std::span<const ray> input)
 
     if (bytes) status = data.check(cudaMemcpyAsync(data.rays, slot.rays, bytes, cudaMemcpyHostToDevice, data.stream));
     if (data.options.step_tasks) {
-        if (status) status = data.integrate_tasks(input.size(), parameters);
+        if (status) status = data.integrate_tasks(input.size(), parameters, slot);
     }
     else if (data.options.reduction != cuda_resident_reduction::none)
     {
@@ -231,7 +238,11 @@ operation_result<cuda_resident_statistics> cuda_resident_context::flush()
         return std::unexpected(operation_error{"resident map is not publishable, device status " + std::to_string(completed.error)});
     }
 
-    for (auto& slot : data.staging) slot.pending = false;
+    for (auto& slot : data.staging) {
+        status = data.harvest(slot);
+
+        if (!status) return std::unexpected(status.error());
+    }
     auto& statistics = data.statistics;
     statistics.batches = completed.batches;
     statistics.maximum_segment_length = completed.maximum_segment_length;

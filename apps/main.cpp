@@ -43,6 +43,7 @@ void usage()
               << "  --backend cuda-ray-resident-unordered-reduce-index|cuda-ray-resident-unordered-reduce-segment\n"
               << "  --backend cuda-ray-resident-unordered-reduce-atomic  FP64 sums, stored weight capped once per batch\n"
               << "    Direct atomic needs no contribution buffer and accepts --resident-contributions 0\n"
+              << "  --backend cuda-ray-resident-step-tasks  Bounded exact DDA tasks, FP64 batch fusion and GPU stage timings\n"
               << "  --projective-depth-discontinuity N --projective-nearest-ray-distance N --projective-sparsity-factor N\n"
               << "  --projective-constant-weight BOOL --projective-weight-dropoff BOOL --projective-sparsity-compensation BOOL\n"
               << "  --projective-voxel-carving BOOL --projective-allow-clear BOOL  BOOL is true or false\n"

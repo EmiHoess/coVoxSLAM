@@ -24,6 +24,7 @@ struct cuda_resident_context::implementation
     struct staging_slot {
         detail::cuda_device_ray* rays{};
         cudaEvent_t complete{};
+        std::array<cudaEvent_t, 4> task_events{};
         bool pending{};
     };
     std::array<staging_slot, 4> staging{};
@@ -59,18 +60,41 @@ struct cuda_resident_context::implementation
         return status;
     }
 
-    operation_status integrate_tasks(std::size_t count, detail::cuda_ray_parameters parameters)
+    operation_status harvest(staging_slot& slot)
+    {
+        if (!slot.pending) return {};
+
+        if (options.step_tasks) {
+            std::array<float, 3> elapsed{};
+
+            for (std::size_t index = 0; index < elapsed.size(); ++index) {
+                const auto status = check(cudaEventElapsedTime(&elapsed[index], slot.task_events[index], slot.task_events[index + 1]));
+                if (!status) return status;
+            }
+            statistics.mapping.cuda_task_expansion_ms += elapsed[0];
+             statistics.mapping.cuda_task_evaluation_ms += elapsed[1];
+            statistics.mapping.cuda_task_fusion_ms += elapsed[2];
+        }
+        slot.pending = false;
+        return {};
+    }
+
+    operation_status integrate_tasks(std::size_t count, detail::cuda_ray_parameters parameters, staging_slot& slot)
     {
         constexpr auto mode = cuda_resident_reduction::direct_atomic;
-        auto status = check(detail::cuda_begin_resident_reduction(view, reduction, mode, stream));
+        auto status = check(cudaEventRecord(slot.task_events[0], stream));
+        if (status) status = check(detail::cuda_begin_resident_reduction(view, reduction, mode, stream));
 
         if (status) status = check(detail::cuda_expand_resident_tasks(view, tasks, rays, count, parameters, stream));
+        if (status) status = check(cudaEventRecord(slot.task_events[1], stream));
 
-        for (unsigned stage = 0; stage < 2 && status; ++stage)
-            status = check(detail::cuda_process_resident_tasks(view, reduction, tasks, rays, count, parameters, stage, stream));
+        if (status) status = check(detail::cuda_process_resident_tasks(view, reduction, tasks, rays, count, parameters, 0, stream));
+        if (status) status = check(cudaEventRecord(slot.task_events[2], stream));
+        if (status) status = check(detail::cuda_process_resident_tasks(view, reduction, tasks, rays, count, parameters, 1, stream));
 
         if (status) status = check(detail::cuda_finish_resident_reduction(view, reduction, mode, stream,
             {config.truncation_distance, config.maximum_weight, config.extraction_distance}));
+        if (status) status = check(cudaEventRecord(slot.task_events[3], stream));
         return status;
     }
 
@@ -95,6 +119,9 @@ struct cuda_resident_context::implementation
         if (stream) cudaStreamSynchronize(stream);
 
         for (auto& slot : staging) {
+
+            for (auto event : slot.task_events)
+                if (event) cudaEventDestroy(event);
 
             if (slot.complete) cudaEventDestroy(slot.complete);
             if (slot.rays) cudaFreeHost(slot.rays);
