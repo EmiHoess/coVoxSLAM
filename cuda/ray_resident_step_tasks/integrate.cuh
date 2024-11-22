@@ -31,6 +31,12 @@ __global__ void evaluate_resident_tasks(cuda_resident_view view, cuda_resident_t
         const auto ray = task.payload[0];
 
         if (ray >= tasks.state->rays) { atomicOr(&view.state->error, resident_scatter_error); return; }
+        const auto offset = tasks.offsets[ray];
+
+        if (task.payload[1] || offset > index || index - offset >= tasks.counts[ray]) {
+            atomicOr(&view.state->error, resident_scatter_error);
+            return;
+        }
         float distance{};
         bool invalid{};
 
@@ -70,6 +76,8 @@ __global__ void count_resident_task_rays(cuda_resident_view view, cuda_resident_
 
     if (ray >= tasks.state->rays || atomicAdd(&view.state->error, 0U)) return;
     const auto accepted = tasks.accepted[ray];
+
+    if (accepted > tasks.counts[ray]) { atomicOr(&view.state->error, resident_scatter_error); return; }
     atomicAdd(accepted ? &view.state->batch_integrated : &view.state->batch_rejected, 1U);
     atomicAdd(reinterpret_cast<unsigned long long*>(&view.state->batch_contributions),
          static_cast<unsigned long long>(accepted));

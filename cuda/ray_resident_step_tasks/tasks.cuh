@@ -24,6 +24,12 @@ __device__ inline bool evaluate_resident_task(const cuda_device_ray& ray,
 {
     float projected{};
 
+    if (!isfinite(prepared.start) || !isfinite(prepared.end) || prepared.end <= prepared.start ||
+        !isfinite(prepared.distance) || prepared.distance <= 0 || !isfinite(ray.weight) || ray.weight <= 0) {
+        numeric_error = true;
+        return false;
+    }
+
     for (int axis = 0; axis < 3; ++axis)
     {
         const float center = static_cast<float>((double(voxel[axis]) + 0.5) * config.voxel_size);

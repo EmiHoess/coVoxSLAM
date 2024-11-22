@@ -31,6 +31,7 @@ static_assert(valid_cli_options(projective_interpolation_values));
 
 inline operation_result<bool> parse_projective_option(std::string_view name, std::string_view value, cuda_projective_options& options, bool& selected)
 {
+    float* scalar{};
     switch (lookup_cli_option(name, projective_options))
     {
     case projective_option::interpolation:
@@ -41,12 +42,23 @@ inline operation_result<bool> parse_projective_option(std::string_view name, std
         }
         selected = true;
         return true;
+    case projective_option::depth_discontinuity: scalar = &options.depth_discontinuity_voxels; break;
+     case projective_option::nearest_ray_distance: scalar = &options.nearest_ray_distance_voxels; break;
+    case projective_option::sparsity_factor: scalar = &options.sparsity_compensation_factor; break;
     default: break;
     }
-    if (name == "--projective-depth-discontinuity") options.depth_discontinuity_voxels = mapping_scalar(value);
-    else if (name == "--projective-nearest-ray-distance") options.nearest_ray_distance_voxels = mapping_scalar(value);
-    else if (name == "--projective-sparsity-factor") options.sparsity_compensation_factor = mapping_scalar(value);
-    else if (name == "--projective-candidate-capacity") {
+
+    if (scalar) {
+        float number{};
+        const auto parsed = std::from_chars(value.data(), value.data() + value.size(), number);
+
+        if (parsed.ec != std::errc{} || parsed.ptr != value.data() + value.size() || !std::isfinite(number))
+            return std::unexpected(operation_error{"expected a finite mapping scalar"});
+        *scalar = number;
+         selected = true;
+        return true;
+    }
+    if (name == "--projective-candidate-capacity") {
         std::size_t capacity{};
         const auto parsed = std::from_chars(value.data(), value.data() + value.size(), capacity);
         if (parsed.ec != std::errc{} || parsed.ptr != value.data() + value.size())
