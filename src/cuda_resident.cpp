@@ -12,6 +12,7 @@ std::size_t cuda_resident_context::device_bytes() const noexcept { return state-
 cuda_resident_order cuda_resident_context::fusion_order() const noexcept { return state->options.order; }
 cuda_resident_reduction cuda_resident_context::reduction_mode() const noexcept { return state->options.reduction; }
 bool cuda_resident_context::uses_step_tasks() const noexcept { return state->options.step_tasks; }
+cuda_resident_warp_options cuda_resident_context::warp_configuration() const noexcept { return state->options.warp; }
 
 operation_result<std::unique_ptr<cuda_resident_context>> cuda_resident_context::create(
     mapping_config config, cuda_resident_options options)
@@ -21,7 +22,8 @@ operation_result<std::unique_ptr<cuda_resident_context>> cuda_resident_context::
         options.tile_capacity > config.maximum_tiles || !options.ray_capacity ||
         (options.step_tasks && (options.reduction != cuda_resident_reduction::direct_atomic || !options.contribution_capacity)) ||
         (!options.contribution_capacity && options.reduction != cuda_resident_reduction::direct_atomic) ||
-        !valid_resident_order(options.order) || !valid_resident_reduction(options.reduction))
+        !valid_resident_order(options.order) || !valid_resident_reduction(options.reduction) || !valid_resident_warp(options.warp) ||
+        (options.warp.mode != cuda_resident_warp::none && (options.step_tasks || options.reduction != cuda_resident_reduction::direct_atomic)))
         return std::unexpected(operation_error{"invalid resident mapping configuration or capacities"});
     const auto voxels = static_cast<std::size_t>(options.tile_capacity) * 512;
     const auto buckets = std::bit_ceil(options.tile_capacity * 2U);
@@ -57,6 +59,9 @@ operation_result<std::unique_ptr<cuda_resident_context>> cuda_resident_context::
         return std::unexpected(operation_error{"resident storage exceeds the device byte budget"});
     const auto device = query_cuda_device_checked(options.device);
     if (!device) return std::unexpected(device.error());
+
+    if (options.warp.mode != cuda_resident_warp::none && device->compute_major < 7)
+        return std::unexpected(operation_error{"warp mapping requires compute capability 7 or newer"});
 
     if (bytes > device->total_memory_bytes)
         return std::unexpected(operation_error{"resident storage exceeds total device memory"});
@@ -246,6 +251,10 @@ operation_result<cuda_resident_statistics> cuda_resident_context::flush()
     auto& statistics = data.statistics;
     statistics.batches = completed.batches;
     statistics.maximum_segment_length = completed.maximum_segment_length;
+    statistics.warp_flush_groups = completed.warp_counts[0];
+    statistics.warp_peer_groups = completed.warp_counts[1];
+     statistics.warp_cache_hits = completed.warp_counts[2];
+    statistics.warp_cache_flushes = completed.warp_counts[3];
     statistics.mapping.rays_integrated = statistics.mapping.cuda_contributing_rays = completed.integrated;
     statistics.mapping.rays_rejected = completed.rejected;
      statistics.mapping.voxel_updates = completed.contributions;

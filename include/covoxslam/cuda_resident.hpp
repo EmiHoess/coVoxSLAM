@@ -17,12 +17,14 @@ struct cuda_resident_options
     cuda_resident_order order{cuda_resident_order::ordered};
     cuda_resident_reduction reduction{cuda_resident_reduction::none};
     bool step_tasks{};
+    cuda_resident_warp_options warp;
 };
 
 struct cuda_resident_statistics
 {
     mapping_statistics mapping;
     std::uint64_t batches{}, explicit_waits{};
+    std::uint64_t warp_flush_groups{}, warp_peer_groups{}, warp_cache_hits{}, warp_cache_flushes{};
      std::uint32_t maximum_segment_length{};
 };
 
@@ -41,6 +43,7 @@ public:
     cuda_resident_order fusion_order() const noexcept;
     cuda_resident_reduction reduction_mode() const noexcept;
     bool uses_step_tasks() const noexcept;
+    cuda_resident_warp_options warp_configuration() const noexcept;
     operation_status submit(std::span<const ray> rays);
     operation_result<cuda_resident_statistics> flush();
     operation_result<tsdf_tiles> download();

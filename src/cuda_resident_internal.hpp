@@ -4,6 +4,7 @@
 #include "ray_resident/types.h"
 #include "ray_resident_reduce/types.h"
 #include "ray_resident_step_tasks/types.h"
+#include "ray_resident_warp/types.h"
 #include <cuda_runtime_api.h>
 #include <array>
 
@@ -46,7 +47,13 @@ struct cuda_resident_context::implementation
         auto status = check(detail::cuda_begin_resident_reduction(view, reduction, mode, stream));
 
         if (status) status = check(detail::cuda_walk_resident_reduction(view, reduction, rays, count, parameters, mode, 0, stream));
-        if (status) status = check(detail::cuda_walk_resident_reduction(view, reduction, rays, count, parameters, mode, 1, stream));
+        if (options.warp.mode != cuda_resident_warp::none) {
+            const detail::cuda_warp_parameters warp{options.warp.count,
+                options.warp.mode == cuda_resident_warp::cache ? options.warp.cache_entries : 0, options.warp.scattered};
+
+            if (status) status = check(detail::cuda_walk_resident_warp(view, reduction, rays, count, parameters, warp, stream));
+        }
+        else if (status) status = check(detail::cuda_walk_resident_reduction(view, reduction, rays, count, parameters, mode, 1, stream));
         if (status && mode != cuda_resident_reduction::direct_atomic) {
             if (mode == cuda_resident_reduction::index)
                 status = check(detail::cuda_scan_counts(reduction.ray_counts, reduction.ray_offsets, view.block_sums, count, stream));

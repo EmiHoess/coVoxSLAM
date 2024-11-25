@@ -6,6 +6,21 @@ namespace covoxslam
 {
 enum class cuda_resident_order : std::uint32_t { ordered, arrival };
 enum class cuda_resident_reduction : std::uint32_t { none, index, segment, direct_atomic };
+enum class cuda_resident_warp : std::uint32_t { none, match, cache };
+
+struct cuda_resident_warp_options
+{
+    cuda_resident_warp mode{cuda_resident_warp::none};
+     std::uint32_t count{256}, cache_entries{128};
+    bool scattered{};
+};
+
+constexpr bool valid_resident_warp(cuda_resident_warp_options value) noexcept
+{
+    return (value.mode == cuda_resident_warp::none || value.mode == cuda_resident_warp::match || value.mode == cuda_resident_warp::cache) &&
+        value.count && value.count <= 65536 && (value.cache_entries == 32 || value.cache_entries == 64 ||
+        value.cache_entries == 128 || value.cache_entries == 256);
+}
 
 constexpr bool valid_resident_reduction(cuda_resident_reduction value) noexcept
 {

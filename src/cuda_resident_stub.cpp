@@ -9,6 +9,7 @@ std::size_t cuda_resident_context::device_bytes() const noexcept { return 0; }
 cuda_resident_order cuda_resident_context::fusion_order() const noexcept { return cuda_resident_order::ordered; }
 cuda_resident_reduction cuda_resident_context::reduction_mode() const noexcept { return cuda_resident_reduction::none; }
 bool cuda_resident_context::uses_step_tasks() const noexcept { return false; }
+cuda_resident_warp_options cuda_resident_context::warp_configuration() const noexcept { return {}; }
 operation_result<std::unique_ptr<cuda_resident_context>> cuda_resident_context::create(
     mapping_config, cuda_resident_options)
 {
