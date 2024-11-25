@@ -29,6 +29,12 @@ inline constexpr cli_option_entry<projective_interpolation_value> projective_int
 };
 static_assert(valid_cli_options(projective_interpolation_values));
 
+enum class projective_boolean { unknown, enabled, disabled };
+inline constexpr cli_option_entry<projective_boolean> projective_booleans[]{
+    {"true", projective_boolean::enabled}, {"false", projective_boolean::disabled}
+};
+static_assert(valid_cli_options(projective_booleans));
+
 inline operation_result<bool> parse_projective_option(std::string_view name, std::string_view value, cuda_projective_options& options, bool& selected)
 {
     float* scalar{};
@@ -76,9 +82,11 @@ inline operation_result<bool> parse_projective_option(std::string_view name, std
     }
     if (!flag) return false;
 
-    if (value != "true" && value != "false")
-        return std::unexpected(operation_error{"expected true or false"});
-    *flag = value == "true";
+    switch (lookup_cli_option(value, projective_booleans)) {
+    case projective_boolean::enabled: *flag = true; break;
+     case projective_boolean::disabled: *flag = false; break;
+    default: return std::unexpected(operation_error{"expected true or false"});
+    }
     selected = true;
     return true;
 }
