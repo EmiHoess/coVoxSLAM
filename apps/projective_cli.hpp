@@ -32,6 +32,7 @@ static_assert(valid_cli_options(projective_interpolation_values));
 inline operation_result<bool> parse_projective_option(std::string_view name, std::string_view value, cuda_projective_options& options, bool& selected)
 {
     float* scalar{};
+    bool* flag{};
     switch (lookup_cli_option(name, projective_options))
     {
     case projective_option::interpolation:
@@ -55,7 +56,12 @@ inline operation_result<bool> parse_projective_option(std::string_view name, std
         selected = true;
         return true;
     }
-    default: break;
+    case projective_option::constant_weight: flag = &options.constant_weight; break;
+    case projective_option::weight_dropoff: flag = &options.weight_dropoff; break;
+     case projective_option::sparsity_compensation: flag = &options.sparsity_compensation; break;
+    case projective_option::voxel_carving: flag = &options.voxel_carving; break;
+    case projective_option::allow_clear: flag = &options.allow_clear; break;
+    default: return false;
     }
 
     if (scalar) {
@@ -68,17 +74,11 @@ inline operation_result<bool> parse_projective_option(std::string_view name, std
          selected = true;
         return true;
     }
-    {
-        bool* selected{};
-        if (name == "--projective-constant-weight") selected = &options.constant_weight;
-        else if (name == "--projective-weight-dropoff") selected = &options.weight_dropoff;
-        else if (name == "--projective-sparsity-compensation") selected = &options.sparsity_compensation;
-        else if (name == "--projective-voxel-carving") selected = &options.voxel_carving;
-        else if (name == "--projective-allow-clear") selected = &options.allow_clear;
-        else return false;
-        if (value != "true" && value != "false") throw std::invalid_argument("expected true or false");
-        *selected = value == "true";
-    }
+    if (!flag) return false;
+
+    if (value != "true" && value != "false")
+        return std::unexpected(operation_error{"expected true or false"});
+    *flag = value == "true";
     selected = true;
     return true;
 }
