@@ -99,8 +99,12 @@ inline int run_submap_cli(int argc, char** argv)
                 else if (value == "ground_truth") options.pose_source = pose_source::ground_truth;
                 else return report_error("unsupported trajectory source");
             }
-            else if (!parse_cuda_esdf_option(option, value, esdf_options))
+            else
             {
+                const auto esdf_parsed = parse_cuda_esdf_option(option, value, esdf_options);
+
+                if (!esdf_parsed) return report_error(esdf_parsed.error().message);
+                if (*esdf_parsed) continue;
                 const auto cuda_parsed = parse_cuda_mapping_option(option, value, mapping_options, mapping_enabled, cuda_options);
 
                 if (!cuda_parsed) return report_error(cuda_parsed.error().message);

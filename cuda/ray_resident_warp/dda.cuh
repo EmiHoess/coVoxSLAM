@@ -77,7 +77,8 @@ __device__ inline bool resident_warp_sample(cuda_resident_view view, resident_wa
             atomicOr(&view.state->error, resident_traversal_error);
             return false;
         }
-        projected += (center - walk.ray.origin[axis]) * walk.direction[axis];
+        const float offset = __fsub_rn(center, walk.ray.origin[axis]);
+        projected = axis ? __fmaf_rn(offset, walk.direction[axis], projected) : __fmul_rn(offset, walk.direction[axis]);
     }
     if (!isfinite(projected)) {
         walk.active = false;

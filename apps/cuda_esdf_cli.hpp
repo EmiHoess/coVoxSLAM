@@ -1,6 +1,7 @@
 #pragma once
 
 #include <covoxslam/cuda.hpp>
+#include "cli_lookup.hpp"
 #include <stdexcept>
 #include <string_view>
 
@@ -11,19 +12,27 @@ struct cuda_blocks_cli_options {
     bool specified{};
 };
 
-inline bool parse_cuda_esdf_option(std::string_view name, std::string_view value, cuda_blocks_cli_options& config)
+enum class esdf_cli_option { unknown, executor, distance };
+inline constexpr cli_option_entry<esdf_cli_option> esdf_cli_options[]{
+    {"--esdf-executor", esdf_cli_option::executor}, {"--esdf-distance", esdf_cli_option::distance}
+};
+static_assert(valid_cli_options(esdf_cli_options));
+
+inline operation_result<bool> parse_cuda_esdf_option(std::string_view name, std::string_view value, cuda_blocks_cli_options& config)
 {
-    if (name == "--esdf-executor") {
+    switch (lookup_cli_option(name, esdf_cli_options)) {
+    case esdf_cli_option::executor:
         if (value == "ordered") config.options.executor = cuda_blocks_executor::ordered;
         else if (value == "frontier") config.options.executor = cuda_blocks_executor::frontier;
-        else throw std::invalid_argument("unsupported CUDA blocks executor");
-    }
-    else if (name == "--esdf-distance") {
+        else return std::unexpected(operation_error{"unsupported CUDA blocks executor"});
+        break;
+    case esdf_cli_option::distance:
         if (value == "full-euclidean") config.options.distance = cuda_blocks_distance::full_euclidean;
          else if (value == "quasi-euclidean") config.options.distance = cuda_blocks_distance::quasi_euclidean;
-        else throw std::invalid_argument("unsupported CUDA blocks distance mode");
+        else return std::unexpected(operation_error{"unsupported CUDA blocks distance mode"});
+        break;
+    default: return false;
     }
-    else return false;
     config.specified = true;
     return true;
 }
