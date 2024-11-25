@@ -255,6 +255,19 @@ operation_result<cuda_resident_statistics> cuda_resident_context::flush()
     statistics.warp_peer_groups = completed.warp_counts[1];
      statistics.warp_cache_hits = completed.warp_counts[2];
     statistics.warp_cache_flushes = completed.warp_counts[3];
+    auto& mapping = statistics.mapping;
+    mapping.cuda_warp_flush_groups = statistics.warp_flush_groups;
+    mapping.cuda_warp_peer_groups = statistics.warp_peer_groups;
+    mapping.cuda_warp_cache_hits = statistics.warp_cache_hits;
+    mapping.cuda_warp_cache_flushes = statistics.warp_cache_flushes;
+
+    if (data.options.warp.mode != cuda_resident_warp::none) {
+        mapping.cuda_warp_count = data.options.warp.count;
+        mapping.cuda_warp_count_effective = ((data.options.warp.count + 3) / 4) * 4;
+        mapping.cuda_warp_scattered = data.options.warp.scattered;
+        mapping.cuda_warp_cache_entries = data.options.warp.mode == cuda_resident_warp::cache ? data.options.warp.cache_entries : 0;
+        mapping.cuda_warp_shared_bytes = mapping.cuda_warp_cache_entries * 24 * 4;
+    }
     statistics.mapping.rays_integrated = statistics.mapping.cuda_contributing_rays = completed.integrated;
     statistics.mapping.rays_rejected = completed.rejected;
      statistics.mapping.voxel_updates = completed.contributions;

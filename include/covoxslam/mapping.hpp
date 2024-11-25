@@ -157,6 +157,9 @@ struct mapping_statistics {
      std::uint64_t cuda_contributing_rays{};
     std::uint64_t cuda_voxel_segments{};
     double cuda_task_expansion_ms{}, cuda_task_evaluation_ms{}, cuda_task_fusion_ms{};
+    std::uint64_t cuda_warp_flush_groups{}, cuda_warp_peer_groups{}, cuda_warp_cache_hits{}, cuda_warp_cache_flushes{};
+    std::uint32_t cuda_warp_count{}, cuda_warp_count_effective{}, cuda_warp_cache_entries{}, cuda_warp_shared_bytes{};
+    bool cuda_warp_scattered{};
 }
 ;
 

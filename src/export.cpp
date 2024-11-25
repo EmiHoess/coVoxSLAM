@@ -270,6 +270,15 @@ void map_exporter::write(const submap& value)
              << ",\"cuda_task_expansion_ms\":" << statistics.cuda_task_expansion_ms
              << ",\"cuda_task_evaluation_ms\":" << statistics.cuda_task_evaluation_ms
              << ",\"cuda_task_fusion_ms\":" << statistics.cuda_task_fusion_ms
+             << ",\"cuda_warp_flush_groups\":" << statistics.cuda_warp_flush_groups
+             << ",\"cuda_warp_peer_groups\":" << statistics.cuda_warp_peer_groups
+             << ",\"cuda_warp_cache_hits\":" << statistics.cuda_warp_cache_hits
+             << ",\"cuda_warp_cache_flushes\":" << statistics.cuda_warp_cache_flushes
+             << ",\"cuda_warp_count\":" << statistics.cuda_warp_count
+             << ",\"cuda_warp_count_effective\":" << statistics.cuda_warp_count_effective
+             << ",\"cuda_warp_scattered\":" << (statistics.cuda_warp_scattered ? "true" : "false")
+             << ",\"cuda_warp_cache_entries\":" << statistics.cuda_warp_cache_entries
+             << ",\"cuda_warp_shared_bytes\":" << statistics.cuda_warp_shared_bytes
              << ",\"integration_ms\":" << statistics.integration_ms
              << ",\"esdf_ms\":" << statistics.esdf_ms << "}\n";
     poses.flush();

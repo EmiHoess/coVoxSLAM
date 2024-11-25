@@ -133,6 +133,8 @@ inline int run_submap_cli(int argc, char** argv)
 
         if (resident_options.specified && !resident_options.selected)
             return report_error("resident capacities require a resident backend");
+        if (resident_options.warp_specified && (!resident_options.selected || resident_options.mapper.warp.mode == cuda_resident_warp::none))
+            return report_error("warp options require a warp backend");
         if (resident_options.selected && (cuda_options.ray_capacity_set || cuda_options.contribution_capacity_set))
             return report_error("use --resident-rays and --resident-contributions with resident mapping");
         const auto input = load_dataset(root, input_options);
@@ -169,14 +171,14 @@ inline int run_submap_cli(int argc, char** argv)
             if (!configured) { std::cerr << configured.error().message << '\n'; return 2; }
         }
         const char* backend = projective ? "cuda-projective" : gpu ? "cuda-ray" : "cpu-ray";
-        if (resident) backend = resident_backend_name(resident->fusion_order(), resident->reduction_mode(), resident->uses_step_tasks());
+        if (resident) backend = resident_backend_name(resident->fusion_order(), resident->reduction_mode(), resident->uses_step_tasks(), resident->warp_configuration().mode);
         if (cuda_options.calibrated_policy) backend = "cuda-projective-calibrated";
         if (cuda_options.calibrated_policy) std::cout << "projective raycast factor " << projective_options.raycast_subsampling_factor << '\n';
         if (gpu) std::cout << "ray fusion " << cuda_ray_fusion_name(fusion_options.mode)
                            << ", short threshold " << fusion_options.short_segment_threshold
                            << ", maximum rays per batch " << cuda_options.mapper.ray_capacity << '\n';
         auto exporter = open_map_export(output, input, mapping_options, backend,
-            resident ? resident_fusion_name(resident->fusion_order(), resident->reduction_mode(), resident->uses_step_tasks()) : "unspecified");
+            resident ? resident_fusion_name(resident->fusion_order(), resident->reduction_mode(), resident->uses_step_tasks(), resident->warp_configuration().mode) : "unspecified");
         const auto publish = [&](const submap& completed) { if (exporter) exporter->write(completed); };
         const auto callbacks = resident ? resident_callbacks(*resident, mapping_options, resident_failure, publish, finalize) :
             projective ? mapping_callbacks(*projective, publish, finalize) :

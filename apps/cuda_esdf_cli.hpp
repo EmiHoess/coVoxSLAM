@@ -17,14 +17,21 @@ inline constexpr cli_option_entry<esdf_cli_option> esdf_cli_options[]{
     {"--esdf-executor", esdf_cli_option::executor}, {"--esdf-distance", esdf_cli_option::distance}
 };
 static_assert(valid_cli_options(esdf_cli_options));
+enum class esdf_executor_value { unknown, ordered, frontier };
+inline constexpr cli_option_entry<esdf_executor_value> esdf_executor_values[]{
+    {"ordered", esdf_executor_value::ordered}, {"frontier", esdf_executor_value::frontier}
+};
+static_assert(valid_cli_options(esdf_executor_values));
 
 inline operation_result<bool> parse_cuda_esdf_option(std::string_view name, std::string_view value, cuda_blocks_cli_options& config)
 {
     switch (lookup_cli_option(name, esdf_cli_options)) {
     case esdf_cli_option::executor:
-        if (value == "ordered") config.options.executor = cuda_blocks_executor::ordered;
-        else if (value == "frontier") config.options.executor = cuda_blocks_executor::frontier;
-        else return std::unexpected(operation_error{"unsupported CUDA blocks executor"});
+        switch (lookup_cli_option(value, esdf_executor_values)) {
+        case esdf_executor_value::ordered: config.options.executor = cuda_blocks_executor::ordered; break;
+         case esdf_executor_value::frontier: config.options.executor = cuda_blocks_executor::frontier; break;
+        default: return std::unexpected(operation_error{"unsupported CUDA blocks executor"});
+        }
         break;
     case esdf_cli_option::distance:
         if (value == "full-euclidean") config.options.distance = cuda_blocks_distance::full_euclidean;
