@@ -15,13 +15,15 @@ __global__ void open_resident_reduction(cuda_resident_view view, cuda_resident_r
     view.state->batch_task_phase = 0;
     view.state->batch_reduction = static_cast<std::uint32_t>(mode);
      view.state->batch_validated = 0;
+
+    for (unsigned index = 0; index < 4; ++index) view.state->batch_warp_counts[index] = 0;
 }
 
 __global__ void require_resident_reduction(cuda_resident_view view, cuda_resident_reduction mode)
 {
 
     if (!view.state->batch_open || view.state->batch_reduction != static_cast<std::uint32_t>(mode) ||
-        (view.state->batch_task_phase && view.state->batch_task_phase != 5))
+        (view.state->batch_task_phase && view.state->batch_task_phase != 5 && view.state->batch_task_phase != 6))
         view.state->error |= resident_scatter_error;
 }
 
@@ -72,6 +74,8 @@ __global__ void finish_resident_reduction_statistics(cuda_resident_view view)
      state.integrated += state.batch_integrated;
     state.rejected += state.batch_rejected;
     ++state.batches;
+
+    for (unsigned index = 0; index < 4; ++index) state.warp_counts[index] += state.batch_warp_counts[index];
     state.batch_open = 0;
 }
 }

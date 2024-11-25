@@ -35,6 +35,7 @@ struct cuda_resident_state
     std::uint64_t batch_validated{};
     std::uint32_t batch_open{}, batch_reduction{};
     std::uint32_t batch_task_phase{};
+    unsigned long long batch_warp_counts[4]{}, warp_counts[4]{};
 };
 
 struct cuda_resident_view
