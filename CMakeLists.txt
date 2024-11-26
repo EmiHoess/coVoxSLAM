@@ -28,6 +28,7 @@ if(covoxslam_enable_cuda)
     target_sources(covoxslam_core PRIVATE cuda/resident_mapping.cu)
     target_sources(covoxslam_core PRIVATE cuda/step_tasks.cu)
     target_sources(covoxslam_core PRIVATE cuda/warp_mapping.cu)
+    target_sources(covoxslam_core PRIVATE cuda/free_space_mapping.cu)
     target_sources(covoxslam_core PRIVATE src/cuda_resident.cpp)
     target_link_libraries(covoxslam_core PUBLIC CUDA::cudart)
     set_target_properties(covoxslam_core PROPERTIES CUDA_STANDARD 20

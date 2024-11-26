@@ -19,7 +19,7 @@ __device__ inline bool resident_skip_free_space(cuda_free_space_view skip,
     return !skip.refresh && signed_distance > truncation && skip.flags[voxel] != 0;
 }
 
-__global__ void publish_resident_free_space(cuda_resident_view view,
+static __global__ void publish_resident_free_space(cuda_resident_view view,
     cuda_free_space_view skip, float truncation)
 {
     const auto index = static_cast<std::size_t>(blockIdx.x) * blockDim.x + threadIdx.x;

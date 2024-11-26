@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../ray_resident/types.h"
+#include "../ray_resident_free_space_skip/types.h"
 #include <covoxslam/resident_policy.hpp>
 
 namespace covoxslam::detail
@@ -36,7 +37,9 @@ inline bool valid_reduction_storage(cuda_resident_reduction_view view,
 int cuda_begin_resident_reduction(cuda_resident_view view, cuda_resident_reduction_view reduction,
     cuda_resident_reduction mode, void* stream) noexcept;
 int cuda_finish_resident_reduction(cuda_resident_view view, cuda_resident_reduction_view reduction,
-    cuda_resident_reduction mode, void* stream, cuda_fusion_parameters config) noexcept;
+    cuda_resident_reduction mode, void* stream, cuda_fusion_parameters config, cuda_free_space_view skip = {}) noexcept;
+int cuda_walk_resident_skip(cuda_resident_view view, cuda_resident_reduction_view reduction,
+    const cuda_device_ray* rays, std::size_t count, cuda_ray_parameters config, cuda_free_space_view skip, void* stream) noexcept;
 int cuda_walk_resident_reduction(cuda_resident_view view, cuda_resident_reduction_view reduction,
     const cuda_device_ray* rays, std::size_t count, cuda_ray_parameters parameters,
     cuda_resident_reduction mode, unsigned stage, void* stream) noexcept;

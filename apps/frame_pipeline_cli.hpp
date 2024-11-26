@@ -17,6 +17,15 @@
 namespace covoxslam
 {
 
+enum class submap_cli_option { unknown, dataset, output, frames, submaps, rings, columns, duration, verification, pose_source };
+inline constexpr cli_option_entry<submap_cli_option> submap_cli_options[]{
+    {"--dataset", submap_cli_option::dataset}, {"--output", submap_cli_option::output},
+    {"--maximum-frames", submap_cli_option::frames}, {"--maximum-submaps", submap_cli_option::submaps},
+     {"--ring-stride", submap_cli_option::rings}, {"--column-stride", submap_cli_option::columns},
+    {"--submap-duration-ns", submap_cli_option::duration}, {"--verification", submap_cli_option::verification},
+    {"--pose-source", submap_cli_option::pose_source}
+};
+
 inline int run_submap_cli(int argc, char** argv)
 {
         const auto report_error = [](std::string_view message) {

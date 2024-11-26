@@ -2,6 +2,7 @@
 #include "ray_resident/fusion.cuh"
 #include "ray_resident_unordered/integrate.cuh"
 #include "ray_resident_reduce/integrate.cuh"
+#include "ray_resident_free_space_skip/skip.cuh"
 #include <cmath>
 
 namespace covoxslam::detail
@@ -145,9 +146,10 @@ int cuda_begin_resident_reduction(cuda_resident_view view, cuda_resident_reducti
 }
 
 int cuda_finish_resident_reduction(cuda_resident_view view, cuda_resident_reduction_view reduction,
-    cuda_resident_reduction mode, void* stream, cuda_fusion_parameters config) noexcept
+    cuda_resident_reduction mode, void* stream, cuda_fusion_parameters config, cuda_free_space_view skip) noexcept
 {
     if (!valid_resident_reduction_view(view, reduction, mode) ||
+        (skip.flags && (mode != cuda_resident_reduction::direct_atomic || !std::isfinite(skip.minimum_weight) || skip.minimum_weight <= 0)) ||
         !std::isfinite(config.truncation_distance) || config.truncation_distance <= 0 ||
         !std::isfinite(config.maximum_weight) || config.maximum_weight <= 0 ||
         !std::isfinite(config.extraction_distance) || config.extraction_distance < 0 ||
@@ -155,7 +157,7 @@ int cuda_finish_resident_reduction(cuda_resident_view view, cuda_resident_reduct
     const auto voxels = static_cast<std::size_t>(view.tile_capacity) * 512;
     const auto blocks = static_cast<unsigned>((voxels + 255) / 256);
     const auto queue = static_cast<cudaStream_t>(stream);
-    require_resident_reduction<<<1, 1, 0, queue>>>(view, mode);
+    require_resident_reduction<<<1, 1, 0, queue>>>(view, mode, skip.flags != nullptr);
     auto error = cudaGetLastError();
 
     if (error != cudaSuccess) return static_cast<int>(error);
@@ -178,7 +180,8 @@ int cuda_finish_resident_reduction(cuda_resident_view view, cuda_resident_reduct
     error = cudaGetLastError();
 
     if (error != cudaSuccess) return static_cast<int>(error);
-    publish_resident_fusion<<<blocks, 256, 0, queue>>>(view);
+    if (skip.flags) publish_resident_free_space<<<blocks, 256, 0, queue>>>(view, skip, config.truncation_distance);
+    else publish_resident_fusion<<<blocks, 256, 0, queue>>>(view);
     error = cudaGetLastError();
     if (error != cudaSuccess) return static_cast<int>(error);
     finish_resident_reduction_statistics<<<1, 1, 0, queue>>>(view);

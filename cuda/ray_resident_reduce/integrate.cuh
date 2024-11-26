@@ -13,17 +13,19 @@ __global__ void open_resident_reduction(cuda_resident_view view, cuda_resident_r
     if (view.state->batch_open) { view.state->error = resident_scatter_error; return; }
     view.state->batch_open = 1;
     view.state->batch_task_phase = 0;
+    view.state->batch_skipped = 0;
     view.state->batch_reduction = static_cast<std::uint32_t>(mode);
      view.state->batch_validated = 0;
 
     for (unsigned index = 0; index < 4; ++index) view.state->batch_warp_counts[index] = 0;
 }
 
-__global__ void require_resident_reduction(cuda_resident_view view, cuda_resident_reduction mode)
+__global__ void require_resident_reduction(cuda_resident_view view, cuda_resident_reduction mode, bool skipping)
 {
 
     if (!view.state->batch_open || view.state->batch_reduction != static_cast<std::uint32_t>(mode) ||
-        (view.state->batch_task_phase && view.state->batch_task_phase != 5 && view.state->batch_task_phase != 6))
+        ((view.state->batch_task_phase == 7) != skipping) ||
+        (view.state->batch_task_phase && view.state->batch_task_phase != 5 && view.state->batch_task_phase != 6 && view.state->batch_task_phase != 7))
         view.state->error |= resident_scatter_error;
 }
 
@@ -70,6 +72,7 @@ __global__ void finish_resident_reduction_statistics(cuda_resident_view view)
     if (view.state->error) return;
     auto& state = *view.state;
     state.contributions += state.batch_contributions;
+    state.skipped += state.batch_skipped;
     state.touched += state.batch_touched;
      state.integrated += state.batch_integrated;
     state.rejected += state.batch_rejected;
