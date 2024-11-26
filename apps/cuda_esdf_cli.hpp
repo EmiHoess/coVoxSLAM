@@ -22,6 +22,11 @@ inline constexpr cli_option_entry<esdf_executor_value> esdf_executor_values[]{
     {"ordered", esdf_executor_value::ordered}, {"frontier", esdf_executor_value::frontier}
 };
 static_assert(valid_cli_options(esdf_executor_values));
+enum class esdf_distance_value { unknown, full, quasi };
+inline constexpr cli_option_entry<esdf_distance_value> esdf_distance_values[]{
+    {"full-euclidean", esdf_distance_value::full}, {"quasi-euclidean", esdf_distance_value::quasi}
+};
+static_assert(valid_cli_options(esdf_distance_values));
 
 inline operation_result<bool> parse_cuda_esdf_option(std::string_view name, std::string_view value, cuda_blocks_cli_options& config)
 {
@@ -34,9 +39,11 @@ inline operation_result<bool> parse_cuda_esdf_option(std::string_view name, std:
         }
         break;
     case esdf_cli_option::distance:
-        if (value == "full-euclidean") config.options.distance = cuda_blocks_distance::full_euclidean;
-         else if (value == "quasi-euclidean") config.options.distance = cuda_blocks_distance::quasi_euclidean;
-        else return std::unexpected(operation_error{"unsupported CUDA blocks distance mode"});
+        switch (lookup_cli_option(value, esdf_distance_values)) {
+        case esdf_distance_value::full: config.options.distance = cuda_blocks_distance::full_euclidean; break;
+         case esdf_distance_value::quasi: config.options.distance = cuda_blocks_distance::quasi_euclidean; break;
+        default: return std::unexpected(operation_error{"unsupported CUDA blocks distance mode"});
+        }
         break;
     default: return false;
     }
