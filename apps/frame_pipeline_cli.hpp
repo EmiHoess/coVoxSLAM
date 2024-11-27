@@ -87,12 +87,15 @@ inline int run_submap_cli(int argc, char** argv)
                 if (option != "--projective-candidate-capacity") projective_control_set = true;
                 continue;
             }
-            if (option == "--dataset") root = argv[index + 1];
-            else if (option == "--output") {
+            switch (lookup_cli_option(option, submap_cli_options))
+            {
+            case submap_cli_option::dataset: root = argv[index + 1]; continue;
+            case submap_cli_option::output:
                 if (value.empty()) return report_error("--output requires a directory");
-                 output = argv[index + 1];
+                output = argv[index + 1]; continue;
+            default: break;
             }
-            else if (option == "--maximum-frames") options.maximum_frames = count(value);
+            if (option == "--maximum-frames") options.maximum_frames = count(value);
             else if (option == "--maximum-submaps") options.maximum_submaps = count(value);
              else if (option == "--ring-stride") options.ring_stride = count(value);
             else if (option == "--column-stride") options.column_stride = count(value);

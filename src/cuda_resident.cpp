@@ -13,6 +13,7 @@ cuda_resident_order cuda_resident_context::fusion_order() const noexcept { retur
 cuda_resident_reduction cuda_resident_context::reduction_mode() const noexcept { return state->options.reduction; }
 bool cuda_resident_context::uses_step_tasks() const noexcept { return state->options.step_tasks; }
 cuda_resident_warp_options cuda_resident_context::warp_configuration() const noexcept { return state->options.warp; }
+cuda_free_space_options cuda_resident_context::free_space_configuration() const noexcept { return state->options.free_space; }
 
 operation_result<std::unique_ptr<cuda_resident_context>> cuda_resident_context::create(
     mapping_config config, cuda_resident_options options)
@@ -25,6 +26,11 @@ operation_result<std::unique_ptr<cuda_resident_context>> cuda_resident_context::
         !valid_resident_order(options.order) || !valid_resident_reduction(options.reduction) || !valid_resident_warp(options.warp) ||
         (options.warp.mode != cuda_resident_warp::none && (options.step_tasks || options.reduction != cuda_resident_reduction::direct_atomic)))
         return std::unexpected(operation_error{"invalid resident mapping configuration or capacities"});
+
+    if (options.free_space.enabled && (!std::isfinite(options.free_space.minimum_weight) ||
+        options.free_space.minimum_weight <= 0 || !options.free_space.refresh_scans || options.step_tasks ||
+        options.warp.mode != cuda_resident_warp::none || options.reduction != cuda_resident_reduction::direct_atomic))
+        return std::unexpected(operation_error{"invalid free space skip configuration"});
     const auto voxels = static_cast<std::size_t>(options.tile_capacity) * 512;
     const auto buckets = std::bit_ceil(options.tile_capacity * 2U);
     const auto mode = options.reduction;
@@ -35,6 +41,7 @@ operation_result<std::unique_ptr<cuda_resident_context>> cuda_resident_context::
         options.tile_capacity * sizeof(detail::cuda_tile_coordinate) + voxels * (2 * sizeof(detail::cuda_tsdf_voxel) + 8) +
         options.ray_capacity * sizeof(detail::cuda_device_ray);
     if (segmented) bytes += voxels * sizeof(std::uint64_t);
+    if (options.free_space.enabled) bytes += voxels;
 
     if (mode != cuda_resident_reduction::direct_atomic || options.step_tasks) bytes += sums * sizeof(std::uint64_t);
     switch (mode)
@@ -115,6 +122,8 @@ operation_result<std::unique_ptr<cuda_resident_context>> cuda_resident_context::
 
     if (status) status = data.allocate(data.rays, options.ray_capacity);
 
+    if (status && options.free_space.enabled) status = data.allocate(data.free_space_flags, voxels);
+
     if (options.step_tasks)
     {
         auto& tasks = data.tasks;
@@ -145,6 +154,7 @@ operation_result<std::unique_ptr<cuda_resident_context>> cuda_resident_context::
             }
     }
     if (status) status = data.check(detail::cuda_initialize_resident_map(view, data.stream));
+    if (status && data.free_space_flags) status = data.check(cudaMemsetAsync(data.free_space_flags, 0, voxels, data.stream));
 
     if (status) status = data.check(cudaStreamSynchronize(data.stream));
     if (!status) return std::unexpected(status.error());
@@ -216,6 +226,7 @@ operation_status cuda_resident_context::submit(std::span<const ray> input)
     if (status) status = data.check(cudaEventRecord(slot.complete, data.stream));
     if (!status) return status;
     slot.pending = true;
+    ++data.next_scan;
     data.next_slot = (data.next_slot + 1) % data.staging.size();
      data.statistics.mapping.rays_submitted += input.size();
     data.statistics.mapping.cuda_uploaded_bytes += bytes;
@@ -250,6 +261,7 @@ operation_result<cuda_resident_statistics> cuda_resident_context::flush()
     }
     auto& statistics = data.statistics;
     statistics.batches = completed.batches;
+    statistics.skipped_contributions = completed.skipped;
     statistics.maximum_segment_length = completed.maximum_segment_length;
     statistics.warp_flush_groups = completed.warp_counts[0];
     statistics.warp_peer_groups = completed.warp_counts[1];
@@ -342,11 +354,15 @@ operation_status cuda_resident_context::reset()
     if (status) status = data.check(cudaStreamSynchronize(data.stream));
     if (status) status = data.check(detail::cuda_initialize_resident_map(data.view, data.stream));
 
+    if (status && data.free_space_flags)
+        status = data.check(cudaMemsetAsync(data.free_space_flags, 0, std::size_t(data.options.tile_capacity) * 512, data.stream));
+
     if (status) status = data.check(cudaStreamSynchronize(data.stream));
     if (!status) return status;
 
     for (auto& slot : data.staging) slot.pending = false;
     data.next_slot = 0;
+    data.next_scan = 0;
     data.statistics = {};
      data.failed = false;
     return {};

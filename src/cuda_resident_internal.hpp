@@ -17,6 +17,8 @@ struct cuda_resident_context::implementation
     detail::cuda_resident_view view;
     detail::cuda_resident_reduction_view reduction;
     detail::cuda_resident_task_view tasks;
+    std::uint8_t* free_space_flags{};
+    std::uint64_t next_scan{};
      detail::cuda_device_ray* rays{};
     cudaStream_t stream{};
     std::array<void*, 24> allocations{};
@@ -45,7 +47,14 @@ struct cuda_resident_context::implementation
     {
         const auto mode = options.reduction;
         auto status = check(detail::cuda_begin_resident_reduction(view, reduction, mode, stream));
+        const detail::cuda_free_space_view skip{free_space_flags, options.free_space.minimum_weight,
+            !options.free_space.enabled || next_scan % options.free_space.refresh_scans == 0};
 
+        if (options.free_space.enabled)
+        {
+            if (status) status = check(detail::cuda_walk_resident_skip(view, reduction, rays, count, parameters, skip, stream));
+        }
+        else {
         if (status) status = check(detail::cuda_walk_resident_reduction(view, reduction, rays, count, parameters, mode, 0, stream));
         if (options.warp.mode != cuda_resident_warp::none) {
             const detail::cuda_warp_parameters warp{options.warp.count,
@@ -54,6 +63,7 @@ struct cuda_resident_context::implementation
             if (status) status = check(detail::cuda_walk_resident_warp(view, reduction, rays, count, parameters, warp, stream));
         }
         else if (status) status = check(detail::cuda_walk_resident_reduction(view, reduction, rays, count, parameters, mode, 1, stream));
+        }
         if (status && mode != cuda_resident_reduction::direct_atomic) {
             if (mode == cuda_resident_reduction::index)
                 status = check(detail::cuda_scan_counts(reduction.ray_counts, reduction.ray_offsets, view.block_sums, count, stream));
@@ -63,7 +73,7 @@ struct cuda_resident_context::implementation
             if (status) status = check(detail::cuda_walk_resident_reduction(view, reduction, rays, count, parameters, mode, 2, stream));
         }
         if (status) status = check(detail::cuda_finish_resident_reduction(view, reduction, mode, stream,
-            {config.truncation_distance, config.maximum_weight, config.extraction_distance}));
+            {config.truncation_distance, config.maximum_weight, config.extraction_distance}, skip));
         return status;
     }
 

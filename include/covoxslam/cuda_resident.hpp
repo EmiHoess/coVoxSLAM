@@ -5,6 +5,13 @@
 
 namespace covoxslam
 {
+struct cuda_free_space_options
+{
+    bool enabled{};
+    float minimum_weight{16.f};
+     std::uint32_t refresh_scans{8};
+};
+
 struct cuda_resident_options
 {
     int device{};
@@ -18,6 +25,7 @@ struct cuda_resident_options
     cuda_resident_reduction reduction{cuda_resident_reduction::none};
     bool step_tasks{};
     cuda_resident_warp_options warp;
+    cuda_free_space_options free_space;
 };
 
 struct cuda_resident_statistics
@@ -25,6 +33,7 @@ struct cuda_resident_statistics
     mapping_statistics mapping;
     std::uint64_t batches{}, explicit_waits{};
     std::uint64_t warp_flush_groups{}, warp_peer_groups{}, warp_cache_hits{}, warp_cache_flushes{};
+    std::uint64_t skipped_contributions{};
      std::uint32_t maximum_segment_length{};
 };
 
@@ -44,6 +53,7 @@ public:
     cuda_resident_reduction reduction_mode() const noexcept;
     bool uses_step_tasks() const noexcept;
     cuda_resident_warp_options warp_configuration() const noexcept;
+    cuda_free_space_options free_space_configuration() const noexcept;
     operation_status submit(std::span<const ray> rays);
     operation_result<cuda_resident_statistics> flush();
     operation_result<tsdf_tiles> download();
