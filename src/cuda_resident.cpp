@@ -268,6 +268,12 @@ operation_result<cuda_resident_statistics> cuda_resident_context::flush()
      statistics.warp_cache_hits = completed.warp_counts[2];
     statistics.warp_cache_flushes = completed.warp_counts[3];
     auto& mapping = statistics.mapping;
+    mapping.cuda_skipped_contributions = statistics.skipped_contributions;
+
+    if (data.options.free_space.enabled) {
+        mapping.cuda_free_space_minimum_weight = data.options.free_space.minimum_weight;
+        mapping.cuda_free_space_refresh_scans = data.options.free_space.refresh_scans;
+    }
     mapping.cuda_warp_flush_groups = statistics.warp_flush_groups;
     mapping.cuda_warp_peer_groups = statistics.warp_peer_groups;
     mapping.cuda_warp_cache_hits = statistics.warp_cache_hits;

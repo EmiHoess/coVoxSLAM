@@ -279,6 +279,9 @@ void map_exporter::write(const submap& value)
              << ",\"cuda_warp_scattered\":" << (statistics.cuda_warp_scattered ? "true" : "false")
              << ",\"cuda_warp_cache_entries\":" << statistics.cuda_warp_cache_entries
              << ",\"cuda_warp_shared_bytes\":" << statistics.cuda_warp_shared_bytes
+             << ",\"cuda_skipped_contributions\":" << statistics.cuda_skipped_contributions
+             << ",\"cuda_free_space_minimum_weight\":" << statistics.cuda_free_space_minimum_weight
+             << ",\"cuda_free_space_refresh_scans\":" << statistics.cuda_free_space_refresh_scans
              << ",\"integration_ms\":" << statistics.integration_ms
              << ",\"esdf_ms\":" << statistics.esdf_ms << "}\n";
     poses.flush();

@@ -4,19 +4,21 @@
 #include "cli_lookup.hpp"
 #include <charconv>
 #include <chrono>
+#include <cmath>
 #include <iostream>
 
 namespace covoxslam
 {
-enum class resident_option { unknown, backend, tiles, rays, contributions, warp_count, warp_cache, warp_order };
+enum class resident_option { unknown, backend, tiles, rays, contributions, warp_count, warp_cache, warp_order, free_weight, free_refresh };
 inline constexpr cli_option_entry<resident_option> resident_options[]{
     {"--backend", resident_option::backend}, {"--resident-tiles", resident_option::tiles},
      {"--resident-rays", resident_option::rays}, {"--resident-contributions", resident_option::contributions},
     {"--warp-count", resident_option::warp_count}, {"--warp-cache-entries", resident_option::warp_cache},
-    {"--warp-ray-order", resident_option::warp_order}
+    {"--warp-ray-order", resident_option::warp_order},
+    {"--free-space-min-weight", resident_option::free_weight}, {"--free-space-refresh-scans", resident_option::free_refresh}
 };
 static_assert(valid_cli_options(resident_options));
-enum class resident_backend { unknown, ordered, arrival, reduce_index, reduce_segment, reduce_atomic, step_tasks, warp_match, warp_cache };
+enum class resident_backend { unknown, ordered, arrival, reduce_index, reduce_segment, reduce_atomic, step_tasks, warp_match, warp_cache, free_space };
 inline constexpr cli_option_entry<resident_backend> resident_backends[]{
     {"cuda-ray-resident", resident_backend::ordered},
      {"cuda-ray-resident-unordered", resident_backend::arrival},
@@ -24,7 +26,8 @@ inline constexpr cli_option_entry<resident_backend> resident_backends[]{
     {"cuda-ray-resident-unordered-reduce-segment", resident_backend::reduce_segment},
     {"cuda-ray-resident-unordered-reduce-atomic", resident_backend::reduce_atomic},
     {"cuda-ray-resident-step-tasks", resident_backend::step_tasks},
-    {"cuda-ray-resident-warp-match", resident_backend::warp_match}, {"cuda-ray-resident-warp-cache", resident_backend::warp_cache}
+    {"cuda-ray-resident-warp-match", resident_backend::warp_match}, {"cuda-ray-resident-warp-cache", resident_backend::warp_cache},
+    {"cuda-ray-resident-free-space-skip", resident_backend::free_space}
 };
 static_assert(valid_cli_options(resident_backends));
 enum class warp_ray_order { unknown, input, scattered };
@@ -35,7 +38,7 @@ static_assert(valid_cli_options(warp_ray_orders));
 struct resident_cli_options
 {
     cuda_resident_options mapper;
-    bool selected{}, specified{}, warp_specified{};
+    bool selected{}, specified{}, warp_specified{}, free_space_specified{};
 };
 
 inline operation_result<bool> parse_resident_option(std::string_view name, std::string_view value,
@@ -47,6 +50,7 @@ inline operation_result<bool> parse_resident_option(std::string_view name, std::
     if (id == resident_option::backend) {
         options.mapper.reduction = cuda_resident_reduction::none;
         options.mapper.step_tasks = false;
+        options.mapper.free_space.enabled = false;
         options.mapper.warp.mode = cuda_resident_warp::none;
         options.mapper.order = cuda_resident_order::arrival;
         switch (lookup_cli_option(value, resident_backends))
@@ -56,6 +60,10 @@ inline operation_result<bool> parse_resident_option(std::string_view name, std::
         case resident_backend::reduce_index: options.mapper.reduction = cuda_resident_reduction::index; break;
         case resident_backend::reduce_segment: options.mapper.reduction = cuda_resident_reduction::segment; break;
         case resident_backend::reduce_atomic: options.mapper.reduction = cuda_resident_reduction::direct_atomic; break;
+        case resident_backend::free_space:
+            options.mapper.reduction = cuda_resident_reduction::direct_atomic;
+            options.mapper.free_space.enabled = true;
+            break;
         case resident_backend::warp_match:
         case resident_backend::warp_cache:
             options.mapper.reduction = cuda_resident_reduction::direct_atomic;
@@ -80,6 +88,17 @@ inline operation_result<bool> parse_resident_option(std::string_view name, std::
         options.warp_specified = true;
         return true;
     }
+    if (id == resident_option::free_weight)
+    {
+        float weight{};
+        const auto converted = std::from_chars(value.data(), value.data() + value.size(), weight);
+
+        if (converted.ec != std::errc{} || converted.ptr != value.data() + value.size() || !std::isfinite(weight) || weight <= 0)
+            return std::unexpected(operation_error{"free space minimum weight must be finite and positive"});
+        options.mapper.free_space.minimum_weight = weight;
+         options.free_space_specified = true;
+        return true;
+    }
     std::uint32_t count{};
     const auto parsed = std::from_chars(value.data(), value.data() + value.size(), count);
 
@@ -90,6 +109,10 @@ inline operation_result<bool> parse_resident_option(std::string_view name, std::
     case resident_option::tiles: options.mapper.tile_capacity = count; break;
     case resident_option::rays: options.mapper.ray_capacity = count; break;
     case resident_option::contributions: options.mapper.contribution_capacity = count; break;
+    case resident_option::free_refresh:
+        options.mapper.free_space.refresh_scans = count;
+        options.free_space_specified = true;
+        return true;
     case resident_option::warp_count:
         if (count > 65536) return std::unexpected(operation_error{"warp count exceeds 65536"});
         options.mapper.warp.count = count;
@@ -152,7 +175,7 @@ inline pipeline_callbacks resident_callbacks(cuda_resident_context& mapper, mapp
         std::cout << "tsdf " << frame.id << ": " << completed.tsdf.size() << " tiles, "
                   << statistics->mapping.voxel_updates << " updates, " << statistics->batches
                    << " resident batches, " << statistics->explicit_waits << " explicit waits\n";
-        std::cout << resident_fusion_name(mapper.fusion_order(), mapper.reduction_mode(), mapper.uses_step_tasks(), mapper.warp_configuration().mode) << ", "
+        std::cout << resident_fusion_name(mapper.fusion_order(), mapper.reduction_mode(), mapper.uses_step_tasks(), mapper.warp_configuration().mode, mapper.free_space_configuration().enabled) << ", "
                   << statistics->mapping.cuda_voxel_segments << " voxel groups, " << statistics->maximum_segment_length
                   << " maximum contributions per voxel, " << mapper.device_bytes() << " device bytes\n";
         if (mapper.uses_step_tasks())
@@ -163,6 +186,8 @@ inline pipeline_callbacks resident_callbacks(cuda_resident_context& mapper, mapp
             std::cout << statistics->warp_flush_groups << " warp flush groups, " << statistics->warp_peer_groups
                       << " peer groups, " << statistics->warp_cache_hits << " cache hits, "
                       << statistics->warp_cache_flushes << " cache flushes\n";
+        if (mapper.free_space_configuration().enabled)
+            std::cout << statistics->skipped_contributions << " skipped contributions, approximate free space fusion\n";
         std::cout << "esdf " << frame.id << ": " << esdf_backend_name(config.esdf_generator)
                   << ", " << completed.esdf.size() << " tiles, " << completed.statistics.esdf_ms << " ms\n";
     };

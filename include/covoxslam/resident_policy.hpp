@@ -49,8 +49,9 @@ constexpr const char* resident_order_name(cuda_resident_order value) noexcept
 }
 
 constexpr const char* resident_fusion_name(cuda_resident_order order, cuda_resident_reduction reduction,
-    bool step_tasks = false, cuda_resident_warp warp = cuda_resident_warp::none) noexcept
+    bool step_tasks = false, cuda_resident_warp warp = cuda_resident_warp::none, bool free_space = false) noexcept
 {
+    if (free_space) return "batch-weighted-fp64-free-space-skip";
     if (warp == cuda_resident_warp::match) return "batch-weighted-fp64-warp-match";
     if (warp == cuda_resident_warp::cache) return "batch-weighted-fp64-warp-cache";
     if (step_tasks) return "batch-weighted-fp64-tasks";
@@ -65,8 +66,9 @@ constexpr const char* resident_fusion_name(cuda_resident_order order, cuda_resid
 }
 
 constexpr const char* resident_backend_name(cuda_resident_order order, cuda_resident_reduction reduction,
-    bool step_tasks = false, cuda_resident_warp warp = cuda_resident_warp::none) noexcept
+    bool step_tasks = false, cuda_resident_warp warp = cuda_resident_warp::none, bool free_space = false) noexcept
 {
+    if (free_space) return "cuda-ray-resident-free-space-skip";
     if (warp == cuda_resident_warp::match) return "cuda-ray-resident-warp-match";
     if (warp == cuda_resident_warp::cache) return "cuda-ray-resident-warp-cache";
     if (step_tasks) return "cuda-ray-resident-step-tasks";

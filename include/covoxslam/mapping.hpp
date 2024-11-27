@@ -160,6 +160,9 @@ struct mapping_statistics {
     std::uint64_t cuda_warp_flush_groups{}, cuda_warp_peer_groups{}, cuda_warp_cache_hits{}, cuda_warp_cache_flushes{};
     std::uint32_t cuda_warp_count{}, cuda_warp_count_effective{}, cuda_warp_cache_entries{}, cuda_warp_shared_bytes{};
     bool cuda_warp_scattered{};
+    std::uint64_t cuda_skipped_contributions{};
+    float cuda_free_space_minimum_weight{};
+     std::uint32_t cuda_free_space_refresh_scans{};
 }
 ;
 
