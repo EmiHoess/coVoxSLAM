@@ -46,14 +46,6 @@ inline int run_submap_cli(int argc, char** argv)
         dataset_load_options input_options;
         std::filesystem::path root;
         std::filesystem::path output;
-         const auto integer = [](std::string_view text) {
-            std::uint64_t result{};
-            const auto converted = std::from_chars(text.data(), text.data() + text.size(), result);
-            if (converted.ec != std::errc{} || converted.ptr != text.data() + text.size())
-                throw std::invalid_argument("expected an unsigned decimal integer");
-            return result;
-        }
-        ;
         for (int index = 2; index < argc; index += 2)
         {
             const std::string_view option(argv[index]);
@@ -84,6 +76,14 @@ inline int run_submap_cli(int argc, char** argv)
             switch (lookup_cli_option(option, submap_cli_options))
             {
             case submap_cli_option::dataset: root = argv[index + 1]; continue;
+            case submap_cli_option::duration:
+            {
+                const auto converted = std::from_chars(value.data(), value.data() + value.size(), options.submap_duration_ns);
+
+                if (converted.ec != std::errc{} || converted.ptr != value.data() + value.size())
+                    return report_error("expected an unsigned duration in nanoseconds");
+                continue;
+            }
             case submap_cli_option::output:
                 if (value.empty()) return report_error("--output requires a directory");
                 output = argv[index + 1]; continue;
@@ -108,8 +108,7 @@ inline int run_submap_cli(int argc, char** argv)
             }
             default: break;
             }
-            if (option == "--submap-duration-ns") options.submap_duration_ns = integer(value);
-            else if (option == "--verification") {
+            if (option == "--verification") {
                 if (value == "cached") input_options.verification = dataset_verification_mode::prefer_cache;
                 else if (value == "full") input_options.verification = dataset_verification_mode::force_full;
                 else return report_error("unsupported input verification mode");

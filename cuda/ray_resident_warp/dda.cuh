@@ -53,6 +53,7 @@ __device__ inline resident_warp_dda resident_warp_begin(
     return walk;
 }
 
+template<bool discover = false>
 __device__ inline bool resident_warp_sample(cuda_resident_view view, resident_warp_dda& walk,
     cuda_ray_parameters config, unsigned& voxel, double& weighted_distance, double& weight, float* raw_distance = nullptr)
 {
@@ -82,6 +83,8 @@ __device__ inline bool resident_warp_sample(cuda_resident_view view, resident_wa
     {
         const cuda_tile_coordinate tile{walk.voxel[0] / 8 - (walk.voxel[0] % 8 < 0),
             walk.voxel[1] / 8 - (walk.voxel[1] % 8 < 0), walk.voxel[2] / 8 - (walk.voxel[2] % 8 < 0)};
+        if constexpr (discover) resident_discover_tile(view, tile);
+        else {
         const auto slot = resident_find_tile(view, tile);
 
         if (slot >= view.tile_capacity) {
@@ -90,6 +93,7 @@ __device__ inline bool resident_warp_sample(cuda_resident_view view, resident_wa
             return false;
         }
         voxel = slot * 512 + (walk.voxel[0] - tile.x * 8) + 8 * (walk.voxel[1] - tile.y * 8) + 64 * (walk.voxel[2] - tile.z * 8);
+        }
         weight = walk.ray.weight;
         if (raw_distance) *raw_distance = walk.distance - projected;
         weighted_distance = weight * fminf(config.truncation_distance,
