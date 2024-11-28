@@ -1,21 +1,12 @@
 #pragma once
 
 #include "common.cuh"
+#include "dda_types.h"
 #include <math_constants.h>
 #include <climits>
 
 namespace covoxslam::detail
 {
-struct resident_warp_dda
-{
-    cuda_device_ray ray{};
-    float direction[3]{}, distance{};
-    int voxel[3]{}, step[3]{};
-     double next[3]{}, delta[3]{}, start{}, end{}, entered{};
-    unsigned iteration{}, maximum_steps{}, contributions{};
-    bool active{};
-};
-
 __device__ inline resident_warp_dda resident_warp_begin(
     cuda_resident_view view, cuda_device_ray ray, cuda_ray_parameters config)
 {

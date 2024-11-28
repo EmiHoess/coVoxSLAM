@@ -54,12 +54,6 @@ inline int run_submap_cli(int argc, char** argv)
             return result;
         }
         ;
-        const auto count = [&](std::string_view text) {
-            const auto result = integer(text);
-            if (result > std::numeric_limits<std::size_t>::max())
-                throw std::invalid_argument("option exceeds addressable size");
-             return static_cast<std::size_t>(result);
-        };
         for (int index = 2; index < argc; index += 2)
         {
             const std::string_view option(argv[index]);
@@ -95,21 +89,26 @@ inline int run_submap_cli(int argc, char** argv)
                 output = argv[index + 1]; continue;
             case submap_cli_option::frames:
             case submap_cli_option::submaps:
+            case submap_cli_option::rings:
+            case submap_cli_option::columns:
             {
                 std::size_t maximum{};
                 const auto parsed = std::from_chars(value.data(), value.data() + value.size(), maximum);
 
                 if (parsed.ec != std::errc{} || parsed.ptr != value.data() + value.size())
-                    return report_error("expected an addressable unsigned frame or submap count");
-                if (lookup_cli_option(option, submap_cli_options) == submap_cli_option::frames) options.maximum_frames = maximum;
-                 else options.maximum_submaps = maximum;
+                    return report_error("expected an addressable unsigned count");
+                switch (lookup_cli_option(option, submap_cli_options)) {
+                case submap_cli_option::frames: options.maximum_frames = maximum; break;
+                case submap_cli_option::submaps: options.maximum_submaps = maximum; break;
+                 case submap_cli_option::rings: options.ring_stride = maximum; break;
+                case submap_cli_option::columns: options.column_stride = maximum; break;
+                default: break;
+                }
                 continue;
             }
             default: break;
             }
-            if (option == "--ring-stride") options.ring_stride = count(value);
-            else if (option == "--column-stride") options.column_stride = count(value);
-            else if (option == "--submap-duration-ns") options.submap_duration_ns = integer(value);
+            if (option == "--submap-duration-ns") options.submap_duration_ns = integer(value);
             else if (option == "--verification") {
                 if (value == "cached") input_options.verification = dataset_verification_mode::prefer_cache;
                 else if (value == "full") input_options.verification = dataset_verification_mode::force_full;
