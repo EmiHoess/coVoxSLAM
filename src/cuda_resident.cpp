@@ -14,6 +14,7 @@ cuda_resident_reduction cuda_resident_context::reduction_mode() const noexcept {
 bool cuda_resident_context::uses_step_tasks() const noexcept { return state->options.step_tasks; }
 cuda_resident_warp_options cuda_resident_context::warp_configuration() const noexcept { return state->options.warp; }
 cuda_free_space_options cuda_resident_context::free_space_configuration() const noexcept { return state->options.free_space; }
+float cuda_resident_context::segment_length() const noexcept { return state->options.segment_length; }
 
 operation_result<std::unique_ptr<cuda_resident_context>> cuda_resident_context::create(
     mapping_config config, cuda_resident_options options)
@@ -31,6 +32,10 @@ operation_result<std::unique_ptr<cuda_resident_context>> cuda_resident_context::
         options.free_space.minimum_weight <= 0 || !options.free_space.refresh_scans || options.step_tasks ||
         options.warp.mode != cuda_resident_warp::none || options.reduction != cuda_resident_reduction::direct_atomic))
         return std::unexpected(operation_error{"invalid free space skip configuration"});
+    const auto segments = resident_segment_slots(config.maximum_ray_length_m, config.truncation_distance, options.segment_length);
+
+    if (options.segment_length && (!options.free_space.enabled || !segments))
+        return std::unexpected(operation_error{"segment length must be positive and require at most 65536 intervals"});
     const auto voxels = static_cast<std::size_t>(options.tile_capacity) * 512;
     const auto buckets = std::bit_ceil(options.tile_capacity * 2U);
     const auto mode = options.reduction;
@@ -42,6 +47,8 @@ operation_result<std::unique_ptr<cuda_resident_context>> cuda_resident_context::
         options.ray_capacity * sizeof(detail::cuda_device_ray);
     if (segmented) bytes += voxels * sizeof(std::uint64_t);
     if (options.free_space.enabled) bytes += voxels;
+    if (segments) bytes += std::size_t(options.ray_capacity) * (sizeof(detail::resident_warp_dda) +
+        sizeof(unsigned) + std::size_t(segments) * sizeof(detail::cuda_segment_checkpoint));
 
     if (mode != cuda_resident_reduction::direct_atomic || options.step_tasks) bytes += sums * sizeof(std::uint64_t);
     switch (mode)
@@ -123,6 +130,16 @@ operation_result<std::unique_ptr<cuda_resident_context>> cuda_resident_context::
     if (status) status = data.allocate(data.rays, options.ray_capacity);
 
     if (status && options.free_space.enabled) status = data.allocate(data.free_space_flags, voxels);
+
+    if (segments)
+    {
+        data.segments.slots = segments;
+        data.segments.ray_capacity = options.ray_capacity;
+        if (status) status = data.allocate(data.segments.prepared, options.ray_capacity);
+
+        if (status) status = data.allocate(data.segments.checkpoints, std::size_t(options.ray_capacity) * segments);
+        if (status) status = data.allocate(data.segments.accepted, options.ray_capacity);
+    }
 
     if (options.step_tasks)
     {

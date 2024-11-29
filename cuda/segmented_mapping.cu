@@ -65,6 +65,12 @@ __global__ void accumulate_segments(cuda_resident_view view, cuda_resident_reduc
         if (!checkpoint.visits) continue;
         auto walk = segments.prepared[scheduled.ray];
 
+        if (checkpoint.iteration >= walk.maximum_steps || checkpoint.visits > walk.maximum_steps - checkpoint.iteration ||
+            checkpoint.entered < walk.start || checkpoint.entered > walk.end) {
+            atomicOr(&view.state->error, resident_scatter_error);
+            return;
+        }
+
         for (int axis = 0; axis < 3; ++axis) {
             walk.voxel[axis] = checkpoint.voxel[axis];
              walk.next[axis] = checkpoint.next[axis];
@@ -85,7 +91,8 @@ __global__ void accumulate_segments(cuda_resident_view view, cuda_resident_reduc
             if (resident_skip_free_space(skip, voxel, raw, config.truncation_distance)) ++skipped;
             else resident_warp_flush(view, reduction, voxel, distance, weight, 1, counters);
         }
-        atomicAdd(segments.accepted + scheduled.ray, walk.contributions);
+        const auto previous = atomicAdd(segments.accepted + scheduled.ray, walk.contributions);
+        if (previous > UINT32_MAX - walk.contributions) atomicOr(&view.state->error, resident_contribution_capacity_error);
         atomicAdd(reinterpret_cast<unsigned long long*>(&view.state->batch_contributions),
             static_cast<unsigned long long>(walk.contributions - skipped));
         if (skipped) atomicAdd(&view.state->batch_skipped, static_cast<unsigned long long>(skipped));

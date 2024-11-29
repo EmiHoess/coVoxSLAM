@@ -5,6 +5,7 @@
 #include "ray_resident_reduce/types.h"
 #include "ray_resident_step_tasks/types.h"
 #include "ray_resident_warp/types.h"
+#include "ray_resident_segmented/types.h"
 #include <cuda_runtime_api.h>
 #include <array>
 
@@ -17,6 +18,7 @@ struct cuda_resident_context::implementation
     detail::cuda_resident_view view;
     detail::cuda_resident_reduction_view reduction;
     detail::cuda_resident_task_view tasks;
+    detail::cuda_segment_view segments;
     std::uint8_t* free_space_flags{};
     std::uint64_t next_scan{};
      detail::cuda_device_ray* rays{};
@@ -52,7 +54,11 @@ struct cuda_resident_context::implementation
 
         if (options.free_space.enabled)
         {
-            if (status) status = check(detail::cuda_walk_resident_skip(view, reduction, rays, count, parameters, skip, stream));
+            if (options.segment_length) {
+                if (status) status = check(detail::cuda_walk_resident_segments(view, reduction, rays, count,
+                    parameters, skip, segments, options.segment_length, stream));
+            }
+            else if (status) status = check(detail::cuda_walk_resident_skip(view, reduction, rays, count, parameters, skip, stream));
         }
         else {
         if (status) status = check(detail::cuda_walk_resident_reduction(view, reduction, rays, count, parameters, mode, 0, stream));

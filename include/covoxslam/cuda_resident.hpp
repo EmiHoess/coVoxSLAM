@@ -26,6 +26,7 @@ struct cuda_resident_options
     bool step_tasks{};
     cuda_resident_warp_options warp;
     cuda_free_space_options free_space;
+    float segment_length{};
 };
 
 struct cuda_resident_statistics
@@ -54,6 +55,7 @@ public:
     bool uses_step_tasks() const noexcept;
     cuda_resident_warp_options warp_configuration() const noexcept;
     cuda_free_space_options free_space_configuration() const noexcept;
+    float segment_length() const noexcept;
     operation_status submit(std::span<const ray> rays);
     operation_result<cuda_resident_statistics> flush();
     operation_result<tsdf_tiles> download();

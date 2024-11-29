@@ -25,6 +25,10 @@ inline constexpr cli_option_entry<submap_cli_option> submap_cli_options[]{
     {"--submap-duration-ns", submap_cli_option::duration}, {"--verification", submap_cli_option::verification},
     {"--pose-source", submap_cli_option::pose_source}
 };
+enum class verification_option { unknown, cached, full };
+inline constexpr cli_option_entry<verification_option> verification_options[]{
+    {"cached", verification_option::cached}, {"full", verification_option::full}
+};
 
 inline int run_submap_cli(int argc, char** argv)
 {
@@ -76,6 +80,13 @@ inline int run_submap_cli(int argc, char** argv)
             switch (lookup_cli_option(option, submap_cli_options))
             {
             case submap_cli_option::dataset: root = argv[index + 1]; continue;
+            case submap_cli_option::verification:
+                switch (lookup_cli_option(value, verification_options)) {
+                case verification_option::cached: input_options.verification = dataset_verification_mode::prefer_cache; break;
+                 case verification_option::full: input_options.verification = dataset_verification_mode::force_full; break;
+                default: return report_error("unsupported input verification mode");
+                }
+                continue;
             case submap_cli_option::duration:
             {
                 const auto converted = std::from_chars(value.data(), value.data() + value.size(), options.submap_duration_ns);
@@ -108,12 +119,7 @@ inline int run_submap_cli(int argc, char** argv)
             }
             default: break;
             }
-            if (option == "--verification") {
-                if (value == "cached") input_options.verification = dataset_verification_mode::prefer_cache;
-                else if (value == "full") input_options.verification = dataset_verification_mode::force_full;
-                else return report_error("unsupported input verification mode");
-            }
-            else if (option == "--pose-source")
+            if (option == "--pose-source")
             {
                 if (value == "odometry") options.pose_source = pose_source::odometry;
                 else if (value == "ground_truth") options.pose_source = pose_source::ground_truth;
