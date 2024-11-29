@@ -9,16 +9,17 @@
 
 namespace covoxslam
 {
-enum class resident_option { unknown, backend, tiles, rays, contributions, warp_count, warp_cache, warp_order, free_weight, free_refresh };
+enum class resident_option { unknown, backend, tiles, rays, contributions, warp_count, warp_cache, warp_order, free_weight, free_refresh, segment_length };
 inline constexpr cli_option_entry<resident_option> resident_options[]{
     {"--backend", resident_option::backend}, {"--resident-tiles", resident_option::tiles},
      {"--resident-rays", resident_option::rays}, {"--resident-contributions", resident_option::contributions},
     {"--warp-count", resident_option::warp_count}, {"--warp-cache-entries", resident_option::warp_cache},
     {"--warp-ray-order", resident_option::warp_order},
-    {"--free-space-min-weight", resident_option::free_weight}, {"--free-space-refresh-scans", resident_option::free_refresh}
+    {"--free-space-min-weight", resident_option::free_weight}, {"--free-space-refresh-scans", resident_option::free_refresh},
+    {"--ray-segment-length", resident_option::segment_length}
 };
 static_assert(valid_cli_options(resident_options));
-enum class resident_backend { unknown, ordered, arrival, reduce_index, reduce_segment, reduce_atomic, step_tasks, warp_match, warp_cache, free_space };
+enum class resident_backend { unknown, ordered, arrival, reduce_index, reduce_segment, reduce_atomic, step_tasks, warp_match, warp_cache, free_space, segmented };
 inline constexpr cli_option_entry<resident_backend> resident_backends[]{
     {"cuda-ray-resident", resident_backend::ordered},
      {"cuda-ray-resident-unordered", resident_backend::arrival},
@@ -27,7 +28,8 @@ inline constexpr cli_option_entry<resident_backend> resident_backends[]{
     {"cuda-ray-resident-unordered-reduce-atomic", resident_backend::reduce_atomic},
     {"cuda-ray-resident-step-tasks", resident_backend::step_tasks},
     {"cuda-ray-resident-warp-match", resident_backend::warp_match}, {"cuda-ray-resident-warp-cache", resident_backend::warp_cache},
-    {"cuda-ray-resident-free-space-skip", resident_backend::free_space}
+    {"cuda-ray-resident-free-space-skip", resident_backend::free_space},
+    {"cuda-ray-resident-free-space-skip-segmented", resident_backend::segmented}
 };
 static_assert(valid_cli_options(resident_backends));
 enum class warp_ray_order { unknown, input, scattered };
@@ -39,6 +41,8 @@ struct resident_cli_options
 {
     cuda_resident_options mapper;
     bool selected{}, specified{}, warp_specified{}, free_space_specified{};
+    bool segment_specified{};
+    float requested_segment_length{1};
 };
 
 inline operation_result<bool> parse_resident_option(std::string_view name, std::string_view value,
@@ -51,6 +55,7 @@ inline operation_result<bool> parse_resident_option(std::string_view name, std::
         options.mapper.reduction = cuda_resident_reduction::none;
         options.mapper.step_tasks = false;
         options.mapper.free_space.enabled = false;
+        options.mapper.segment_length = 0;
         options.mapper.warp.mode = cuda_resident_warp::none;
         options.mapper.order = cuda_resident_order::arrival;
         switch (lookup_cli_option(value, resident_backends))
@@ -63,6 +68,11 @@ inline operation_result<bool> parse_resident_option(std::string_view name, std::
         case resident_backend::free_space:
             options.mapper.reduction = cuda_resident_reduction::direct_atomic;
             options.mapper.free_space.enabled = true;
+            break;
+        case resident_backend::segmented:
+            options.mapper.reduction = cuda_resident_reduction::direct_atomic;
+            options.mapper.free_space.enabled = true;
+            options.mapper.segment_length = options.requested_segment_length;
             break;
         case resident_backend::warp_match:
         case resident_backend::warp_cache:
@@ -88,13 +98,20 @@ inline operation_result<bool> parse_resident_option(std::string_view name, std::
         options.warp_specified = true;
         return true;
     }
-    if (id == resident_option::free_weight)
+    if (id == resident_option::free_weight || id == resident_option::segment_length)
     {
         float weight{};
         const auto converted = std::from_chars(value.data(), value.data() + value.size(), weight);
 
         if (converted.ec != std::errc{} || converted.ptr != value.data() + value.size() || !std::isfinite(weight) || weight <= 0)
-            return std::unexpected(operation_error{"free space minimum weight must be finite and positive"});
+            return std::unexpected(operation_error{"free space weight and segment length must be finite and positive"});
+        if (id == resident_option::segment_length)
+        {
+            options.requested_segment_length = weight;
+             options.segment_specified = true;
+            if (options.mapper.segment_length) options.mapper.segment_length = weight;
+            return true;
+        }
         options.mapper.free_space.minimum_weight = weight;
          options.free_space_specified = true;
         return true;
@@ -175,7 +192,7 @@ inline pipeline_callbacks resident_callbacks(cuda_resident_context& mapper, mapp
         std::cout << "tsdf " << frame.id << ": " << completed.tsdf.size() << " tiles, "
                   << statistics->mapping.voxel_updates << " updates, " << statistics->batches
                    << " resident batches, " << statistics->explicit_waits << " explicit waits\n";
-        std::cout << resident_fusion_name(mapper.fusion_order(), mapper.reduction_mode(), mapper.uses_step_tasks(), mapper.warp_configuration().mode, mapper.free_space_configuration().enabled) << ", "
+        std::cout << resident_fusion_name(mapper.fusion_order(), mapper.reduction_mode(), mapper.uses_step_tasks(), mapper.warp_configuration().mode, mapper.free_space_configuration().enabled, mapper.segment_length() != 0) << ", "
                   << statistics->mapping.cuda_voxel_segments << " voxel groups, " << statistics->maximum_segment_length
                   << " maximum contributions per voxel, " << mapper.device_bytes() << " device bytes\n";
         if (mapper.uses_step_tasks())

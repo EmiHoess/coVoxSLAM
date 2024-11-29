@@ -286,6 +286,8 @@ operation_result<cuda_resident_statistics> cuda_resident_context::flush()
     statistics.warp_cache_flushes = completed.warp_counts[3];
     auto& mapping = statistics.mapping;
     mapping.cuda_skipped_contributions = statistics.skipped_contributions;
+    mapping.cuda_ray_segment_length_m = data.options.segment_length;
+    mapping.cuda_ray_segment_slots = data.segments.slots;
 
     if (data.options.free_space.enabled) {
         mapping.cuda_free_space_minimum_weight = data.options.free_space.minimum_weight;

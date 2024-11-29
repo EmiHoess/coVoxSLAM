@@ -282,6 +282,8 @@ void map_exporter::write(const submap& value)
              << ",\"cuda_skipped_contributions\":" << statistics.cuda_skipped_contributions
              << ",\"cuda_free_space_minimum_weight\":" << statistics.cuda_free_space_minimum_weight
              << ",\"cuda_free_space_refresh_scans\":" << statistics.cuda_free_space_refresh_scans
+             << ",\"cuda_ray_segment_length_m\":" << statistics.cuda_ray_segment_length_m
+             << ",\"cuda_ray_segment_slots\":" << statistics.cuda_ray_segment_slots
              << ",\"integration_ms\":" << statistics.integration_ms
              << ",\"esdf_ms\":" << statistics.esdf_ms << "}\n";
     poses.flush();

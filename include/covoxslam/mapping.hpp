@@ -163,6 +163,8 @@ struct mapping_statistics {
     std::uint64_t cuda_skipped_contributions{};
     float cuda_free_space_minimum_weight{};
      std::uint32_t cuda_free_space_refresh_scans{};
+    float cuda_ray_segment_length_m{};
+    std::uint32_t cuda_ray_segment_slots{};
 }
 ;
 

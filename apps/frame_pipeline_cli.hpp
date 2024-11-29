@@ -29,6 +29,10 @@ enum class verification_option { unknown, cached, full };
 inline constexpr cli_option_entry<verification_option> verification_options[]{
     {"cached", verification_option::cached}, {"full", verification_option::full}
 };
+enum class trajectory_option { unknown, odometry, ground_truth };
+inline constexpr cli_option_entry<trajectory_option> trajectory_options[]{
+    {"odometry", trajectory_option::odometry}, {"ground_truth", trajectory_option::ground_truth}
+};
 
 inline int run_submap_cli(int argc, char** argv)
 {
@@ -80,6 +84,14 @@ inline int run_submap_cli(int argc, char** argv)
             switch (lookup_cli_option(option, submap_cli_options))
             {
             case submap_cli_option::dataset: root = argv[index + 1]; continue;
+            case submap_cli_option::pose_source:
+                switch (lookup_cli_option(value, trajectory_options))
+                {
+                case trajectory_option::odometry: options.pose_source = pose_source::odometry; break;
+                 case trajectory_option::ground_truth: options.pose_source = pose_source::ground_truth; break;
+                default: return report_error("unsupported trajectory source");
+                }
+                continue;
             case submap_cli_option::verification:
                 switch (lookup_cli_option(value, verification_options)) {
                 case verification_option::cached: input_options.verification = dataset_verification_mode::prefer_cache; break;
@@ -119,13 +131,6 @@ inline int run_submap_cli(int argc, char** argv)
             }
             default: break;
             }
-            if (option == "--pose-source")
-            {
-                if (value == "odometry") options.pose_source = pose_source::odometry;
-                else if (value == "ground_truth") options.pose_source = pose_source::ground_truth;
-                else return report_error("unsupported trajectory source");
-            }
-            else
             {
                 const auto esdf_parsed = parse_cuda_esdf_option(option, value, esdf_options);
 
@@ -163,6 +168,8 @@ inline int run_submap_cli(int argc, char** argv)
             return report_error("warp options require a warp backend");
         if (resident_options.free_space_specified && (!resident_options.selected || !resident_options.mapper.free_space.enabled))
             return report_error("free space options require a free space backend");
+        if (resident_options.segment_specified && (!resident_options.selected || !resident_options.mapper.segment_length))
+            return report_error("segment length requires a segmented backend");
         if (resident_options.selected && (cuda_options.ray_capacity_set || cuda_options.contribution_capacity_set))
             return report_error("use --resident-rays and --resident-contributions with resident mapping");
         const auto input = load_dataset(root, input_options);
@@ -199,14 +206,14 @@ inline int run_submap_cli(int argc, char** argv)
             if (!configured) { std::cerr << configured.error().message << '\n'; return 2; }
         }
         const char* backend = projective ? "cuda-projective" : gpu ? "cuda-ray" : "cpu-ray";
-        if (resident) backend = resident_backend_name(resident->fusion_order(), resident->reduction_mode(), resident->uses_step_tasks(), resident->warp_configuration().mode, resident->free_space_configuration().enabled);
+        if (resident) backend = resident_backend_name(resident->fusion_order(), resident->reduction_mode(), resident->uses_step_tasks(), resident->warp_configuration().mode, resident->free_space_configuration().enabled, resident->segment_length() != 0);
         if (cuda_options.calibrated_policy) backend = "cuda-projective-calibrated";
         if (cuda_options.calibrated_policy) std::cout << "projective raycast factor " << projective_options.raycast_subsampling_factor << '\n';
         if (gpu) std::cout << "ray fusion " << cuda_ray_fusion_name(fusion_options.mode)
                            << ", short threshold " << fusion_options.short_segment_threshold
                            << ", maximum rays per batch " << cuda_options.mapper.ray_capacity << '\n';
         auto exporter = open_map_export(output, input, mapping_options, backend,
-            resident ? resident_fusion_name(resident->fusion_order(), resident->reduction_mode(), resident->uses_step_tasks(), resident->warp_configuration().mode, resident->free_space_configuration().enabled) : "unspecified");
+            resident ? resident_fusion_name(resident->fusion_order(), resident->reduction_mode(), resident->uses_step_tasks(), resident->warp_configuration().mode, resident->free_space_configuration().enabled, resident->segment_length() != 0) : "unspecified");
         const auto publish = [&](const submap& completed) { if (exporter) exporter->write(completed); };
         const auto callbacks = resident ? resident_callbacks(*resident, mapping_options, resident_failure, publish, finalize) :
             projective ? mapping_callbacks(*projective, publish, finalize) :
