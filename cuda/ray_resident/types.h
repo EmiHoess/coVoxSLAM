@@ -34,7 +34,7 @@ struct cuda_resident_state
     std::uint64_t integrated{}, rejected{}, contributions{}, touched{};
     std::uint64_t batch_validated{};
     std::uint32_t batch_open{}, batch_reduction{};
-    std::uint32_t batch_task_phase{};
+    std::uint32_t batch_task_phase{}, batch_compact_rays{};
     unsigned long long batch_warp_counts[4]{}, warp_counts[4]{};
     unsigned long long batch_skipped{}, skipped{};
 };

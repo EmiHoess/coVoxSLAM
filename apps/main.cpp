@@ -15,6 +15,18 @@
 
 namespace
 {
+enum class application_option { unknown, submaps, help, version };
+constexpr covoxslam::cli_option_entry<application_option> application_options[]{
+    {"--submaps", application_option::submaps}, {"--help", application_option::help},
+     {"--version", application_option::version}
+};
+enum class inspection_option { unknown, dataset, frame, ring_stride, column_stride, point_source, verification };
+constexpr covoxslam::cli_option_entry<inspection_option> inspection_options[]{
+    {"--dataset", inspection_option::dataset}, {"--frame", inspection_option::frame},
+    {"--ring-stride", inspection_option::ring_stride}, {"--column-stride", inspection_option::column_stride},
+     {"--point-source", inspection_option::point_source}, {"--verification", inspection_option::verification}
+};
+
 covoxslam::operation_result<std::size_t> parse_index(std::string_view value, std::string_view option)
 {
     std::size_t result{};
