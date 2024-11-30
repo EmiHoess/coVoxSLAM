@@ -10,8 +10,6 @@
 #include <charconv>
 #include <iomanip>
 #include <iostream>
-#include <limits>
-#include <stdexcept>
 #include <string_view>
 
 namespace covoxslam
@@ -63,7 +61,7 @@ inline int run_submap_cli(int argc, char** argv)
 
             if (!resident_parsed) return report_error(resident_parsed.error().message);
             if (*resident_parsed) {
-                if (option == "--backend") {
+                if (lookup_cli_option(option, covoxslam::resident_options) == resident_option::backend) {
                     mapping_enabled = true;
                     cuda_options.enabled = cuda_options.projective = cuda_options.calibrated_policy = false;
                 }
@@ -78,7 +76,7 @@ inline int run_submap_cli(int argc, char** argv)
             const auto projective_parsed = parse_projective_option(option, value, projective_options, projective_option_set);
             if (!projective_parsed) return report_error(projective_parsed.error().message);
             if (*projective_parsed) {
-                if (option != "--projective-candidate-capacity") projective_control_set = true;
+                if (lookup_cli_option(option, covoxslam::projective_options) != projective_option::candidate_capacity) projective_control_set = true;
                 continue;
             }
             switch (lookup_cli_option(option, submap_cli_options))
