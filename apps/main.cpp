@@ -83,16 +83,21 @@ int main(int argc, char** argv)
             std::cerr << "covoxslam: " << message << '\n';
             return 2;
         };
-        if (argc >= 2 && std::string_view(argv[1]) == "--submaps")
-            return covoxslam::run_submap_cli(argc, argv);
-        if (argc == 1 || (argc == 2 && std::string_view(argv[1]) == "--help")) {
-            usage();
-            return 0;
-        }
-        if (argc == 2 && std::string_view(argv[1]) == "--version")
+        const auto mode = argc == 1 ? application_option::help : covoxslam::lookup_cli_option(argv[1], application_options);
+        switch (mode)
         {
-            std::cout << "covoxslam " << covoxslam_version << '\n';
-             return 0;
+        case application_option::submaps: return covoxslam::run_submap_cli(argc, argv);
+        case application_option::help:
+            if (argc <= 2) { usage(); return 0; }
+            break;
+        case application_option::version:
+
+            if (argc == 2) {
+                std::cout << "covoxslam " << covoxslam_version << '\n';
+                 return 0;
+            }
+            break;
+        default: break;
         }
         std::filesystem::path dataset_path;
         covoxslam::dataset_load_options input_options;

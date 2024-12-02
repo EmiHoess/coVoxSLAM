@@ -15,6 +15,7 @@ bool cuda_resident_context::uses_step_tasks() const noexcept { return state->opt
 cuda_resident_warp_options cuda_resident_context::warp_configuration() const noexcept { return state->options.warp; }
 cuda_free_space_options cuda_resident_context::free_space_configuration() const noexcept { return state->options.free_space; }
 float cuda_resident_context::segment_length() const noexcept { return state->options.segment_length; }
+bool cuda_resident_context::uses_compact() const noexcept { return state->options.compact; }
 
 operation_result<std::unique_ptr<cuda_resident_context>> cuda_resident_context::create(
     mapping_config config, cuda_resident_options options)
@@ -34,6 +35,9 @@ operation_result<std::unique_ptr<cuda_resident_context>> cuda_resident_context::
         return std::unexpected(operation_error{"invalid free space skip configuration"});
     const auto segments = resident_segment_slots(config.maximum_ray_length_m, config.truncation_distance, options.segment_length);
 
+    if (options.compact && (!options.free_space.enabled || options.segment_length))
+        return std::unexpected(operation_error{"compact mapping requires unsegmented free space reduction"});
+
     if (options.segment_length && (!options.free_space.enabled || !segments))
         return std::unexpected(operation_error{"segment length must be positive and require at most 65536 intervals"});
     const auto voxels = static_cast<std::size_t>(options.tile_capacity) * 512;
@@ -47,6 +51,7 @@ operation_result<std::unique_ptr<cuda_resident_context>> cuda_resident_context::
         options.ray_capacity * sizeof(detail::cuda_device_ray);
     if (segmented) bytes += voxels * sizeof(std::uint64_t);
     if (options.free_space.enabled) bytes += voxels;
+    if (options.compact) bytes += voxels * sizeof(unsigned);
     if (segments) bytes += std::size_t(options.ray_capacity) * (sizeof(detail::resident_warp_dda) +
         sizeof(unsigned) + std::size_t(segments) * sizeof(detail::cuda_segment_checkpoint));
 
@@ -130,6 +135,7 @@ operation_result<std::unique_ptr<cuda_resident_context>> cuda_resident_context::
     if (status) status = data.allocate(data.rays, options.ray_capacity);
 
     if (status && options.free_space.enabled) status = data.allocate(data.free_space_flags, voxels);
+    if (status && options.compact) status = data.allocate(data.compact.touched, voxels);
 
     if (segments)
     {
@@ -172,6 +178,7 @@ operation_result<std::unique_ptr<cuda_resident_context>> cuda_resident_context::
     }
     if (status) status = data.check(detail::cuda_initialize_resident_map(view, data.stream));
     if (status && data.free_space_flags) status = data.check(cudaMemsetAsync(data.free_space_flags, 0, voxels, data.stream));
+    if (status) status = data.initialize_compact();
 
     if (status) status = data.check(cudaStreamSynchronize(data.stream));
     if (!status) return std::unexpected(status.error());
@@ -216,7 +223,10 @@ operation_status cuda_resident_context::submit(std::span<const ray> input)
         config.minimum_ray_length_m, config.maximum_ray_length_m, data.options.voxel_carving, data.options.allow_clear};
 
     if (bytes) status = data.check(cudaMemcpyAsync(data.rays, slot.rays, bytes, cudaMemcpyHostToDevice, data.stream));
-    if (data.options.step_tasks) {
+    if (data.options.compact) {
+        if (status) status = data.integrate_compact(input.size(), parameters);
+    }
+    else if (data.options.step_tasks) {
         if (status) status = data.integrate_tasks(input.size(), parameters, slot);
     }
     else if (data.options.reduction != cuda_resident_reduction::none)
@@ -381,6 +391,7 @@ operation_status cuda_resident_context::reset()
 
     if (status && data.free_space_flags)
         status = data.check(cudaMemsetAsync(data.free_space_flags, 0, std::size_t(data.options.tile_capacity) * 512, data.stream));
+    if (status) status = data.initialize_compact();
 
     if (status) status = data.check(cudaStreamSynchronize(data.stream));
     if (!status) return status;

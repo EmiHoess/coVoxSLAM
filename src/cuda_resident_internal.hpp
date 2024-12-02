@@ -6,6 +6,7 @@
 #include "ray_resident_step_tasks/types.h"
 #include "ray_resident_warp/types.h"
 #include "ray_resident_segmented/types.h"
+#include "ray_resident_compact/types.h"
 #include <cuda_runtime_api.h>
 #include <array>
 
@@ -19,6 +20,7 @@ struct cuda_resident_context::implementation
     detail::cuda_resident_reduction_view reduction;
     detail::cuda_resident_task_view tasks;
     detail::cuda_segment_view segments;
+    detail::cuda_compact_view compact;
     std::uint8_t* free_space_flags{};
     std::uint64_t next_scan{};
      detail::cuda_device_ray* rays{};
@@ -43,6 +45,28 @@ struct cuda_resident_context::implementation
             return std::unexpected(operation_error{cudaGetErrorString(static_cast<cudaError_t>(code))});
         }
         return {};
+    }
+
+    operation_status initialize_compact()
+    {
+        if (!options.compact) return {};
+        const auto bytes = std::size_t(options.tile_capacity) * 512 * sizeof(double);
+        auto status = check(cudaMemsetAsync(reduction.weights, 0, bytes, stream));
+
+        if (status) status = check(cudaMemsetAsync(reduction.weighted_distances, 0, bytes, stream));
+        return status;
+    }
+
+    operation_status integrate_compact(std::size_t count, detail::cuda_ray_parameters parameters)
+    {
+        const detail::cuda_free_space_view skip{free_space_flags, options.free_space.minimum_weight,
+             next_scan % options.free_space.refresh_scans == 0};
+        operation_status status;
+
+        for (unsigned stage = 0; stage < 4 && status; ++stage)
+            status = check(detail::cuda_resident_compact_stage(view, reduction, rays, count, parameters,
+                {config.truncation_distance, config.maximum_weight, config.extraction_distance}, skip, compact, stage, stream));
+        return status;
     }
 
     operation_status integrate_reduction(std::size_t count, detail::cuda_ray_parameters parameters)
