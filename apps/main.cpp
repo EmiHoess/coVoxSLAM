@@ -116,6 +116,15 @@ int main(int argc, char** argv)
              const std::string_view value = argv[index];
             switch (covoxslam::lookup_cli_option(option, inspection_options)) {
             case inspection_option::dataset: dataset_path = std::string(value); continue;
+            case inspection_option::frame:
+            {
+                const auto parsed = parse_index(value, option);
+
+                if (!parsed) return report_error(parsed.error().message);
+                frame_index = *parsed;
+                 frame_selected = true;
+                continue;
+            }
             default: break;
             }
             if (option == "--verification")
@@ -124,15 +133,6 @@ int main(int argc, char** argv)
                     return report_error("--verification needs cached or full");
                 input_options.verification = value == "cached" ? covoxslam::dataset_verification_mode::prefer_cache
                     : covoxslam::dataset_verification_mode::force_full;
-            }
-            else if (option == "--frame") {
-                const auto parsed = parse_index(value, option);
-                if (!parsed) {
-                    std::cerr << "covoxslam: " << parsed.error().message << '\n';
-                    return 2;
-                }
-                frame_index = *parsed;
-                frame_selected = true;
             }
             else if (option == "--point-source")
             {
