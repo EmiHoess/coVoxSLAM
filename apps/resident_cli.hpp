@@ -19,7 +19,7 @@ inline constexpr cli_option_entry<resident_option> resident_options[]{
     {"--ray-segment-length", resident_option::segment_length}
 };
 static_assert(valid_cli_options(resident_options));
-enum class resident_backend { unknown, ordered, arrival, reduce_index, reduce_segment, reduce_atomic, step_tasks, warp_match, warp_cache, free_space, segmented };
+enum class resident_backend { unknown, ordered, arrival, reduce_index, reduce_segment, reduce_atomic, step_tasks, warp_match, warp_cache, free_space, segmented, compact };
 inline constexpr cli_option_entry<resident_backend> resident_backends[]{
     {"cuda-ray-resident", resident_backend::ordered},
      {"cuda-ray-resident-unordered", resident_backend::arrival},
@@ -29,7 +29,8 @@ inline constexpr cli_option_entry<resident_backend> resident_backends[]{
     {"cuda-ray-resident-step-tasks", resident_backend::step_tasks},
     {"cuda-ray-resident-warp-match", resident_backend::warp_match}, {"cuda-ray-resident-warp-cache", resident_backend::warp_cache},
     {"cuda-ray-resident-free-space-skip", resident_backend::free_space},
-    {"cuda-ray-resident-free-space-skip-segmented", resident_backend::segmented}
+    {"cuda-ray-resident-free-space-skip-segmented", resident_backend::segmented},
+    {"cuda-ray-resident-free-space-skip-compact", resident_backend::compact}
 };
 static_assert(valid_cli_options(resident_backends));
 enum class warp_ray_order { unknown, input, scattered };
@@ -56,6 +57,7 @@ inline operation_result<bool> parse_resident_option(std::string_view name, std::
         options.mapper.step_tasks = false;
         options.mapper.free_space.enabled = false;
         options.mapper.segment_length = 0;
+        options.mapper.compact = false;
         options.mapper.warp.mode = cuda_resident_warp::none;
         options.mapper.order = cuda_resident_order::arrival;
         switch (lookup_cli_option(value, resident_backends))
@@ -66,8 +68,10 @@ inline operation_result<bool> parse_resident_option(std::string_view name, std::
         case resident_backend::reduce_segment: options.mapper.reduction = cuda_resident_reduction::segment; break;
         case resident_backend::reduce_atomic: options.mapper.reduction = cuda_resident_reduction::direct_atomic; break;
         case resident_backend::free_space:
+        case resident_backend::compact:
             options.mapper.reduction = cuda_resident_reduction::direct_atomic;
             options.mapper.free_space.enabled = true;
+            options.mapper.compact = lookup_cli_option(value, resident_backends) == resident_backend::compact;
             break;
         case resident_backend::segmented:
             options.mapper.reduction = cuda_resident_reduction::direct_atomic;
@@ -192,9 +196,14 @@ inline pipeline_callbacks resident_callbacks(cuda_resident_context& mapper, mapp
         std::cout << "tsdf " << frame.id << ": " << completed.tsdf.size() << " tiles, "
                   << statistics->mapping.voxel_updates << " updates, " << statistics->batches
                    << " resident batches, " << statistics->explicit_waits << " explicit waits\n";
-        std::cout << resident_fusion_name(mapper.fusion_order(), mapper.reduction_mode(), mapper.uses_step_tasks(), mapper.warp_configuration().mode, mapper.free_space_configuration().enabled, mapper.segment_length() != 0) << ", "
+        std::cout << resident_fusion_name(mapper.fusion_order(), mapper.reduction_mode(), mapper.uses_step_tasks(), mapper.warp_configuration().mode, mapper.free_space_configuration().enabled, mapper.segment_length() != 0, mapper.uses_compact()) << ", "
                   << statistics->mapping.cuda_voxel_segments << " voxel groups, " << statistics->maximum_segment_length
                   << " maximum contributions per voxel, " << mapper.device_bytes() << " device bytes\n";
+        if (mapper.uses_compact())
+            std::cout << "compact discovery " << statistics->mapping.cuda_compact_discovery_ms << " ms, accumulation "
+                << statistics->mapping.cuda_compact_accumulation_ms << " ms, validation and publication "
+                << statistics->mapping.cuda_compact_validation_ms << " ms, clear and statistics "
+                 << statistics->mapping.cuda_compact_clear_ms << " ms\n";
         if (mapper.uses_step_tasks())
             std::cout << "task expansion " << statistics->mapping.cuda_task_expansion_ms << " ms, evaluation "
                       << statistics->mapping.cuda_task_evaluation_ms << " ms, fusion "

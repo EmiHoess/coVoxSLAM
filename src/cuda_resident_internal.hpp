@@ -32,6 +32,7 @@ struct cuda_resident_context::implementation
         detail::cuda_device_ray* rays{};
         cudaEvent_t complete{};
         std::array<cudaEvent_t, 4> task_events{};
+        std::array<cudaEvent_t, 5> compact_events{};
         bool pending{};
     };
     std::array<staging_slot, 4> staging{};
@@ -57,15 +58,18 @@ struct cuda_resident_context::implementation
         return status;
     }
 
-    operation_status integrate_compact(std::size_t count, detail::cuda_ray_parameters parameters)
+    operation_status integrate_compact(std::size_t count, detail::cuda_ray_parameters parameters, staging_slot& slot)
     {
         const detail::cuda_free_space_view skip{free_space_flags, options.free_space.minimum_weight,
              next_scan % options.free_space.refresh_scans == 0};
-        operation_status status;
+        auto status = check(cudaEventRecord(slot.compact_events[0], stream));
 
         for (unsigned stage = 0; stage < 4 && status; ++stage)
+        {
             status = check(detail::cuda_resident_compact_stage(view, reduction, rays, count, parameters,
                 {config.truncation_distance, config.maximum_weight, config.extraction_distance}, skip, compact, stage, stream));
+            if (status) status = check(cudaEventRecord(slot.compact_events[stage + 1], stream));
+        }
         return status;
     }
 
@@ -110,6 +114,20 @@ struct cuda_resident_context::implementation
     operation_status harvest(staging_slot& slot)
     {
         if (!slot.pending) return {};
+
+        if (options.compact)
+        {
+            std::array<float, 4> elapsed{};
+
+            for (std::size_t index = 0; index < elapsed.size(); ++index) {
+                const auto status = check(cudaEventElapsedTime(&elapsed[index], slot.compact_events[index], slot.compact_events[index + 1]));
+                if (!status) return status;
+            }
+            statistics.mapping.cuda_compact_discovery_ms += elapsed[0];
+             statistics.mapping.cuda_compact_accumulation_ms += elapsed[1];
+            statistics.mapping.cuda_compact_validation_ms += elapsed[2];
+            statistics.mapping.cuda_compact_clear_ms += elapsed[3];
+        }
 
         if (options.step_tasks) {
             std::array<float, 3> elapsed{};
@@ -166,6 +184,9 @@ struct cuda_resident_context::implementation
         if (stream) cudaStreamSynchronize(stream);
 
         for (auto& slot : staging) {
+
+            for (auto event : slot.compact_events)
+                if (event) cudaEventDestroy(event);
 
             for (auto event : slot.task_events)
                 if (event) cudaEventDestroy(event);

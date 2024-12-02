@@ -270,6 +270,10 @@ void map_exporter::write(const submap& value)
              << ",\"cuda_task_expansion_ms\":" << statistics.cuda_task_expansion_ms
              << ",\"cuda_task_evaluation_ms\":" << statistics.cuda_task_evaluation_ms
              << ",\"cuda_task_fusion_ms\":" << statistics.cuda_task_fusion_ms
+             << ",\"cuda_compact_discovery_ms\":" << statistics.cuda_compact_discovery_ms
+             << ",\"cuda_compact_accumulation_ms\":" << statistics.cuda_compact_accumulation_ms
+             << ",\"cuda_compact_validation_ms\":" << statistics.cuda_compact_validation_ms
+             << ",\"cuda_compact_clear_ms\":" << statistics.cuda_compact_clear_ms
              << ",\"cuda_warp_flush_groups\":" << statistics.cuda_warp_flush_groups
              << ",\"cuda_warp_peer_groups\":" << statistics.cuda_warp_peer_groups
              << ",\"cuda_warp_cache_hits\":" << statistics.cuda_warp_cache_hits

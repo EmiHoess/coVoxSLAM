@@ -204,14 +204,14 @@ inline int run_submap_cli(int argc, char** argv)
             if (!configured) { std::cerr << configured.error().message << '\n'; return 2; }
         }
         const char* backend = projective ? "cuda-projective" : gpu ? "cuda-ray" : "cpu-ray";
-        if (resident) backend = resident_backend_name(resident->fusion_order(), resident->reduction_mode(), resident->uses_step_tasks(), resident->warp_configuration().mode, resident->free_space_configuration().enabled, resident->segment_length() != 0);
+        if (resident) backend = resident_backend_name(resident->fusion_order(), resident->reduction_mode(), resident->uses_step_tasks(), resident->warp_configuration().mode, resident->free_space_configuration().enabled, resident->segment_length() != 0, resident->uses_compact());
         if (cuda_options.calibrated_policy) backend = "cuda-projective-calibrated";
         if (cuda_options.calibrated_policy) std::cout << "projective raycast factor " << projective_options.raycast_subsampling_factor << '\n';
         if (gpu) std::cout << "ray fusion " << cuda_ray_fusion_name(fusion_options.mode)
                            << ", short threshold " << fusion_options.short_segment_threshold
                            << ", maximum rays per batch " << cuda_options.mapper.ray_capacity << '\n';
         auto exporter = open_map_export(output, input, mapping_options, backend,
-            resident ? resident_fusion_name(resident->fusion_order(), resident->reduction_mode(), resident->uses_step_tasks(), resident->warp_configuration().mode, resident->free_space_configuration().enabled, resident->segment_length() != 0) : "unspecified");
+            resident ? resident_fusion_name(resident->fusion_order(), resident->reduction_mode(), resident->uses_step_tasks(), resident->warp_configuration().mode, resident->free_space_configuration().enabled, resident->segment_length() != 0, resident->uses_compact()) : "unspecified");
         const auto publish = [&](const submap& completed) { if (exporter) exporter->write(completed); };
         const auto callbacks = resident ? resident_callbacks(*resident, mapping_options, resident_failure, publish, finalize) :
             projective ? mapping_callbacks(*projective, publish, finalize) :

@@ -175,6 +175,13 @@ operation_result<std::unique_ptr<cuda_resident_context>> cuda_resident_context::
                 if (!status) break;
                 status = data.check(cudaEventCreateWithFlags(&event, cudaEventDefault));
             }
+
+        if (options.compact)
+
+            for (auto& event : slot.compact_events) {
+                if (!status) break;
+                status = data.check(cudaEventCreateWithFlags(&event, cudaEventDefault));
+            }
     }
     if (status) status = data.check(detail::cuda_initialize_resident_map(view, data.stream));
     if (status && data.free_space_flags) status = data.check(cudaMemsetAsync(data.free_space_flags, 0, voxels, data.stream));
@@ -224,7 +231,7 @@ operation_status cuda_resident_context::submit(std::span<const ray> input)
 
     if (bytes) status = data.check(cudaMemcpyAsync(data.rays, slot.rays, bytes, cudaMemcpyHostToDevice, data.stream));
     if (data.options.compact) {
-        if (status) status = data.integrate_compact(input.size(), parameters);
+        if (status) status = data.integrate_compact(input.size(), parameters, slot);
     }
     else if (data.options.step_tasks) {
         if (status) status = data.integrate_tasks(input.size(), parameters, slot);

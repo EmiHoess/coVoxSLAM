@@ -56,6 +56,7 @@ void usage()
               << "  --backend cuda-ray-resident-unordered-reduce-atomic  FP64 sums, stored weight capped once per batch\n"
               << "    Direct atomic needs no contribution buffer and accepts --resident-contributions 0\n"
               << "  --backend cuda-ray-resident-step-tasks  Bounded exact DDA tasks, FP64 batch fusion and GPU stage timings\n"
+              << "  --backend cuda-ray-resident-free-space-skip-compact  Tile discovery and touched voxel processing\n"
               << "  --projective-depth-discontinuity N --projective-nearest-ray-distance N --projective-sparsity-factor N\n"
               << "  --projective-constant-weight BOOL --projective-weight-dropoff BOOL --projective-sparsity-compensation BOOL\n"
               << "  --projective-voxel-carving BOOL --projective-allow-clear BOOL  BOOL is true or false\n"
@@ -113,8 +114,11 @@ int main(int argc, char** argv)
             if (++index >= argc)
                 return report_error(std::string(option) + " needs a value");
              const std::string_view value = argv[index];
-            if (option == "--dataset") dataset_path = std::string(value);
-            else if (option == "--verification")
+            switch (covoxslam::lookup_cli_option(option, inspection_options)) {
+            case inspection_option::dataset: dataset_path = std::string(value); continue;
+            default: break;
+            }
+            if (option == "--verification")
             {
                 if (value != "cached" && value != "full")
                     return report_error("--verification needs cached or full");
