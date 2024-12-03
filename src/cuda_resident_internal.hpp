@@ -7,6 +7,7 @@
 #include "ray_resident_warp/types.h"
 #include "ray_resident_segmented/types.h"
 #include "ray_resident_compact/types.h"
+#include "ray_resident_free_space_skip_fp32/types.h"
 #include <cuda_runtime_api.h>
 #include <array>
 
@@ -21,6 +22,7 @@ struct cuda_resident_context::implementation
     detail::cuda_resident_task_view tasks;
     detail::cuda_segment_view segments;
     detail::cuda_compact_view compact;
+    detail::cuda_fp32_view fp32;
     std::uint8_t* free_space_flags{};
     std::uint64_t next_scan{};
      detail::cuda_device_ray* rays{};
@@ -66,8 +68,9 @@ struct cuda_resident_context::implementation
 
         for (unsigned stage = 0; stage < 4 && status; ++stage)
         {
-            status = check(detail::cuda_resident_compact_stage(view, reduction, rays, count, parameters,
-                {config.truncation_distance, config.maximum_weight, config.extraction_distance}, skip, compact, stage, stream));
+            const detail::cuda_fusion_parameters fusion{config.truncation_distance, config.maximum_weight, config.extraction_distance};
+            status = options.fp32 ? check(detail::cuda_resident_fp32_stage(view, fp32, rays, count, parameters, fusion, skip, stage, stream)) :
+                check(detail::cuda_resident_compact_stage(view, reduction, rays, count, parameters, fusion, skip, compact, stage, stream, options.compact_batched));
             if (status) status = check(cudaEventRecord(slot.compact_events[stage + 1], stream));
         }
         return status;
@@ -115,7 +118,7 @@ struct cuda_resident_context::implementation
     {
         if (!slot.pending) return {};
 
-        if (options.compact)
+        if (options.compact || options.fp32)
         {
             std::array<float, 4> elapsed{};
 
@@ -123,10 +126,19 @@ struct cuda_resident_context::implementation
                 const auto status = check(cudaEventElapsedTime(&elapsed[index], slot.compact_events[index], slot.compact_events[index + 1]));
                 if (!status) return status;
             }
-            statistics.mapping.cuda_compact_discovery_ms += elapsed[0];
-             statistics.mapping.cuda_compact_accumulation_ms += elapsed[1];
-            statistics.mapping.cuda_compact_validation_ms += elapsed[2];
-            statistics.mapping.cuda_compact_clear_ms += elapsed[3];
+            if (options.fp32) {
+                statistics.mapping.cuda_skip_clear_discovery_ms += elapsed[0];
+                statistics.mapping.cuda_skip_accumulation_ms += elapsed[1];
+                statistics.mapping.cuda_skip_validation_ms += elapsed[2];
+                 statistics.mapping.cuda_skip_finalize_ms += elapsed[3];
+            }
+            else
+            {
+                statistics.mapping.cuda_compact_discovery_ms += elapsed[0];
+                 statistics.mapping.cuda_compact_accumulation_ms += elapsed[1];
+                statistics.mapping.cuda_compact_validation_ms += elapsed[2];
+                statistics.mapping.cuda_compact_clear_ms += elapsed[3];
+            }
         }
 
         if (options.step_tasks) {

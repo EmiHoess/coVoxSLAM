@@ -16,6 +16,8 @@ cuda_resident_warp_options cuda_resident_context::warp_configuration() const noe
 cuda_free_space_options cuda_resident_context::free_space_configuration() const noexcept { return state->options.free_space; }
 float cuda_resident_context::segment_length() const noexcept { return state->options.segment_length; }
 bool cuda_resident_context::uses_compact() const noexcept { return state->options.compact; }
+bool cuda_resident_context::uses_compact_batched() const noexcept { return state->options.compact_batched; }
+bool cuda_resident_context::uses_fp32() const noexcept { return state->options.fp32; }
 
 operation_result<std::unique_ptr<cuda_resident_context>> cuda_resident_context::create(
     mapping_config config, cuda_resident_options options)
@@ -37,6 +39,10 @@ operation_result<std::unique_ptr<cuda_resident_context>> cuda_resident_context::
 
     if (options.compact && (!options.free_space.enabled || options.segment_length))
         return std::unexpected(operation_error{"compact mapping requires unsegmented free space reduction"});
+
+    if ((options.compact_batched && !options.compact) ||
+        (options.fp32 && (!options.free_space.enabled || options.compact || options.segment_length)))
+        return std::unexpected(operation_error{"batched compact and FP32 skip are independent alternatives"});
 
     if (options.segment_length && (!options.free_space.enabled || !segments))
         return std::unexpected(operation_error{"segment length must be positive and require at most 65536 intervals"});
@@ -66,7 +72,7 @@ operation_result<std::unique_ptr<cuda_resident_context>> cuda_resident_context::
         bytes += options.contribution_capacity * (sizeof(detail::cuda_resident_reduction_sample) + sizeof(std::uint32_t)) +
             options.ray_capacity * (sizeof(std::uint32_t) + sizeof(std::uint64_t)) + voxels * 2 * sizeof(double);
         break;
-    case cuda_resident_reduction::direct_atomic: bytes += voxels * 2 * sizeof(double); break;
+    case cuda_resident_reduction::direct_atomic: bytes += voxels * 2 * (options.fp32 ? sizeof(float) : sizeof(double)); break;
     }
 
     if (options.step_tasks)
@@ -126,7 +132,12 @@ operation_result<std::unique_ptr<cuda_resident_context>> cuda_resident_context::
         if (status) status = data.allocate(reduction.ray_counts, options.ray_capacity);
         if (status) status = data.allocate(reduction.ray_offsets, options.ray_capacity);
     }
-    if (indexed || mode == cuda_resident_reduction::direct_atomic) {
+    if (options.fp32)
+    {
+        if (status) status = data.allocate(data.fp32.weights, voxels);
+        if (status) status = data.allocate(data.fp32.weighted_distances, voxels);
+    }
+    else if (indexed || mode == cuda_resident_reduction::direct_atomic) {
         if (status) status = data.allocate(reduction.weights, voxels);
 
         if (status) status = data.allocate(reduction.weighted_distances, voxels);
@@ -176,7 +187,7 @@ operation_result<std::unique_ptr<cuda_resident_context>> cuda_resident_context::
                 status = data.check(cudaEventCreateWithFlags(&event, cudaEventDefault));
             }
 
-        if (options.compact)
+        if (options.compact || options.fp32)
 
             for (auto& event : slot.compact_events) {
                 if (!status) break;
@@ -230,7 +241,7 @@ operation_status cuda_resident_context::submit(std::span<const ray> input)
         config.minimum_ray_length_m, config.maximum_ray_length_m, data.options.voxel_carving, data.options.allow_clear};
 
     if (bytes) status = data.check(cudaMemcpyAsync(data.rays, slot.rays, bytes, cudaMemcpyHostToDevice, data.stream));
-    if (data.options.compact) {
+    if (data.options.compact || data.options.fp32) {
         if (status) status = data.integrate_compact(input.size(), parameters, slot);
     }
     else if (data.options.step_tasks) {
@@ -305,6 +316,8 @@ operation_result<cuda_resident_statistics> cuda_resident_context::flush()
     mapping.cuda_skipped_contributions = statistics.skipped_contributions;
     mapping.cuda_ray_segment_length_m = data.options.segment_length;
     mapping.cuda_ray_segment_slots = data.segments.slots;
+    mapping.cuda_accumulator_bits = data.options.reduction == cuda_resident_reduction::none ? 0 : data.options.fp32 ? 32 : 64;
+    mapping.cuda_compact_batched = data.options.compact_batched;
 
     if (data.options.free_space.enabled) {
         mapping.cuda_free_space_minimum_weight = data.options.free_space.minimum_weight;

@@ -112,8 +112,7 @@ int main(int argc, char** argv)
         for (int index = 1; index < argc; ++index)
         {
             const std::string_view option = argv[index];
-            if (option != "--dataset" && option != "--frame" && option != "--ring-stride" &&
-                option != "--column-stride" && option != "--point-source" && option != "--verification")
+            if (covoxslam::lookup_cli_option(option, inspection_options) == inspection_option::unknown)
                 return report_error("unknown option: " + std::string(option));
             if (++index >= argc)
                 return report_error(std::string(option) + " needs a value");
@@ -129,17 +128,15 @@ int main(int argc, char** argv)
                  frame_selected = true;
                 continue;
             }
-            default: break;
-            }
-            if (option == "--verification")
+            case inspection_option::verification:
             {
-                if (value != "cached" && value != "full")
-                    return report_error("--verification needs cached or full");
-                input_options.verification = value == "cached" ? covoxslam::dataset_verification_mode::prefer_cache
-                    : covoxslam::dataset_verification_mode::force_full;
+                switch (covoxslam::lookup_cli_option(value, covoxslam::verification_options)) {
+                case covoxslam::verification_option::cached: input_options.verification = covoxslam::dataset_verification_mode::prefer_cache; break;
+                case covoxslam::verification_option::full: input_options.verification = covoxslam::dataset_verification_mode::force_full; break;
+                default: return report_error("--verification needs cached or full");
+                }
+                continue;
             }
-            else switch (covoxslam::lookup_cli_option(option, inspection_options))
-            {
             case inspection_option::point_source:
             {
                 switch (covoxslam::lookup_cli_option(value, point_options)) {

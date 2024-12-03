@@ -274,6 +274,12 @@ void map_exporter::write(const submap& value)
              << ",\"cuda_compact_accumulation_ms\":" << statistics.cuda_compact_accumulation_ms
              << ",\"cuda_compact_validation_ms\":" << statistics.cuda_compact_validation_ms
              << ",\"cuda_compact_clear_ms\":" << statistics.cuda_compact_clear_ms
+             << ",\"cuda_skip_clear_discovery_ms\":" << statistics.cuda_skip_clear_discovery_ms
+             << ",\"cuda_skip_accumulation_ms\":" << statistics.cuda_skip_accumulation_ms
+             << ",\"cuda_skip_validation_ms\":" << statistics.cuda_skip_validation_ms
+             << ",\"cuda_skip_finalize_ms\":" << statistics.cuda_skip_finalize_ms
+             << ",\"cuda_accumulator_bits\":" << statistics.cuda_accumulator_bits
+             << ",\"cuda_compact_batched\":" << (statistics.cuda_compact_batched ? "true" : "false")
              << ",\"cuda_warp_flush_groups\":" << statistics.cuda_warp_flush_groups
              << ",\"cuda_warp_peer_groups\":" << statistics.cuda_warp_peer_groups
              << ",\"cuda_warp_cache_hits\":" << statistics.cuda_warp_cache_hits

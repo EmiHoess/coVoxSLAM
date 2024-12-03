@@ -159,6 +159,9 @@ struct mapping_statistics {
     double cuda_task_expansion_ms{}, cuda_task_evaluation_ms{}, cuda_task_fusion_ms{};
     double cuda_compact_discovery_ms{}, cuda_compact_accumulation_ms{};
     double cuda_compact_validation_ms{}, cuda_compact_clear_ms{};
+    double cuda_skip_clear_discovery_ms{}, cuda_skip_accumulation_ms{}, cuda_skip_validation_ms{}, cuda_skip_finalize_ms{};
+    std::uint32_t cuda_accumulator_bits{};
+    bool cuda_compact_batched{};
     std::uint64_t cuda_warp_flush_groups{}, cuda_warp_peer_groups{}, cuda_warp_cache_hits{}, cuda_warp_cache_flushes{};
     std::uint32_t cuda_warp_count{}, cuda_warp_count_effective{}, cuda_warp_cache_entries{}, cuda_warp_shared_bytes{};
     bool cuda_warp_scattered{};

@@ -13,6 +13,8 @@ cuda_resident_warp_options cuda_resident_context::warp_configuration() const noe
 cuda_free_space_options cuda_resident_context::free_space_configuration() const noexcept { return {}; }
 float cuda_resident_context::segment_length() const noexcept { return 0; }
 bool cuda_resident_context::uses_compact() const noexcept { return false; }
+bool cuda_resident_context::uses_compact_batched() const noexcept { return false; }
+bool cuda_resident_context::uses_fp32() const noexcept { return false; }
 operation_result<std::unique_ptr<cuda_resident_context>> cuda_resident_context::create(
     mapping_config, cuda_resident_options)
 {
