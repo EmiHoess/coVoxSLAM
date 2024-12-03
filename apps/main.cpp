@@ -26,6 +26,10 @@ constexpr covoxslam::cli_option_entry<inspection_option> inspection_options[]{
     {"--ring-stride", inspection_option::ring_stride}, {"--column-stride", inspection_option::column_stride},
      {"--point-source", inspection_option::point_source}, {"--verification", inspection_option::verification}
 };
+enum class point_option { unknown, raw, deskewed };
+constexpr covoxslam::cli_option_entry<point_option> point_options[]{
+    {"raw", point_option::raw}, {"deskewed", point_option::deskewed}
+};
 
 covoxslam::operation_result<std::size_t> parse_index(std::string_view value, std::string_view option)
 {
@@ -134,14 +138,20 @@ int main(int argc, char** argv)
                 input_options.verification = value == "cached" ? covoxslam::dataset_verification_mode::prefer_cache
                     : covoxslam::dataset_verification_mode::force_full;
             }
-            else if (option == "--point-source")
+            else switch (covoxslam::lookup_cli_option(option, inspection_options))
             {
-                if (value != "raw" && value != "deskewed")
-                    return report_error("--point-source needs raw or deskewed");
-                source = value == "raw" ? covoxslam::point_source::raw : covoxslam::point_source::deskewed;
+            case inspection_option::point_source:
+            {
+                switch (covoxslam::lookup_cli_option(value, point_options)) {
+                case point_option::raw: source = covoxslam::point_source::raw; break;
+                case point_option::deskewed: source = covoxslam::point_source::deskewed; break;
+                default: return report_error("--point-source needs raw or deskewed");
+                }
                 sampling_selected = true;
+                break;
             }
-            else
+            case inspection_option::ring_stride:
+            case inspection_option::column_stride:
               {
                 const auto stride = parse_index(value, option);
                 if (!stride || *stride == 0) {
@@ -149,9 +159,14 @@ int main(int argc, char** argv)
                     std::cerr << "covoxslam: " << diagnostic << '\n';
                     return 2;
                 }
-                if (option == "--ring-stride") ring_stride = *stride;
-                else column_stride = *stride;
+                switch (covoxslam::lookup_cli_option(option, inspection_options)) {
+                case inspection_option::ring_stride: ring_stride = *stride; break;
+                default: column_stride = *stride; break;
+                }
                 sampling_selected = true;
+                break;
+            }
+            default: return report_error("unknown option: " + std::string(option));
             }
         }
         if (dataset_path.empty()) return report_error("--dataset is required");
