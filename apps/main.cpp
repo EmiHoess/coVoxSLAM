@@ -61,6 +61,8 @@ void usage()
               << "    Direct atomic needs no contribution buffer and accepts --resident-contributions 0\n"
               << "  --backend cuda-ray-resident-step-tasks  Bounded exact DDA tasks, FP64 batch fusion and GPU stage timings\n"
               << "  --backend cuda-ray-resident-free-space-skip-compact  Tile discovery and touched voxel processing\n"
+              << "  --backend cuda-ray-resident-free-space-skip-compact-batched  Grouped bookkeeping and combined cleanup\n"
+              << "  --backend cuda-ray-resident-free-space-skip-fp32  Independent FP32 sums with full capacity processing\n"
               << "  --projective-depth-discontinuity N --projective-nearest-ray-distance N --projective-sparsity-factor N\n"
               << "  --projective-constant-weight BOOL --projective-weight-dropoff BOOL --projective-sparsity-compensation BOOL\n"
               << "  --projective-voxel-carving BOOL --projective-allow-clear BOOL  BOOL is true or false\n"
