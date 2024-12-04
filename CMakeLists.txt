@@ -12,6 +12,7 @@ add_library(covoxslam_core STATIC src/types.cpp src/json_reader.cpp src/dataset.
 target_sources(covoxslam_core PRIVATE src/pipeline.cpp)
 target_sources(covoxslam_core PRIVATE src/mapping.cpp)
 target_sources(covoxslam_core PRIVATE src/export.cpp)
+target_sources(covoxslam_core PRIVATE src/sensor_grid.cpp)
 option(covoxslam_enable_cuda "Build CUDA runtime and mapping support" OFF)
 if(covoxslam_enable_cuda)
     if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
