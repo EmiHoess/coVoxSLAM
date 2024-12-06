@@ -1,4 +1,5 @@
 #include <covoxslam/sensor_grid.hpp>
+#include "sensor_grid_internal.hpp"
 #include <cmath>
 #include <limits>
 
@@ -28,5 +29,104 @@ operation_result<geometry> make_geometry(const config& c)
         return std::unexpected(operation_error{"sensor grid origin exceeds capacity"});
     return geometry{static_cast<std::uint32_t>(half), static_cast<std::uint32_t>(side),
         static_cast<std::uint32_t>(side * side * side), static_cast<float>(-extent)};
+}
+operation_result<lookup> build_lookup(const config& c, std::span<const direction> directions,
+                                      std::uint32_t factor)
+{
+    const auto grid = make_geometry(c);
+    if (!grid) return std::unexpected(grid.error());
+
+    if (directions.empty() || directions.size() > UINT32_MAX || factor == 0)
+        return std::unexpected(operation_error{"sensor lookup requires rays and a positive factor"});
+    std::vector<unit_direction> normalized;
+    normalized.reserve(directions.size());
+
+    for (const auto input : directions) {
+        const auto ray = normalize(input);
+        if (!ray) return std::unexpected(ray.error());
+         normalized.push_back(*ray);
+    }
+    lookup table;
+    table.settings = c;
+    table.grid = *grid;
+    table.ray_count = static_cast<std::uint32_t>(directions.size());
+    table.reduction_factor = factor;
+    table.selected_rays = (table.ray_count - 1) / factor + 1;
+    table.offsets.assign(std::size_t(grid->voxels) + 1, 0);
+    std::uint64_t total{};
+
+    for (std::size_t ray = 0; ray < normalized.size(); ray += factor)
+    {
+        const auto status = walk(*grid, c, normalized[ray],
+            [&](std::uint32_t voxel, float, float) -> operation_status {
+                if (++total > UINT32_MAX)
+                    return std::unexpected(operation_error{"sensor intersections exceed CSR capacity"});
+                 ++table.offsets[std::size_t(voxel) + 1];
+                return {};
+            });
+        if (!status) return std::unexpected(status.error());
+    }
+
+    for (std::size_t voxel = 0; voxel < grid->voxels; ++voxel) {
+        if (table.offsets[voxel + 1]) table.active_voxels.push_back(static_cast<std::uint32_t>(voxel));
+        table.offsets[voxel + 1] += table.offsets[voxel];
+    }
+    table.intersections.resize(static_cast<std::size_t>(total));
+    auto cursor = table.offsets;
+
+    for (std::size_t ray = 0; ray < normalized.size(); ray += factor)
+    {
+        const auto status = walk(*grid, c, normalized[ray],
+            [&](std::uint32_t voxel, float entry, float projected) -> operation_status {
+                table.intersections[cursor[voxel]++] = {static_cast<std::uint32_t>(ray), entry, projected};
+                return {};
+            });
+        if (!status) return std::unexpected(status.error());
+    }
+    const auto status = validate_lookup(table);
+    if (!status) return std::unexpected(status.error());
+    return table;
+}
+
+operation_status validate_lookup(const lookup& table)
+{
+    const auto grid = make_geometry(table.settings);
+    if (!grid) return std::unexpected(grid.error());
+
+    if (table.grid.side != grid->side || table.grid.half_side != grid->half_side ||
+        table.grid.voxels != grid->voxels || table.grid.origin != grid->origin ||
+        table.offsets.size() != std::size_t(grid->voxels) + 1 || !table.ray_count ||
+        !table.reduction_factor || table.selected_rays != (table.ray_count - 1) / table.reduction_factor + 1 ||
+        table.intersections.size() > UINT32_MAX || table.intersections.size() < table.selected_rays ||
+        table.offsets.front() != 0 || table.offsets.back() != table.intersections.size())
+        return std::unexpected(operation_error{"malformed sensor lookup dimensions"});
+    std::vector<bool> seen(table.selected_rays, false);
+    std::size_t active{};
+
+    for (std::size_t voxel = 0; voxel < grid->voxels; ++voxel)
+    {
+        const auto begin = table.offsets[voxel], end = table.offsets[voxel + 1];
+
+        if (begin > end || end > table.intersections.size())
+            return std::unexpected(operation_error{"malformed sensor row offsets"});
+        if (begin != end && (active >= table.active_voxels.size() || table.active_voxels[active++] != voxel))
+            return std::unexpected(operation_error{"malformed sensor active cells"});
+        std::uint32_t previous{};
+
+        for (auto index = begin; index < end; ++index) {
+            const auto& hit = table.intersections[index];
+
+            if (hit.ray >= table.ray_count || hit.ray % table.reduction_factor ||
+                (index != begin && hit.ray <= previous) || !std::isfinite(hit.entry_t) ||
+                hit.entry_t < 0 || hit.entry_t > table.settings.radius || !std::isfinite(hit.projected))
+                return std::unexpected(operation_error{"malformed sensor intersection"});
+             previous = hit.ray;
+            seen[hit.ray / table.reduction_factor] = true;
+        }
+    }
+
+    if (active != table.active_voxels.size() || std::find(seen.begin(), seen.end(), false) != seen.end())
+        return std::unexpected(operation_error{"sensor lookup has missing rays or extra active cells"});
+    return {};
 }
 }
