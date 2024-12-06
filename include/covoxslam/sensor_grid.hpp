@@ -32,7 +32,14 @@ struct lookup
     std::vector<intersection> intersections;
 };
 operation_result<geometry> make_geometry(const config& settings);
+struct lookup_limits
+{
+    std::uint32_t maximum_voxels{16777216}, maximum_rays{1048576};
+     std::uint32_t maximum_intersections{67108864};
+    std::uint64_t maximum_host_bytes{536870912};
+};
 operation_result<lookup> build_lookup(const config& settings,
-    std::span<const direction> directions, std::uint32_t reduction_factor = 1);
+    std::span<const direction> directions, std::uint32_t reduction_factor = 1,
+    lookup_limits limits = {});
 operation_status validate_lookup(const lookup& table);
 }

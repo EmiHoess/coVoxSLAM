@@ -31,13 +31,18 @@ operation_result<geometry> make_geometry(const config& c)
         static_cast<std::uint32_t>(side * side * side), static_cast<float>(-extent)};
 }
 operation_result<lookup> build_lookup(const config& c, std::span<const direction> directions,
-                                      std::uint32_t factor)
+                                      std::uint32_t factor, lookup_limits limits)
 {
     const auto grid = make_geometry(c);
     if (!grid) return std::unexpected(grid.error());
 
     if (directions.empty() || directions.size() > UINT32_MAX || factor == 0)
         return std::unexpected(operation_error{"sensor lookup requires rays and a positive factor"});
+    const std::uint64_t base_bytes = std::uint64_t(grid->voxels) * 24 + 8 + directions.size() * 32;
+
+    if (grid->voxels > limits.maximum_voxels || directions.size() > limits.maximum_rays ||
+        base_bytes > limits.maximum_host_bytes || !limits.maximum_intersections)
+        return std::unexpected(operation_error{"sensor lookup exceeds host storage budget"});
     std::vector<unit_direction> normalized;
     normalized.reserve(directions.size());
 
@@ -61,6 +66,9 @@ operation_result<lookup> build_lookup(const config& c, std::span<const direction
             [&](std::uint32_t voxel, float, float) -> operation_status {
                 if (++total > UINT32_MAX)
                     return std::unexpected(operation_error{"sensor intersections exceed CSR capacity"});
+                if (total > limits.maximum_intersections ||
+                    total * sizeof(intersection) > limits.maximum_host_bytes - base_bytes)
+                    return std::unexpected(operation_error{"sensor intersections exceed host storage budget"});
                  ++table.offsets[std::size_t(voxel) + 1];
                 return {};
             });
@@ -78,6 +86,8 @@ operation_result<lookup> build_lookup(const config& c, std::span<const direction
     {
         const auto status = walk(*grid, c, normalized[ray],
             [&](std::uint32_t voxel, float entry, float projected) -> operation_status {
+                if (cursor[voxel] >= table.offsets[std::size_t(voxel) + 1])
+                    return std::unexpected(operation_error{"sensor row count changed during construction"});
                 table.intersections[cursor[voxel]++] = {static_cast<std::uint32_t>(ray), entry, projected};
                 return {};
             });
@@ -118,7 +128,8 @@ operation_status validate_lookup(const lookup& table)
 
             if (hit.ray >= table.ray_count || hit.ray % table.reduction_factor ||
                 (index != begin && hit.ray <= previous) || !std::isfinite(hit.entry_t) ||
-                hit.entry_t < 0 || hit.entry_t > table.settings.radius || !std::isfinite(hit.projected))
+                hit.entry_t < 0 || hit.entry_t > table.settings.radius ||
+                !std::isfinite(hit.projected) || hit.projected < 0)
                 return std::unexpected(operation_error{"malformed sensor intersection"});
              previous = hit.ray;
             seen[hit.ray / table.reduction_factor] = true;
