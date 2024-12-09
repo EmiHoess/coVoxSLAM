@@ -1,6 +1,7 @@
 #include <covoxslam/dataset.hpp>
 #include <covoxslam/result.hpp>
 #include "frame_pipeline_cli.hpp"
+#include "sensor_grid_cli.hpp"
 
 #include <charconv>
 #include <cmath>
@@ -15,10 +16,11 @@
 
 namespace
 {
-enum class application_option { unknown, submaps, help, version };
+enum class application_option { unknown, submaps, sensor_grid, help, version };
 constexpr covoxslam::cli_option_entry<application_option> application_options[]{
     {"--submaps", application_option::submaps}, {"--help", application_option::help},
      {"--version", application_option::version}
+    , {"--sensor-grid", application_option::sensor_grid}
 };
 enum class inspection_option { unknown, dataset, frame, ring_stride, column_stride, point_source, verification };
 constexpr covoxslam::cli_option_entry<inspection_option> inspection_options[]{
@@ -47,6 +49,8 @@ std::size_t sampled_extent(std::size_t extent, std::size_t stride) {
 void usage()
 {
     std::cout << "Usage: covoxslam --dataset PATH [--frame INDEX]\n"
+              << "  --sensor-grid --dataset PATH [--sensor-grid-radius M] [--sensor-grid-voxel-size M]\n"
+              << "    --sensor-grid-factor N --sensor-grid-truncation M  Inspect static calibrated lookup\n"
               << "  --ring-stride N          Positive ring stride, default 1\n"
               << "  --column-stride N        Positive column stride, default 1\n"
               << "  --point-source raw|deskewed  Default raw\n"
@@ -94,6 +98,7 @@ int main(int argc, char** argv)
         switch (mode)
         {
         case application_option::submaps: return covoxslam::run_submap_cli(argc, argv);
+        case application_option::sensor_grid: return covoxslam::run_sensor_grid_cli(argc, argv);
         case application_option::help:
             if (argc <= 2) { usage(); return 0; }
             break;
