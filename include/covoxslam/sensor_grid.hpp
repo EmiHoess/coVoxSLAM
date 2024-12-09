@@ -1,28 +1,13 @@
 #pragma once
 
 #include <covoxslam/result.hpp>
+#include <covoxslam/sensor_grid_types.h>
 #include <cstdint>
 #include <span>
 #include <vector>
 
 namespace covoxslam::sensor_grid
 {
-struct direction { float x{}, y{}, z{}; };
-struct config
-{
-    float voxel_size{0.2F}, radius{16.0F}, truncation{0.6F};
-     float minimum_range{0.1F}, maximum_weight{10000.0F};
-    float sparsity_compensation{20.0F};
-    bool weight_dropoff{true};
-};
-struct intersection { std::uint32_t ray{}; float entry_t{}, projected{}; };
-static_assert(sizeof(intersection) == 12);
-
-struct geometry
-{
-    std::uint32_t half_side{}, side{}, voxels{};
-    float origin{};
-};
 struct lookup
 {
     config settings{};
@@ -42,4 +27,12 @@ operation_result<lookup> build_lookup(const config& settings,
     std::span<const direction> directions, std::uint32_t reduction_factor = 1,
     lookup_limits limits = {});
 operation_status validate_lookup(const lookup& table);
+operation_result<std::vector<voxel>> update_cpu(const lookup& table,
+    std::span<const float> ranges, gather_policy policy = {});
+inline lookup_view host_view(const lookup& table)
+{
+    return {table.offsets.data(), table.intersections.data(), table.active_voxels.data(),
+        static_cast<std::uint32_t>(table.active_voxels.size()), table.ray_count,
+        static_cast<std::uint32_t>(table.intersections.size()), table.grid.voxels, table.settings};
+}
 }
