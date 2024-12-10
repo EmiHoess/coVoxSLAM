@@ -1,5 +1,6 @@
 #include <covoxslam/sensor_grid.hpp>
 #include "sensor_grid_internal.hpp"
+#include <covoxslam/sensor_grid_gather.h>
 #include <cmath>
 #include <limits>
 
@@ -139,5 +140,20 @@ operation_status validate_lookup(const lookup& table)
     if (active != table.active_voxels.size() || std::find(seen.begin(), seen.end(), false) != seen.end())
         return std::unexpected(operation_error{"sensor lookup has missing rays or extra active cells"});
     return {};
+}
+operation_result<std::vector<voxel>> update_cpu(const lookup& table,
+    std::span<const float> ranges, gather_policy policy)
+{
+    const auto status = validate_lookup(table);
+    if (!status) return std::unexpected(status.error());
+
+    if (ranges.size() != table.ray_count)
+        return std::unexpected(operation_error{"sensor range count differs from calibrated rays"});
+    std::vector<voxel> result(table.grid.voxels);
+    const auto view = host_view(table);
+
+    for (const auto cell : table.active_voxels)
+        result[cell] = gather_row(view, ranges.data(), cell, policy);
+    return result;
 }
 }
