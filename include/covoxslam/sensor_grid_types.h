@@ -26,6 +26,10 @@ struct voxel
      std::uint32_t contributions{}, candidates_tested{};
 };
 struct gather_policy { std::uint32_t max_rays{}; bool first_entry_only{}; };
+inline constexpr bool valid_gather_policy(gather_policy policy)
+{
+    return !policy.first_entry_only || policy.max_rays <= 1;
+}
 struct lookup_view
 {
     const std::uint32_t* offsets{};

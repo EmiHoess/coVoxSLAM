@@ -147,8 +147,8 @@ operation_result<std::vector<voxel>> update_cpu(const lookup& table,
     const auto status = validate_lookup(table);
     if (!status) return std::unexpected(status.error());
 
-    if (ranges.size() != table.ray_count)
-        return std::unexpected(operation_error{"sensor range count differs from calibrated rays"});
+    if (ranges.size() != table.ray_count || !valid_gather_policy(policy))
+        return std::unexpected(operation_error{"invalid sensor range count or conflicting ray cap policy"});
     std::vector<voxel> result(table.grid.voxels);
     const auto view = host_view(table);
 
