@@ -55,6 +55,43 @@ field_view gpu_grid::device_field() const noexcept
     if (!state->ready || state->failed) return {};
     return {state->output, state->grid.side, state->table.settings.voxel_size, state->grid.origin};
 }
+operation_result<update_times> gpu_grid::update(std::span<const float> ranges, gather_policy policy)
+{
+    auto& data = *state;
+
+    if (data.failed || ranges.size() != data.table.ray_count || !valid_gather_policy(policy))
+        return std::unexpected(operation_error{"invalid sensor update or failed CUDA field"});
+    data.ready = false;
+    auto status = data.check(cudaSetDevice(data.device));
+    if (status) status = data.check(cudaEventRecord(data.events[0], data.stream));
+    if (status) status = data.check(cudaMemcpyAsync(data.ranges, ranges.data(), ranges.size_bytes(), cudaMemcpyHostToDevice, data.stream));
+    if (status) status = data.check(cudaEventRecord(data.events[1], data.stream));
+    if (status) status = data.check(cuda_sensor_gather(data.table, data.ranges, data.output, policy, data.stream));
+    if (status) status = data.check(cudaEventRecord(data.events[2], data.stream));
+    const auto waited = data.check(cudaStreamSynchronize(data.stream));
+    if (status) status = waited;
+    update_times result;
+    if (status) status = data.check(cudaEventElapsedTime(&result.upload_ms, data.events[0], data.events[1]));
+    if (status) status = data.check(cudaEventElapsedTime(&result.gather_ms, data.events[1], data.events[2]));
+    if (!status) return std::unexpected(status.error());
+     data.ready = true;
+    return result;
+}
+operation_result<std::vector<voxel>> gpu_grid::download()
+{
+    auto& data = *state;
+
+    if (!data.ready || data.failed)
+        return std::unexpected(operation_error{"sensor field has no completed update"});
+    std::vector<voxel> result(data.grid.voxels);
+    auto status = data.check(cudaSetDevice(data.device));
+    if (status) status = data.check(cudaMemcpyAsync(result.data(), data.output,
+        result.size() * sizeof(voxel), cudaMemcpyDeviceToHost, data.stream));
+    const auto waited = data.check(cudaStreamSynchronize(data.stream));
+    if (status) status = waited;
+    if (!status) return std::unexpected(status.error());
+    return result;
+}
 operation_result<std::unique_ptr<gpu_grid>> gpu_grid::create(const lookup& table,
     int device, std::size_t maximum_bytes)
 {

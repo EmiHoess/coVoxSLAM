@@ -51,6 +51,8 @@ void usage()
     std::cout << "Usage: covoxslam --dataset PATH [--frame INDEX]\n"
               << "  --sensor-grid --dataset PATH [--sensor-grid-radius M] [--sensor-grid-voxel-size M]\n"
               << "    --sensor-grid-factor N --sensor-grid-truncation M  Inspect static calibrated lookup\n"
+              << "    --sensor-grid-frames N --sensor-grid-backend cpu|cuda --sensor-grid-ray-cap N\n"
+              << "    --sensor-grid-first-entry true|false --cuda-device N  Build fresh per scan sensor fields\n"
               << "  --ring-stride N          Positive ring stride, default 1\n"
               << "  --column-stride N        Positive column stride, default 1\n"
               << "  --point-source raw|deskewed  Default raw\n"
