@@ -50,6 +50,7 @@ struct gpu_grid::implementation
 gpu_grid::gpu_grid() = default;
 gpu_grid::~gpu_grid() = default;
 std::size_t gpu_grid::device_bytes() const noexcept { return state->bytes; }
+int gpu_grid::device_index() const noexcept { return state->device; }
 field_view gpu_grid::device_field() const noexcept
 {
     if (!state->ready || state->failed) return {};
