@@ -6,6 +6,7 @@
 #include "cuda_esdf_cli.hpp"
 #include "map_export_cli.hpp"
 #include "resident_cli.hpp"
+#include "sensor_mapping_cli.hpp"
 
 #include <charconv>
 #include <iomanip>
@@ -41,6 +42,8 @@ inline int run_submap_cli(int argc, char** argv)
         pipeline_options options;
         mapping_config mapping_options;
         bool mapping_enabled{};
+        bool sensor_selected{};
+        auto sensor_mode = sensor_grid::interpolation::trilinear;
         cuda_mapping_cli_options cuda_options;
         resident_cli_options resident_options;
         ray_fusion_cli_options fusion_options;
@@ -57,6 +60,21 @@ inline int run_submap_cli(int argc, char** argv)
             const std::string_view option(argv[index]);
             if (index + 1 >= argc) return report_error("missing submap option value");
             const std::string_view value(argv[index + 1]);
+            switch (lookup_cli_option(option, sensor_mapping_options)) {
+            case sensor_mapping_option::backend:
+                if (value == "cuda-sensor-grid") { sensor_selected = mapping_enabled = true; continue; }
+                sensor_selected = false;
+                break;
+            case sensor_mapping_option::interpolation:
+                switch (lookup_cli_option(value, sensor_sampling_values)) {
+                case sensor_sampling_value::nearest: sensor_mode = sensor_grid::interpolation::nearest; break;
+                case sensor_sampling_value::tetrahedral: sensor_mode = sensor_grid::interpolation::tetrahedral; break;
+                case sensor_sampling_value::trilinear: sensor_mode = sensor_grid::interpolation::trilinear; break;
+                default: return report_error("unsupported sensor interpolation");
+                }
+                continue;
+            default: break;
+            }
             const auto resident_parsed = parse_resident_option(option, value, resident_options);
 
             if (!resident_parsed) return report_error(resident_parsed.error().message);
@@ -179,7 +197,7 @@ inline int run_submap_cli(int argc, char** argv)
         std::unique_ptr<cuda_projective_mapper> projective;
         std::unique_ptr<cuda_resident_context> resident;
         std::optional<operation_error> resident_failure;
-        if (mapping_enabled) {
+        if (mapping_enabled && !sensor_selected) {
             if (resident_options.selected)
             {
                 resident_options.mapper.device = cuda_options.mapper.device;
@@ -206,6 +224,7 @@ inline int run_submap_cli(int argc, char** argv)
         const char* backend = projective ? "cuda-projective" : gpu ? "cuda-ray" : "cpu-ray";
         if (resident) backend = resident_backend_name(resident->fusion_order(), resident->reduction_mode(), resident->uses_step_tasks(), resident->warp_configuration().mode, resident->free_space_configuration().enabled, resident->segment_length() != 0, resident->uses_compact(), resident->uses_compact_batched(), resident->uses_fp32());
         if (cuda_options.calibrated_policy) backend = "cuda-projective-calibrated";
+        if (sensor_selected) backend = "cuda-sensor-grid";
         if (cuda_options.calibrated_policy) std::cout << "projective raycast factor " << projective_options.raycast_subsampling_factor << '\n';
         if (gpu) std::cout << "ray fusion " << cuda_ray_fusion_name(fusion_options.mode)
                            << ", short threshold " << fusion_options.short_segment_threshold
@@ -213,10 +232,17 @@ inline int run_submap_cli(int argc, char** argv)
         auto exporter = open_map_export(output, input, mapping_options, backend,
             resident ? resident_fusion_name(resident->fusion_order(), resident->reduction_mode(), resident->uses_step_tasks(), resident->warp_configuration().mode, resident->free_space_configuration().enabled, resident->segment_length() != 0, resident->uses_compact(), resident->uses_compact_batched(), resident->uses_fp32()) : "unspecified");
         const auto publish = [&](const submap& completed) { if (exporter) exporter->write(completed); };
-        const auto callbacks = resident ? resident_callbacks(*resident, mapping_options, resident_failure, publish, finalize) :
+        auto callbacks = resident ? resident_callbacks(*resident, mapping_options, resident_failure, publish, finalize) :
             projective ? mapping_callbacks(*projective, publish, finalize) :
             gpu ? mapping_callbacks(*gpu, publish, finalize) :
             cpu ? mapping_callbacks(*cpu, publish, finalize) : pipeline_callbacks{};
+        if (sensor_selected) {
+            auto selected = sensor_mapping_callbacks(input.sensor, mapper_options, cuda_options.mapper.device,
+                resident_failure, publish, finalize, sensor_mode);
+            if (!selected) return report_error(selected.error().message);
+            callbacks = std::move(*selected);
+            std::cout << "sensor field uses calibrated ranges and scan start poses\n";
+        }
         const auto result = run_frame_pipeline(input, options, callbacks);
 
         if (result.cancelled) return report_error(resident_failure ? resident_failure->message : "mapping cancelled");
