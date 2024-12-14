@@ -70,6 +70,7 @@ inline int run_submap_cli(int argc, char** argv)
                 case sensor_sampling_value::nearest: sensor_mode = sensor_grid::interpolation::nearest; break;
                 case sensor_sampling_value::tetrahedral: sensor_mode = sensor_grid::interpolation::tetrahedral; break;
                 case sensor_sampling_value::trilinear: sensor_mode = sensor_grid::interpolation::trilinear; break;
+                case sensor_sampling_value::overlap: sensor_mode = sensor_grid::interpolation::exact_overlap; break;
                 default: return report_error("unsupported sensor interpolation");
                 }
                 continue;

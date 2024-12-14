@@ -10,10 +10,10 @@ enum class sensor_mapping_option { unknown, backend, interpolation };
 inline constexpr cli_option_entry<sensor_mapping_option> sensor_mapping_options[]{
     {"--backend", sensor_mapping_option::backend}, {"--sensor-grid-interpolation", sensor_mapping_option::interpolation}
 };
-enum class sensor_sampling_value { unknown, nearest, tetrahedral, trilinear };
+enum class sensor_sampling_value { unknown, nearest, tetrahedral, trilinear, overlap };
 inline constexpr cli_option_entry<sensor_sampling_value> sensor_sampling_values[]{
     {"nearest", sensor_sampling_value::nearest}, {"tetrahedral", sensor_sampling_value::tetrahedral},
-    {"trilinear", sensor_sampling_value::trilinear}
+    {"trilinear", sensor_sampling_value::trilinear}, {"exact-overlap", sensor_sampling_value::overlap}
 };
 inline operation_result<pipeline_callbacks> sensor_mapping_callbacks(const sensor& model, mapping_config config,
     int device, std::optional<operation_error>& failure, std::function<void(const submap&)> publish,

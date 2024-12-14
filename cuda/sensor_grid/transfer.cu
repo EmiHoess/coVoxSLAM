@@ -1,4 +1,5 @@
 #include "map_native.h"
+#include <covoxslam/sensor_grid_overlap.h>
 #include "../projective/geometry.cuh"
 
 namespace covoxslam::sensor_grid
@@ -30,7 +31,20 @@ __global__ void transfer_cells(field_view source, interpolation mode, const std:
     const float3 point{(key.x * 8 + int(local % 8) + .5f) * size,
         (key.y * 8 + int(local / 8 % 8) + .5f) * size, (key.z * 8 + int(local / 64) + .5f) * size};
     const auto sensor = detail::projective_reference_point(transform, point);
-    const auto measured = sample(source, sensor.x, sensor.y, sensor.z, mode);
+    auto measured = sample(source, sensor.x, sensor.y, sensor.z, mode);
+    if (mode == interpolation::exact_overlap)
+    {
+        overlap_box box{{sensor.x, sensor.y, sensor.z}, {}, size};
+        auto rotation = transform;
+        rotation.translation[0] = rotation.translation[1] = rotation.translation[2] = 0;
+
+        for (unsigned axis = 0; axis < 3; ++axis) {
+            const auto v = detail::projective_reference_point(rotation, {axis == 0 ? 1.f : 0.f,
+                axis == 1 ? 1.f : 0.f, axis == 2 ? 1.f : 0.f});
+            box.axes[axis][0] = v.x; box.axes[axis][1] = v.y; box.axes[axis][2] = v.z;
+        }
+        measured = sample_overlap(source, box);
+    }
     bool updated{};
 
     if (measured.valid)
@@ -63,8 +77,9 @@ int cuda_sensor_transfer(field_view source, interpolation mode, const std::uint3
     unsigned long long* updates, void* stream)
 {
     if (!count) return int(cudaSuccess);
-    if (!source.voxels || !slots || !keys || !tiles || !updates || unsigned(mode) > 2 ||
-        !(size > 0) || !(maximum_weight > 0) || !(band >= 0)) return int(cudaErrorInvalidValue);
+    if (!source.voxels || !slots || !keys || !tiles || !updates || unsigned(mode) > 3 ||
+        !(size > 0) || !isfinite(size) || !(maximum_weight > 0) || !isfinite(maximum_weight) ||
+        !(band >= 0) || !isfinite(band)) return int(cudaErrorInvalidValue);
     transfer_cells<<<count, 512, 0, static_cast<cudaStream_t>(stream)>>>(source, mode, slots, keys, tiles,
         transform, size, maximum_weight, band, updates);
     return int(cudaGetLastError());
