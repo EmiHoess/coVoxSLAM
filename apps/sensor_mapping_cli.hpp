@@ -3,6 +3,7 @@
 #include <covoxslam/sensor_grid_calibration.hpp>
 #include "cli_lookup.hpp"
 #include <algorithm>
+#include <chrono>
 
 namespace covoxslam
 {
@@ -52,21 +53,27 @@ inline operation_result<pipeline_callbacks> sensor_mapping_callbacks(const senso
         if (!result) failure = result.error();
     };
     callbacks.cancelled = [&failure] { return failure.has_value(); };
-    callbacks.integrate_scan = [state, &failure, columns = model.columns, mode](const submap_frame&,
+    callbacks.integrate_scan = [state, &failure, columns = model.columns, minimum = settings.minimum_range, mode](const submap_frame&,
         const frame_descriptor&, std::span<const ray> rays, const pose& transform)
     {
         if (failure) return;
+        const auto start = std::chrono::steady_clock::now();
+        std::size_t accepted{};
         std::fill(state->ranges.begin(), state->ranges.end(), 0.f);
 
-        for (const auto& ray : rays)
+        for (const auto& ray : rays) {
             state->ranges[ray.ring * columns + ray.column] = ray.measured_range_m;
+            accepted += std::isfinite(ray.measured_range_m) && ray.measured_range_m >= minimum && ray.measured_range_m > 0;
+        }
         const auto updated = state->grid->update(state->ranges);
         if (!updated) { failure = updated.error(); return; }
         const auto transferred = state->map->integrate(*state->grid, transform, mode);
         if (!transferred) { failure = transferred.error(); return; }
         state->statistics.rays_submitted += rays.size();
+        state->statistics.rays_integrated += accepted;
+        state->statistics.rays_rejected += rays.size() - accepted;
         state->statistics.voxel_updates += transferred->updates;
-        state->statistics.integration_ms += updated->gather_ms + transferred->mask_ms + transferred->fusion_ms;
+        state->statistics.integration_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
     };
     callbacks.finish = [state, &failure, config, publish, finalize](const submap_frame& frame)
     {
