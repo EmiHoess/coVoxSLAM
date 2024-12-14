@@ -171,5 +171,42 @@ covoxslam_overlap_callable inline float overlap_fraction(const overlap_box& box,
     return static_cast<float>(overlap_detail::fraction(geometry, center));
 }
 
+covoxslam_overlap_callable inline sample_value sample_overlap(field_view view, const overlap_box& box) {
+    using namespace sampling_detail;
+    overlap_detail::geometry geometry{};
+    if (!view.voxels || view.side == 0 || view.side > static_cast<std::uint32_t>(INT_MAX-1) ||
+        !finite(view.origin) || view.voxel_size != box.voxel_size ||
+        !overlap_detail::prepare(box, geometry)) return {};
+    const std::size_t side = view.side;
+    if (side > static_cast<std::size_t>(-1) / side / side / sizeof(voxel)) return {};
+    double coordinates[3];
+    int first[3], last[3];
+    for (int a = 0; a < 3; ++a) {
+
+        coordinates[a] = center_coordinate(box.center[a], view);
+        if (!finite(static_cast<float>(coordinates[a])) || coordinates[a] < -1.0 ||
+            coordinates[a] > static_cast<double>(view.side)) return {};
+        first[a] = static_cast<int>(floor(coordinates[a]+0.5-geometry.extent[a]));
+        last[a] = static_cast<int>(ceil(coordinates[a]+0.5+geometry.extent[a]))-1;
+        if (last[a]-first[a] > 2) return {};
+    }
+    accumulator result;
+    double coverage = 0;
+    for (int z = first[2]; z <= last[2]; ++z)
+        for (int y = first[1]; y <= last[1]; ++y)
+            for (int x = first[0]; x <= last[0]; ++x) {
+                const float alpha = static_cast<float>(overlap_detail::fraction(geometry,
+                    {coordinates[0]-x, coordinates[1]-y, coordinates[2]-z}));
+                if (!(alpha >= 0.0F) || !finite(alpha)) return {};
+                coverage += alpha;
+                if (!result.add(view, x, y, z, alpha)) return {};
+            }
+    if (overlap_detail::absolute(coverage-1.0) > 64.0 * FLT_EPSILON) return {};
+    return result.finish();
+}
+
+}
+
+#undef covoxslam_overlap_callable
 }
 #undef covoxslam_overlap_callable
