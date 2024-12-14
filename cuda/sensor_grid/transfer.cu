@@ -26,7 +26,7 @@ __global__ void transfer_cells(field_view source, interpolation mode, const std:
     detail::cuda_projective_pose transform, float size, float maximum_weight, float band,
     unsigned long long* count)
 {
-    const auto slot = slots[blockIdx.x], local = threadIdx.x;
+    const auto slot = slots[blockIdx.x / 4], local = (blockIdx.x % 4) * 128 + threadIdx.x;
     const auto key = keys[slot];
     const float3 point{(key.x * 8 + int(local % 8) + .5f) * size,
         (key.y * 8 + int(local / 8 % 8) + .5f) * size, (key.z * 8 + int(local / 64) + .5f) * size};
@@ -61,7 +61,7 @@ __global__ void transfer_cells(field_view source, interpolation mode, const std:
         updated = true;
     }
     const unsigned updates = __syncthreads_count(updated);
-    if (!local && updates) atomicAdd(count, static_cast<unsigned long long>(updates));
+    if (!threadIdx.x && updates) atomicAdd(count, static_cast<unsigned long long>(updates));
 }
 }
 int cuda_sensor_mask(field_view source, std::uint8_t* flags, void* stream)
@@ -80,7 +80,7 @@ int cuda_sensor_transfer(field_view source, interpolation mode, const std::uint3
     if (!source.voxels || !slots || !keys || !tiles || !updates || unsigned(mode) > 3 ||
         !(size > 0) || !isfinite(size) || !(maximum_weight > 0) || !isfinite(maximum_weight) ||
         !(band >= 0) || !isfinite(band)) return int(cudaErrorInvalidValue);
-    transfer_cells<<<count, 512, 0, static_cast<cudaStream_t>(stream)>>>(source, mode, slots, keys, tiles,
+    transfer_cells<<<count * 4, 128, 0, static_cast<cudaStream_t>(stream)>>>(source, mode, slots, keys, tiles,
         transform, size, maximum_weight, band, updates);
     return int(cudaGetLastError());
 }
