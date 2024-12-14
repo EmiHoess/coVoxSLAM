@@ -208,5 +208,3 @@ covoxslam_overlap_callable inline sample_value sample_overlap(field_view view, c
 }
 
 #undef covoxslam_overlap_callable
-}
-#undef covoxslam_overlap_callable
