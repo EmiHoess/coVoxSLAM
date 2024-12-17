@@ -1,5 +1,6 @@
 #include "map_native.h"
 #include <covoxslam/sensor_grid_overlap.h>
+#include <covoxslam/sensor_grid_neighborhood.h>
 #include "../projective/geometry.cuh"
 
 namespace covoxslam::sensor_grid
@@ -45,6 +46,8 @@ __global__ void transfer_cells(field_view source, interpolation mode, const std:
         }
         measured = sample_overlap(source, box);
     }
+    else if (mode == interpolation::neighborhood8 || mode == interpolation::neighborhood27)
+        measured = sample_neighborhood(source, sensor.x, sensor.y, sensor.z, mode == interpolation::neighborhood8 ? 8 : 27);
     bool updated{};
 
     if (measured.valid)
@@ -77,7 +80,7 @@ int cuda_sensor_transfer(field_view source, interpolation mode, const std::uint3
     unsigned long long* updates, void* stream)
 {
     if (!count) return int(cudaSuccess);
-    if (!source.voxels || !slots || !keys || !tiles || !updates || unsigned(mode) > 3 ||
+    if (!source.voxels || !slots || !keys || !tiles || !updates || unsigned(mode) > 5 ||
         !(size > 0) || !isfinite(size) || !(maximum_weight > 0) || !isfinite(maximum_weight) ||
         !(band >= 0) || !isfinite(band)) return int(cudaErrorInvalidValue);
     transfer_cells<<<count * 4, 128, 0, static_cast<cudaStream_t>(stream)>>>(source, mode, slots, keys, tiles,

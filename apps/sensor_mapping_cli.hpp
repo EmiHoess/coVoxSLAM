@@ -11,11 +11,24 @@ enum class sensor_mapping_option { unknown, backend, interpolation };
 inline constexpr cli_option_entry<sensor_mapping_option> sensor_mapping_options[]{
     {"--backend", sensor_mapping_option::backend}, {"--sensor-grid-interpolation", sensor_mapping_option::interpolation}
 };
-enum class sensor_sampling_value { unknown, nearest, tetrahedral, trilinear, overlap };
+enum class sensor_sampling_value { unknown, nearest, tetrahedral, trilinear, overlap, neighborhood8, neighborhood27 };
 inline constexpr cli_option_entry<sensor_sampling_value> sensor_sampling_values[]{
     {"nearest", sensor_sampling_value::nearest}, {"tetrahedral", sensor_sampling_value::tetrahedral},
-    {"trilinear", sensor_sampling_value::trilinear}, {"exact-overlap", sensor_sampling_value::overlap}
+    {"trilinear", sensor_sampling_value::trilinear}, {"exact-overlap", sensor_sampling_value::overlap},
+    {"neighborhood8", sensor_sampling_value::neighborhood8}, {"neighborhood27", sensor_sampling_value::neighborhood27}
 };
+inline const char* sensor_sampling_name(sensor_grid::interpolation mode)
+{
+    switch (mode) {
+    case sensor_grid::interpolation::nearest: return "sensor-nearest";
+    case sensor_grid::interpolation::tetrahedral: return "sensor-tetrahedral";
+    case sensor_grid::interpolation::trilinear: return "sensor-trilinear";
+    case sensor_grid::interpolation::exact_overlap: return "sensor-exact-overlap";
+    case sensor_grid::interpolation::neighborhood8: return "sensor-neighborhood8";
+    case sensor_grid::interpolation::neighborhood27: return "sensor-neighborhood27";
+    }
+    return "invalid";
+}
 inline operation_result<pipeline_callbacks> sensor_mapping_callbacks(const sensor& model, mapping_config config,
     int device, std::optional<operation_error>& failure, std::function<void(const submap&)> publish,
     std::function<void(submap&)> finalize, sensor_grid::interpolation mode)

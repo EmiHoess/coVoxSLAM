@@ -14,7 +14,7 @@
 
 namespace covoxslam::sensor_grid
 {
-enum class interpolation : std::uint32_t { nearest, tetrahedral, trilinear, exact_overlap };
+enum class interpolation : std::uint32_t { nearest, tetrahedral, trilinear, exact_overlap, neighborhood8, neighborhood27 };
 struct sample_value { float distance{}, weight{}; bool valid{}; };
 namespace sampling_detail
 {

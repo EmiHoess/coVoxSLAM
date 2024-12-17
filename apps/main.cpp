@@ -59,6 +59,7 @@ void usage()
               << "  --verification cached|full  Default cached\n"
               << "  --submaps --dataset PATH --backend cpu-ray|cuda-ray|cuda-projective  Build local TSDF maps\n"
               << "    --backend cuda-sensor-grid --sensor-grid-interpolation nearest|tetrahedral|trilinear|exact-overlap\n"
+              << "    --sensor-grid-interpolation neighborhood8|neighborhood27  Strict equal coefficient stencils\n"
               << "  --projective-interpolation nearest|linear-nearest --projective-candidate-capacity N\n"
               << "  --backend cuda-projective-calibrated --projective-raycast-subsampling-factor N  Default factor 4\n"
               << "  --backend cuda-ray-resident --resident-tiles N --resident-rays N --resident-contributions N  Bounded resident mapping\n"

@@ -71,6 +71,8 @@ inline int run_submap_cli(int argc, char** argv)
                 case sensor_sampling_value::tetrahedral: sensor_mode = sensor_grid::interpolation::tetrahedral; break;
                 case sensor_sampling_value::trilinear: sensor_mode = sensor_grid::interpolation::trilinear; break;
                 case sensor_sampling_value::overlap: sensor_mode = sensor_grid::interpolation::exact_overlap; break;
+                case sensor_sampling_value::neighborhood8: sensor_mode = sensor_grid::interpolation::neighborhood8; break;
+                case sensor_sampling_value::neighborhood27: sensor_mode = sensor_grid::interpolation::neighborhood27; break;
                 default: return report_error("unsupported sensor interpolation");
                 }
                 continue;
@@ -231,7 +233,7 @@ inline int run_submap_cli(int argc, char** argv)
                            << ", short threshold " << fusion_options.short_segment_threshold
                            << ", maximum rays per batch " << cuda_options.mapper.ray_capacity << '\n';
         auto exporter = open_map_export(output, input, mapping_options, backend,
-            resident ? resident_fusion_name(resident->fusion_order(), resident->reduction_mode(), resident->uses_step_tasks(), resident->warp_configuration().mode, resident->free_space_configuration().enabled, resident->segment_length() != 0, resident->uses_compact(), resident->uses_compact_batched(), resident->uses_fp32()) : "unspecified");
+            sensor_selected ? sensor_sampling_name(sensor_mode) : resident ? resident_fusion_name(resident->fusion_order(), resident->reduction_mode(), resident->uses_step_tasks(), resident->warp_configuration().mode, resident->free_space_configuration().enabled, resident->segment_length() != 0, resident->uses_compact(), resident->uses_compact_batched(), resident->uses_fp32()) : "unspecified");
         const auto publish = [&](const submap& completed) { if (exporter) exporter->write(completed); };
         auto callbacks = resident ? resident_callbacks(*resident, mapping_options, resident_failure, publish, finalize) :
             projective ? mapping_callbacks(*projective, publish, finalize) :
