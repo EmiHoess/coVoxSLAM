@@ -19,6 +19,13 @@ struct sample_value { float distance{}, weight{}; bool valid{}; };
 namespace sampling_detail
 {
 covoxslam_sample_callable inline bool finite(float value) { return value >= -FLT_MAX && value <= FLT_MAX; }
+covoxslam_sample_callable inline bool valid_view(field_view view)
+{
+    if (!view.voxels || !view.side || view.side > unsigned(INT_MAX - 1) ||
+        !(view.voxel_size > 0) || !finite(view.voxel_size) || !finite(view.origin)) return false;
+    const std::size_t side = view.side;
+    return side <= std::size_t(-1) / side / side / sizeof(voxel);
+}
 covoxslam_sample_callable inline float center_coordinate(float point, field_view view)
 {
     const float coordinate = (point - view.origin) / view.voxel_size - .5f;
@@ -35,6 +42,7 @@ struct accumulator
     double numerator{}, denominator{};
     covoxslam_sample_callable bool add(field_view view, int x, int y, int z, float alpha)
     {
+        if (!(alpha >= 0) || !finite(alpha)) return false;
         if (!(alpha > 8 * FLT_EPSILON)) return true;
         if (x < 0 || y < 0 || z < 0 || unsigned(x) >= view.side || unsigned(y) >= view.side || unsigned(z) >= view.side)
             return false;
@@ -61,11 +69,7 @@ covoxslam_sample_callable inline sample_value sample(field_view view, float x, f
 {
     using namespace sampling_detail;
 
-    if (!view.voxels || !view.side || view.side > unsigned(INT_MAX - 1) ||
-        !(view.voxel_size > 0) || !finite(view.voxel_size) || !finite(view.origin) ||
-        !finite(x) || !finite(y) || !finite(z)) return {};
-    const std::size_t side = view.side;
-    if (side > std::size_t(-1) / side / side / sizeof(voxel)) return {};
+    if (!valid_view(view) || !finite(x) || !finite(y) || !finite(z)) return {};
     const float u[]{center_coordinate(x, view), center_coordinate(y, view), center_coordinate(z, view)};
 
     for (unsigned axis = 0; axis < 3; ++axis)

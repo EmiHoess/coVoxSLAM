@@ -18,10 +18,7 @@ covoxslam_neighborhood_callable inline sample_value sample_neighborhood(field_vi
 {
     if (!samples) return sample(view, x, y, z, interpolation::nearest);
     using namespace sampling_detail;
-    if (!valid_neighborhood_samples(samples) || !view.voxels || !view.side || view.side > unsigned(INT_MAX - 1) ||
-        !(view.voxel_size > 0) || !finite(view.voxel_size) || !finite(view.origin) || !finite(x) || !finite(y) || !finite(z)) return {};
-    const std::size_t side = view.side;
-    if (side > std::size_t(-1) / side / side / sizeof(voxel)) return {};
+    if (!valid_neighborhood_samples(samples) || !valid_view(view) || !finite(x) || !finite(y) || !finite(z)) return {};
     const float u[]{center_coordinate(x, view), center_coordinate(y, view), center_coordinate(z, view)};
     int base[3]{};
     const int width = samples == 8 ? 2 : 3;

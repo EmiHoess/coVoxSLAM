@@ -174,11 +174,8 @@ covoxslam_overlap_callable inline float overlap_fraction(const overlap_box& box,
 covoxslam_overlap_callable inline sample_value sample_overlap(field_view view, const overlap_box& box) {
     using namespace sampling_detail;
     overlap_detail::geometry geometry{};
-    if (!view.voxels || view.side == 0 || view.side > static_cast<std::uint32_t>(INT_MAX-1) ||
-        !finite(view.origin) || view.voxel_size != box.voxel_size ||
+    if (!valid_view(view) || view.voxel_size != box.voxel_size ||
         !overlap_detail::prepare(box, geometry)) return {};
-    const std::size_t side = view.side;
-    if (side > static_cast<std::size_t>(-1) / side / side / sizeof(voxel)) return {};
     double coordinates[3];
     int first[3], last[3];
     for (int a = 0; a < 3; ++a) {
