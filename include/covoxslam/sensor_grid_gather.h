@@ -1,6 +1,7 @@
 #pragma once
 
 #include <covoxslam/sensor_grid_types.h>
+#include <covoxslam/sensor_grid_precision.h>
 #include <cfloat>
 #include <cmath>
 
@@ -12,11 +13,12 @@
 
 namespace covoxslam::sensor_grid
 {
+template<class accumulator_type = double>
 covoxslam_sensor_callable inline voxel gather_row(lookup_view table, const float* ranges,
                                                   std::uint32_t cell, gather_policy policy)
 {
     voxel result{};
-    double weighted{}, weights{};
+    accumulator_type weighted{}, weights{};
     const auto& c = table.settings;
     const auto begin = table.offsets[cell];
     const auto end = policy.first_entry_only && begin < table.offsets[cell + 1]
@@ -42,7 +44,7 @@ covoxslam_sensor_callable inline voxel gather_row(lookup_view table, const float
         if (fabsf(distance) < c.truncation) weight *= c.sparsity_compensation;
         if (!(weight > FLT_EPSILON)) continue;
         const float clipped = fmaxf(-c.truncation, fminf(distance, c.truncation));
-        weighted += double(weight) * double(clipped);
+        weighted += accumulator_type(weight) * accumulator_type(clipped);
          weights += weight;
         ++result.contributions;
 
@@ -52,7 +54,8 @@ covoxslam_sensor_callable inline voxel gather_row(lookup_view table, const float
     if (result.contributions)
     {
         result.distance = static_cast<float>(weighted / weights);
-        result.weight = static_cast<float>(fmin(weights, double(c.maximum_weight)));
+        if constexpr (sizeof(accumulator_type) == sizeof(float)) result.weight = fminf(weights, c.maximum_weight);
+        else result.weight = static_cast<float>(fmin(weights, double(c.maximum_weight)));
     }
     return result;
 }

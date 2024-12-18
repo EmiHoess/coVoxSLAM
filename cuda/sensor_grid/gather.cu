@@ -12,7 +12,7 @@ __global__ void gather_cells(lookup_view table, const float* ranges, voxel* outp
 
     if (index >= table.active_count) return;
     const auto cell = table.active_voxels[index];
-     output[cell] = gather_row(table, ranges, cell, policy);
+     output[cell] = gather_row<gather_accumulator>(table, ranges, cell, policy);
 }
 }
 int cuda_sensor_gather(lookup_view table, const float* ranges,
