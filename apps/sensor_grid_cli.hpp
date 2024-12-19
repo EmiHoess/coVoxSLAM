@@ -1,4 +1,5 @@
 #pragma once
+#include <covoxslam/sensor_grid_precision.h>
 
 #include <covoxslam/sensor_grid_calibration.hpp>
 #include <covoxslam/sensor_grid_cuda.hpp>
@@ -99,6 +100,7 @@ inline int run_sensor_grid_cli(int argc, char** argv)
 
     if (!table) return error(table.error().message);
     const auto elapsed = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+    std::cout << "gpu_accumulation_bits=" << sensor_grid::accumulation_bits << " cpu_reference_bits=64\n";
     std::cout << "sensor_cells=" << table->grid.voxels << " active_cells=" << table->active_voxels.size()
               << " selected_rays=" << table->selected_rays << " intersections=" << table->intersections.size()
               << " lookup_setup_ms=" << elapsed << '\n';

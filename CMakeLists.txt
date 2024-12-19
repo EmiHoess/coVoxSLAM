@@ -21,6 +21,8 @@ if(NOT covoxslam_sensor_accumulation_bits MATCHES "^(32|64)$")
 endif()
 target_compile_definitions(covoxslam_core PUBLIC
     covoxslam_sensor_accumulation_bits=${covoxslam_sensor_accumulation_bits})
+file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/covoxslam_sensor_precision.txt"
+    CONTENT "gpu_accumulation_bits=${covoxslam_sensor_accumulation_bits}\ncpu_reference_bits=64\nfield_storage_bits=32\n")
 option(covoxslam_enable_cuda "Build CUDA runtime and mapping support" OFF)
 if(covoxslam_enable_cuda)
     if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)

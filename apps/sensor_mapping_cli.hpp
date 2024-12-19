@@ -1,6 +1,7 @@
 #pragma once
 #include <covoxslam/sensor_grid_map.hpp>
 #include <covoxslam/sensor_grid_calibration.hpp>
+#include <covoxslam/sensor_grid_precision.h>
 #include "cli_lookup.hpp"
 #include <algorithm>
 #include <chrono>
@@ -62,6 +63,7 @@ inline operation_result<pipeline_callbacks> sensor_mapping_callbacks(const senso
     pipeline_callbacks callbacks;
     callbacks.begin = [state, &failure](const submap_frame&) {
         state->statistics = {};
+        state->statistics.cuda_accumulator_bits = sensor_grid::accumulation_bits;
         const auto result = state->map->reset();
         if (!result) failure = result.error();
     };
