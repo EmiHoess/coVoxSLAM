@@ -1,4 +1,5 @@
 #include <covoxslam/sensor_grid_cuda.hpp>
+#include <covoxslam/sensor_grid_precision.h>
 #include "sensor_grid/native.h"
 #include <cuda_runtime_api.h>
 #include <array>
@@ -98,6 +99,8 @@ operation_result<std::unique_ptr<gpu_grid>> gpu_grid::create(const lookup& table
 {
     auto status = validate_lookup(table);
     if (!status) return std::unexpected(status.error());
+    if (!safe_accumulation(table.settings, table.ray_count))
+        return std::unexpected(operation_error{"sensor accumulation exceeds selected precision range"});
     const std::size_t bytes = table.offsets.size() * 4 + table.intersections.size() * sizeof(intersection) +
         table.active_voxels.size() * 4 + std::size_t(table.ray_count) * 4 + std::size_t(table.grid.voxels) * sizeof(voxel);
 

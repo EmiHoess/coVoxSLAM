@@ -20,7 +20,7 @@ int cuda_sensor_gather(lookup_view table, const float* ranges,
 {
     if (!table.offsets || !table.intersections || !table.active_voxels || !ranges || !output ||
         !table.ray_count || !table.active_count || table.active_count > table.voxel_count ||
-        !table.entry_count || !valid_gather_policy(policy))
+        !table.entry_count || !valid_gather_policy(policy) || !safe_accumulation(table.settings, table.ray_count))
         return int(cudaErrorInvalidValue);
     const auto blocks = static_cast<unsigned>((std::uint64_t(table.active_count) + 255) / 256);
     gather_cells<<<blocks, 256, 0, static_cast<cudaStream_t>(stream)>>>(table, ranges, output, policy);
