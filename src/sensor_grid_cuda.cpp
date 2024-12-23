@@ -4,6 +4,7 @@
 #include "sensor_grid/native.h"
 #include <cuda_runtime_api.h>
 #include <array>
+#include <algorithm>
 
 namespace covoxslam::sensor_grid
 {

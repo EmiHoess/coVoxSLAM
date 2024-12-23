@@ -3,14 +3,16 @@
 #include <covoxslam/sensor_grid_calibration.hpp>
 #include <covoxslam/sensor_grid_precision.h>
 #include "cli_lookup.hpp"
+#include "sensor_gather_cli.hpp"
 #include <algorithm>
 #include <chrono>
 
 namespace covoxslam
 {
-enum class sensor_mapping_option { unknown, backend, interpolation };
+enum class sensor_mapping_option { unknown, backend, interpolation, gather };
 inline constexpr cli_option_entry<sensor_mapping_option> sensor_mapping_options[]{
-    {"--backend", sensor_mapping_option::backend}, {"--sensor-grid-interpolation", sensor_mapping_option::interpolation}
+    {"--backend", sensor_mapping_option::backend}, {"--sensor-grid-interpolation", sensor_mapping_option::interpolation},
+    {"--sensor-grid-gather", sensor_mapping_option::gather}
 };
 enum class sensor_sampling_value { unknown, nearest, tetrahedral, trilinear, overlap, neighborhood8, neighborhood27 };
 inline constexpr cli_option_entry<sensor_sampling_value> sensor_sampling_values[]{
@@ -32,7 +34,8 @@ inline const char* sensor_sampling_name(sensor_grid::interpolation mode)
 }
 inline operation_result<pipeline_callbacks> sensor_mapping_callbacks(const sensor& model, mapping_config config,
     int device, std::optional<operation_error>& failure, std::function<void(const submap&)> publish,
-    std::function<void(submap&)> finalize, sensor_grid::interpolation mode)
+    std::function<void(submap&)> finalize, sensor_grid::interpolation mode, sensor_grid::gather_options gather,
+    std::size_t maximum_bytes)
 {
     if (!config.valid() || config.maximum_tiles > 1048576)
         return std::unexpected(operation_error{"invalid sensor mapping configuration"});
@@ -46,9 +49,10 @@ inline operation_result<pipeline_callbacks> sensor_mapping_callbacks(const senso
     settings.maximum_weight = config.maximum_weight;
     auto table = sensor_grid::build_lookup(settings, *directions);
     if (!table) return std::unexpected(table.error());
-    auto grid = sensor_grid::gpu_grid::create(*table, device);
+    auto grid = sensor_grid::gpu_grid::create(*table, device, maximum_bytes, gather);
     if (!grid) return std::unexpected(grid.error());
-    auto map = sensor_grid::gpu_map::create(*table, static_cast<std::uint32_t>(config.maximum_tiles), device);
+    auto map = sensor_grid::gpu_map::create(*table, static_cast<std::uint32_t>(config.maximum_tiles), device,
+        maximum_bytes - (*grid)->device_bytes());
     if (!map) return std::unexpected(map.error());
     struct context
     {

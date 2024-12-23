@@ -43,6 +43,8 @@ inline int run_submap_cli(int argc, char** argv)
         mapping_config mapping_options;
         bool mapping_enabled{};
         bool sensor_selected{};
+        bool sensor_options_set{};
+        sensor_grid::gather_options sensor_gather;
         auto sensor_mode = sensor_grid::interpolation::trilinear;
         cuda_mapping_cli_options cuda_options;
         resident_cli_options resident_options;
@@ -66,6 +68,7 @@ inline int run_submap_cli(int argc, char** argv)
                 sensor_selected = false;
                 break;
             case sensor_mapping_option::interpolation:
+                sensor_options_set = true;
                 switch (lookup_cli_option(value, sensor_sampling_values)) {
                 case sensor_sampling_value::nearest: sensor_mode = sensor_grid::interpolation::nearest; break;
                 case sensor_sampling_value::tetrahedral: sensor_mode = sensor_grid::interpolation::tetrahedral; break;
@@ -76,6 +79,12 @@ inline int run_submap_cli(int argc, char** argv)
                 default: return report_error("unsupported sensor interpolation");
                 }
                 continue;
+            case sensor_mapping_option::gather: {
+                const auto selected = select_sensor_gather(value, sensor_gather);
+                if (!selected) return report_error(selected.error().message);
+                sensor_options_set = true;
+                continue;
+            }
             default: break;
             }
             const auto resident_parsed = parse_resident_option(option, value, resident_options);
@@ -166,6 +175,7 @@ inline int run_submap_cli(int argc, char** argv)
             }
         }
          if (root.empty()) return report_error("--submaps requires --dataset directory");
+        if (sensor_options_set && !sensor_selected) return report_error("sensor options require cuda-sensor-grid");
         if (!options.submap_duration_ns || !options.ring_stride || !options.column_stride)
             return report_error("duration and sampling strides must be positive");
         if (!output.empty() && !mapping_enabled)
@@ -227,7 +237,7 @@ inline int run_submap_cli(int argc, char** argv)
         const char* backend = projective ? "cuda-projective" : gpu ? "cuda-ray" : "cpu-ray";
         if (resident) backend = resident_backend_name(resident->fusion_order(), resident->reduction_mode(), resident->uses_step_tasks(), resident->warp_configuration().mode, resident->free_space_configuration().enabled, resident->segment_length() != 0, resident->uses_compact(), resident->uses_compact_batched(), resident->uses_fp32());
         if (cuda_options.calibrated_policy) backend = "cuda-projective-calibrated";
-        if (sensor_selected) backend = "cuda-sensor-grid";
+        if (sensor_selected) backend = sensor_gather_name(sensor_gather.backend);
         if (cuda_options.calibrated_policy) std::cout << "projective raycast factor " << projective_options.raycast_subsampling_factor << '\n';
         if (gpu) std::cout << "ray fusion " << cuda_ray_fusion_name(fusion_options.mode)
                            << ", short threshold " << fusion_options.short_segment_threshold
@@ -241,7 +251,7 @@ inline int run_submap_cli(int argc, char** argv)
             cpu ? mapping_callbacks(*cpu, publish, finalize) : pipeline_callbacks{};
         if (sensor_selected) {
             auto selected = sensor_mapping_callbacks(input.sensor, mapper_options, cuda_options.mapper.device,
-                resident_failure, publish, finalize, sensor_mode);
+                resident_failure, publish, finalize, sensor_mode, sensor_gather, cuda_options.mapper.maximum_device_bytes);
             if (!selected) return report_error(selected.error().message);
             callbacks = std::move(*selected);
             std::cout << "sensor field uses calibrated ranges and scan start poses\n";
