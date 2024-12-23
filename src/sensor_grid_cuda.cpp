@@ -1,5 +1,6 @@
 #include <covoxslam/sensor_grid_cuda.hpp>
 #include <covoxslam/sensor_grid_precision.h>
+#include <covoxslam/sensor_grid_layout.hpp>
 #include "sensor_grid/native.h"
 #include <cuda_runtime_api.h>
 #include <array>
@@ -11,11 +12,14 @@ struct gpu_grid::implementation
     int device{};
     geometry grid{};
     lookup_view table{};
+    layout_view layout{};
+    gather_options options{};
+    prepared_ray* prepared{};
     float* ranges{};
      voxel* output{};
     cudaStream_t stream{};
     std::array<cudaEvent_t, 3> events{};
-    std::array<void*, 5> allocations{};
+    std::array<void*, 12> allocations{};
     std::size_t count{}, bytes{};
     bool selected{}, failed{}, ready{};
     operation_status check(int code)
@@ -33,6 +37,15 @@ struct gpu_grid::implementation
         const auto status = check(cudaMalloc(reinterpret_cast<void**>(&pointer), size * sizeof(value_type)));
 
         if (pointer) allocations[count++] = pointer;
+        return status;
+    }
+    template<class value_type>
+    operation_status upload(const std::vector<value_type>& source, const value_type*& target)
+    {
+        value_type* pointer{};
+        auto status = allocate(pointer, source.size());
+        target = pointer;
+        if (status) status = check(cudaMemcpyAsync(pointer, source.data(), source.size() * sizeof(value_type), cudaMemcpyHostToDevice, stream));
         return status;
     }
     ~implementation()
@@ -68,7 +81,10 @@ operation_result<update_times> gpu_grid::update(std::span<const float> ranges, g
     if (status) status = data.check(cudaEventRecord(data.events[0], data.stream));
     if (status) status = data.check(cudaMemcpyAsync(data.ranges, ranges.data(), ranges.size_bytes(), cudaMemcpyHostToDevice, data.stream));
     if (status) status = data.check(cudaEventRecord(data.events[1], data.stream));
-    if (status) status = data.check(cuda_sensor_gather(data.table, data.ranges, data.output, policy, data.stream));
+    if (status) status = data.check(data.options.backend == gather_backend::csr
+        ? cuda_sensor_gather(data.table, data.ranges, data.output, policy, data.stream)
+        : cuda_sensor_prepared(data.layout, data.ranges, data.prepared, data.output, data.table.settings,
+            data.table.ray_count, data.options.backend, policy, data.stream));
     if (status) status = data.check(cudaEventRecord(data.events[2], data.stream));
     const auto waited = data.check(cudaStreamSynchronize(data.stream));
     if (status) status = waited;
@@ -95,14 +111,23 @@ operation_result<std::vector<voxel>> gpu_grid::download()
     return result;
 }
 operation_result<std::unique_ptr<gpu_grid>> gpu_grid::create(const lookup& table,
-    int device, std::size_t maximum_bytes)
+    int device, std::size_t maximum_bytes, gather_options options)
 {
     auto status = validate_lookup(table);
     if (!status) return std::unexpected(status.error());
     if (!safe_accumulation(table.settings, table.ray_count))
         return std::unexpected(operation_error{"sensor accumulation exceeds selected precision range"});
-    const std::size_t bytes = table.offsets.size() * 4 + table.intersections.size() * sizeof(intersection) +
+    if (unsigned(options.backend) > 2) return std::unexpected(operation_error{"invalid gather backend"});
+    std::size_t bytes = table.offsets.size() * 4 + table.intersections.size() * sizeof(intersection) +
         table.active_voxels.size() * 4 + std::size_t(table.ray_count) * 4 + std::size_t(table.grid.voxels) * sizeof(voxel);
+    prepared_layout layout;
+    if (options.backend != gather_backend::csr) {
+        auto built = build_prepared_layout(table, options.backend == gather_backend::thread_interleaved_prepared,
+            std::min<std::size_t>(67108864, maximum_bytes / 12));
+        if (!built) return std::unexpected(built.error());
+        layout = std::move(*built);
+        bytes += layout.cells.size() * 12 + layout.ray_ids.size() * 12 + std::size_t(table.ray_count) * sizeof(prepared_ray);
+    }
 
     if (device < 0 || bytes > maximum_bytes)
         return std::unexpected(operation_error{"sensor field exceeds device storage budget"});
@@ -110,6 +135,7 @@ operation_result<std::unique_ptr<gpu_grid>> gpu_grid::create(const lookup& table
     owner->state = std::make_unique<implementation>();
     auto& data = *owner->state;
     data.device = device;
+    data.options = options;
     data.grid = table.grid;
      data.table = host_view(table);
     data.bytes = bytes;
@@ -124,6 +150,18 @@ operation_result<std::unique_ptr<gpu_grid>> gpu_grid::create(const lookup& table
     if (status) status = data.allocate(active, table.active_voxels.size());
     if (status) status = data.allocate(data.ranges, table.ray_count);
     if (status) status = data.allocate(data.output, table.grid.voxels);
+    if (options.backend != gather_backend::csr) {
+        data.layout.rows = static_cast<std::uint32_t>(layout.cells.size());
+        data.layout.entries = static_cast<std::uint32_t>(layout.ray_ids.size());
+        data.layout.stride = layout.stride;
+        if (status) status = data.allocate(data.prepared, table.ray_count);
+        if (status) status = data.upload(layout.starts, data.layout.starts);
+        if (status) status = data.upload(layout.lengths, data.layout.lengths);
+        if (status) status = data.upload(layout.cells, data.layout.cells);
+        if (status) status = data.upload(layout.ray_ids, data.layout.ray_ids);
+        if (status) status = data.upload(layout.entry_t, data.layout.entry_t);
+        if (status) status = data.upload(layout.projected, data.layout.projected);
+    }
     data.table.offsets = offsets;
     data.table.intersections = entries;
     data.table.active_voxels = active;

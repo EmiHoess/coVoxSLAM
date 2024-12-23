@@ -1,6 +1,7 @@
 #pragma once
 
 #include <covoxslam/sensor_grid.hpp>
+#include <covoxslam/sensor_grid_layout_types.h>
 #include <memory>
 
 namespace covoxslam::sensor_grid
@@ -13,7 +14,7 @@ class gpu_grid
     gpu_grid();
 public:
     static operation_result<std::unique_ptr<gpu_grid>> create(const lookup& table,
-        int device = 0, std::size_t maximum_bytes = 1073741824);
+        int device = 0, std::size_t maximum_bytes = 1073741824, gather_options options = {});
     ~gpu_grid();
      gpu_grid(const gpu_grid&) = delete;
     gpu_grid& operator=(const gpu_grid&) = delete;
