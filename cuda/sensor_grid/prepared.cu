@@ -11,6 +11,7 @@ int cuda_sensor_prepared(layout_view view, const float* ranges, prepared_ray* pr
     const bool hybrid = backend == gather_backend::warp_soa_hybrid_prepared;
 
     if ((!warp && !hybrid && backend != gather_backend::thread_interleaved_prepared) || !view.rows || !ray_count ||
+        view.rows > 16777216 || view.rows > view.entries || ray_count > 1048576 ||
         !view.starts || !view.lengths || !view.cells || !view.ray_ids || !view.entry_t || !view.projected ||
         !ranges || !prepared || !output || view.stride != (warp || hybrid ? 1U : 32U) ||
         (hybrid && (!view.row_ids || view.short_rows > view.rows)) ||

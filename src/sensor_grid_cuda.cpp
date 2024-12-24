@@ -20,7 +20,7 @@ struct gpu_grid::implementation
      voxel* output{};
     cudaStream_t stream{};
     std::array<cudaEvent_t, 3> events{};
-    std::array<void*, 12> allocations{};
+    std::array<void*, 13> allocations{};
     std::size_t count{}, bytes{};
     bool selected{}, failed{}, ready{};
     operation_status check(int code)
@@ -118,16 +118,25 @@ operation_result<std::unique_ptr<gpu_grid>> gpu_grid::create(const lookup& table
     if (!status) return std::unexpected(status.error());
     if (!safe_accumulation(table.settings, table.ray_count))
         return std::unexpected(operation_error{"sensor accumulation exceeds selected precision range"});
-    if (unsigned(options.backend) > 2) return std::unexpected(operation_error{"invalid gather backend"});
+    if (unsigned(options.backend) > 3 || !options.short_list_max)
+        return std::unexpected(operation_error{"invalid gather backend or row threshold"});
     std::size_t bytes = table.offsets.size() * 4 + table.intersections.size() * sizeof(intersection) +
         table.active_voxels.size() * 4 + std::size_t(table.ray_count) * 4 + std::size_t(table.grid.voxels) * sizeof(voxel);
     prepared_layout layout;
+    row_plan plan;
     if (options.backend != gather_backend::csr) {
         auto built = build_prepared_layout(table, options.backend == gather_backend::thread_interleaved_prepared,
             std::min<std::size_t>(67108864, maximum_bytes / 12));
         if (!built) return std::unexpected(built.error());
         layout = std::move(*built);
         bytes += layout.cells.size() * 12 + layout.ray_ids.size() * 12 + std::size_t(table.ray_count) * sizeof(prepared_ray);
+        if (options.backend == gather_backend::warp_soa_hybrid_prepared)
+        {
+            auto classified = classify_rows(layout.lengths, options.short_list_max);
+            if (!classified) return std::unexpected(classified.error());
+            plan = std::move(*classified);
+            bytes += plan.rows.size() * sizeof(std::uint32_t);
+        }
     }
 
     if (device < 0 || bytes > maximum_bytes)
@@ -162,6 +171,10 @@ operation_result<std::unique_ptr<gpu_grid>> gpu_grid::create(const lookup& table
         if (status) status = data.upload(layout.ray_ids, data.layout.ray_ids);
         if (status) status = data.upload(layout.entry_t, data.layout.entry_t);
         if (status) status = data.upload(layout.projected, data.layout.projected);
+        if (!plan.rows.empty()) {
+            data.layout.short_rows = plan.short_rows;
+            if (status) status = data.upload(plan.rows, data.layout.row_ids);
+        }
     }
     data.table.offsets = offsets;
     data.table.intersections = entries;
