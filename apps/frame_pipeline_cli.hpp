@@ -79,6 +79,12 @@ inline int run_submap_cli(int argc, char** argv)
                 default: return report_error("unsupported sensor interpolation");
                 }
                 continue;
+            case sensor_mapping_option::threshold: {
+                const auto selected = select_sensor_threshold(value, sensor_gather);
+                if (!selected) return report_error(selected.error().message);
+                sensor_options_set = true;
+                continue;
+            }
             case sensor_mapping_option::gather: {
                 const auto selected = select_sensor_gather(value, sensor_gather);
                 if (!selected) return report_error(selected.error().message);

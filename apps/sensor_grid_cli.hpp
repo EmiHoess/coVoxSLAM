@@ -11,14 +11,15 @@
 
 namespace covoxslam
 {
-enum class sensor_option { unknown, dataset, radius, size, factor, truncation, frames, cap, first, backend, device, gather };
+enum class sensor_option { unknown, dataset, radius, size, factor, truncation, frames, cap, first, backend, device, gather, threshold };
 inline constexpr cli_option_entry<sensor_option> sensor_options[]{
     {"--dataset", sensor_option::dataset}, {"--sensor-grid-radius", sensor_option::radius},
     {"--sensor-grid-voxel-size", sensor_option::size}, {"--sensor-grid-factor", sensor_option::factor},
      {"--sensor-grid-truncation", sensor_option::truncation},
     {"--sensor-grid-frames", sensor_option::frames}, {"--sensor-grid-ray-cap", sensor_option::cap},
     {"--sensor-grid-first-entry", sensor_option::first}, {"--sensor-grid-backend", sensor_option::backend},
-    {"--cuda-device", sensor_option::device}, {"--sensor-grid-gather", sensor_option::gather}
+    {"--cuda-device", sensor_option::device}, {"--sensor-grid-gather", sensor_option::gather},
+    {"--sensor-grid-short-list-max", sensor_option::threshold}
 };
 static_assert(valid_cli_options(sensor_options));
 enum class sensor_backend { unknown, cpu, cuda };
@@ -72,6 +73,7 @@ inline int run_sensor_grid_cli(int argc, char** argv)
         case sensor_option::cap: status = sensor_number(value, policy.max_rays); break;
         case sensor_option::device: status = sensor_number(value, device); break;
         case sensor_option::gather: status = select_sensor_gather(value, gather); break;
+        case sensor_option::threshold: status = select_sensor_threshold(value, gather); break;
         case sensor_option::backend:
             backend = lookup_cli_option(value, sensor_backends);
             if (backend == sensor_backend::unknown) return error("sensor backend must be cpu or cuda");

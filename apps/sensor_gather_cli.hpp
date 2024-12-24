@@ -1,13 +1,15 @@
 #pragma once
 #include <covoxslam/sensor_grid_cuda.hpp>
 #include "cli_lookup.hpp"
+#include <charconv>
 
 namespace covoxslam
 {
-enum class gather_choice { unknown, csr, warp, interleaved };
+enum class gather_choice { unknown, csr, warp, interleaved, hybrid };
 inline constexpr cli_option_entry<gather_choice> gather_choices[]{
     {"csr", gather_choice::csr}, {"warp-soa-prepared", gather_choice::warp},
-    {"thread-interleaved-prepared", gather_choice::interleaved}
+    {"thread-interleaved-prepared", gather_choice::interleaved},
+    {"warp-soa-hybrid-prepared", gather_choice::hybrid}
 };
 inline operation_status select_sensor_gather(std::string_view text, sensor_grid::gather_options& options)
 {
@@ -15,6 +17,7 @@ inline operation_status select_sensor_gather(std::string_view text, sensor_grid:
     case gather_choice::csr: options.backend = sensor_grid::gather_backend::csr; break;
     case gather_choice::warp: options.backend = sensor_grid::gather_backend::warp_soa_prepared; break;
     case gather_choice::interleaved: options.backend = sensor_grid::gather_backend::thread_interleaved_prepared; break;
+    case gather_choice::hybrid: options.backend = sensor_grid::gather_backend::warp_soa_hybrid_prepared; break;
     default: return std::unexpected(operation_error{"unsupported sensor gather backend"});
     }
     return {};
@@ -25,7 +28,18 @@ inline const char* sensor_gather_name(sensor_grid::gather_backend mode)
     case sensor_grid::gather_backend::csr: return "cuda-sensor-grid";
     case sensor_grid::gather_backend::warp_soa_prepared: return "cuda-sensor-grid-warp-soa-prepared";
     case sensor_grid::gather_backend::thread_interleaved_prepared: return "cuda-sensor-grid-thread-interleaved-prepared";
+    case sensor_grid::gather_backend::warp_soa_hybrid_prepared: return "cuda-sensor-grid-warp-soa-hybrid-prepared";
     }
     return "invalid";
+}
+inline operation_status select_sensor_threshold(std::string_view text, sensor_grid::gather_options& options)
+{
+    std::uint32_t threshold{};
+    const auto parsed = std::from_chars(text.data(), text.data() + text.size(), threshold);
+
+    if (parsed.ec != std::errc{} || parsed.ptr != text.data() + text.size() || !threshold)
+        return std::unexpected(operation_error{"sensor row threshold must be a positive integer"});
+    options.short_list_max = threshold;
+     return {};
 }
 }

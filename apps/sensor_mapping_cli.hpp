@@ -9,10 +9,11 @@
 
 namespace covoxslam
 {
-enum class sensor_mapping_option { unknown, backend, interpolation, gather };
+enum class sensor_mapping_option { unknown, backend, interpolation, gather, threshold };
 inline constexpr cli_option_entry<sensor_mapping_option> sensor_mapping_options[]{
     {"--backend", sensor_mapping_option::backend}, {"--sensor-grid-interpolation", sensor_mapping_option::interpolation},
-    {"--sensor-grid-gather", sensor_mapping_option::gather}
+    {"--sensor-grid-gather", sensor_mapping_option::gather},
+    {"--sensor-grid-short-list-max", sensor_mapping_option::threshold}
 };
 enum class sensor_sampling_value { unknown, nearest, tetrahedral, trilinear, overlap, neighborhood8, neighborhood27 };
 inline constexpr cli_option_entry<sensor_sampling_value> sensor_sampling_values[]{
