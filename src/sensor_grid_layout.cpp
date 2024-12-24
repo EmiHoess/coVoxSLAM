@@ -3,6 +3,21 @@
 
 namespace covoxslam::sensor_grid
 {
+operation_result<row_plan> classify_rows(std::span<const std::uint32_t> lengths, std::uint32_t threshold)
+{
+    if (lengths.empty() || lengths.size() > UINT32_MAX || std::find(lengths.begin(), lengths.end(), 0) != lengths.end())
+        return std::unexpected(operation_error{"invalid row classification lengths"});
+    row_plan result;
+    result.rows.reserve(lengths.size());
+
+    for (std::size_t row = 0; row < lengths.size(); ++row)
+        if (lengths[row] <= threshold) result.rows.push_back(static_cast<std::uint32_t>(row));
+    result.short_rows = static_cast<std::uint32_t>(result.rows.size());
+
+    for (std::size_t row = 0; row < lengths.size(); ++row)
+        if (lengths[row] > threshold) result.rows.push_back(static_cast<std::uint32_t>(row));
+    return result;
+}
 operation_result<prepared_layout> build_prepared_layout(const lookup& table, bool interleaved,
     std::size_t maximum_entries)
 {
