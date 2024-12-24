@@ -19,4 +19,10 @@ operation_result<prepared_layout> build_prepared_layout(const lookup& table, boo
     std::size_t maximum_entries = 67108864);
 struct row_plan { std::vector<std::uint32_t> rows; std::uint32_t short_rows{}; };
 operation_result<row_plan> classify_rows(std::span<const std::uint32_t> lengths, std::uint32_t threshold);
+struct subwarp_plan
+{
+    std::vector<std::uint32_t> rows;
+    std::uint32_t bin_ends[2][4]{};
+};
+operation_result<subwarp_plan> classify_subwarps(std::span<const std::uint32_t> lengths);
 }
