@@ -121,8 +121,21 @@ template<subwarp_selection selection>
 int launch_subwarp(layout_view view, const prepared_ray* prepared, voxel* output,
     config settings, gather_policy policy, cudaStream_t stream)
 {
+    static_assert(selection != subwarp_selection::first_entry);
     const auto selected = policy.max_rays ? 1U : 0U;
     std::uint32_t offset = selected * view.rows;
+
+    if (!view.rows || view.rows > 16777216 || !view.row_ids || view.stride != 1)
+        return int(cudaErrorInvalidValue);
+    auto previous = offset;
+
+    for (unsigned bin = 0; bin < 4; ++bin)
+    {
+        const auto end = view.bin_ends[selected][bin];
+        if (end < previous || end > offset + view.rows) return int(cudaErrorInvalidValue);
+        previous = end;
+    }
+    if (previous != offset + view.rows) return int(cudaErrorInvalidValue);
 
     for (unsigned bin = 0; bin < 4; ++bin) {
         const auto count = view.bin_ends[selected][bin] - offset;
