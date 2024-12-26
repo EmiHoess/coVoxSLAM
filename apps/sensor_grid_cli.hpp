@@ -122,6 +122,7 @@ inline int run_sensor_grid_cli(int argc, char** argv)
     }
     const auto allocation_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - allocation_start).count();
     double upload_ms{}, gather_ms{}, download_ms{};
+    double prepare_ms{}, bin_ms[4]{};
     std::uint64_t observed{}, contributions{}, candidates{};
     std::vector<float> ranges(table->ray_count);
 
@@ -142,6 +143,9 @@ inline int run_sensor_grid_cli(int argc, char** argv)
             if (!updated) return error(updated.error().message);
             upload_ms += updated->upload_ms;
             gather_ms += updated->gather_ms;
+            prepare_ms += updated->prepare_ms;
+
+            for (unsigned bin = 0; bin < 4; ++bin) bin_ms[bin] += updated->bin_ms[bin];
             update_start = std::chrono::steady_clock::now();
             field = gpu->download();
             download_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - update_start).count();
@@ -161,6 +165,9 @@ inline int run_sensor_grid_cli(int argc, char** argv)
     std::cout << "frames=" << frames << " observed_cells=" << observed << " contributions=" << contributions
               << " candidates_tested=" << candidates << " gpu_setup_ms=" << allocation_ms
               << " upload_ms=" << upload_ms << " gather_ms=" << gather_ms << " download_wall_ms=" << download_ms << '\n';
+    if (gather.backend == sensor_grid::gather_backend::warp_soa_subwarp_prepared)
+        std::cout << "prepare_ms=" << prepare_ms << " thread_ms=" << bin_ms[0] << " group8_ms=" << bin_ms[1]
+                  << " group16_ms=" << bin_ms[2] << " warp_ms=" << bin_ms[3] << '\n';
     return 0;
 }
 }

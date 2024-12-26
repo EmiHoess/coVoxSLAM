@@ -20,6 +20,7 @@ struct gpu_grid::implementation
      voxel* output{};
     cudaStream_t stream{};
     std::array<cudaEvent_t, 3> events{};
+    std::array<cudaEvent_t, 5> bin_events{};
     std::array<void*, 13> allocations{};
     std::size_t count{}, bytes{};
     bool selected{}, failed{}, ready{};
@@ -58,6 +59,9 @@ struct gpu_grid::implementation
         for (auto event : events)
             if (event) cudaEventDestroy(event);
 
+        for (auto event : bin_events)
+            if (event) cudaEventDestroy(event);
+
         for (std::size_t i = 0; i < count; ++i) cudaFree(allocations[i]);
         if (stream) cudaStreamDestroy(stream);
     }
@@ -85,13 +89,20 @@ operation_result<update_times> gpu_grid::update(std::span<const float> ranges, g
     if (status) status = data.check(data.options.backend == gather_backend::csr
         ? cuda_sensor_gather(data.table, data.ranges, data.output, policy, data.stream)
         : cuda_sensor_prepared(data.layout, data.ranges, data.prepared, data.output, data.table.settings,
-            data.table.ray_count, data.options.backend, policy, data.stream));
+            data.table.ray_count, data.options.backend, policy, data.stream,
+            data.bin_events[0] ? data.bin_events.data() : nullptr));
     if (status) status = data.check(cudaEventRecord(data.events[2], data.stream));
     const auto waited = data.check(cudaStreamSynchronize(data.stream));
     if (status) status = waited;
     update_times result;
     if (status) status = data.check(cudaEventElapsedTime(&result.upload_ms, data.events[0], data.events[1]));
     if (status) status = data.check(cudaEventElapsedTime(&result.gather_ms, data.events[1], data.events[2]));
+    if (status && data.bin_events[0]) {
+        status = data.check(cudaEventElapsedTime(&result.prepare_ms, data.events[1], data.bin_events[0]));
+
+        for (unsigned bin = 0; bin < 4 && status; ++bin)
+            status = data.check(cudaEventElapsedTime(&result.bin_ms[bin], data.bin_events[bin], data.bin_events[bin + 1]));
+    }
     if (!status) return std::unexpected(status.error());
      data.ready = true;
     return result;
@@ -118,12 +129,13 @@ operation_result<std::unique_ptr<gpu_grid>> gpu_grid::create(const lookup& table
     if (!status) return std::unexpected(status.error());
     if (!safe_accumulation(table.settings, table.ray_count))
         return std::unexpected(operation_error{"sensor accumulation exceeds selected precision range"});
-    if (unsigned(options.backend) > 3 || !options.short_list_max)
+    if (unsigned(options.backend) > 4 || !options.short_list_max)
         return std::unexpected(operation_error{"invalid gather backend or row threshold"});
     std::size_t bytes = table.offsets.size() * 4 + table.intersections.size() * sizeof(intersection) +
         table.active_voxels.size() * 4 + std::size_t(table.ray_count) * 4 + std::size_t(table.grid.voxels) * sizeof(voxel);
     prepared_layout layout;
     row_plan plan;
+    subwarp_plan groups;
     if (options.backend != gather_backend::csr) {
         auto built = build_prepared_layout(table, options.backend == gather_backend::thread_interleaved_prepared,
             std::min<std::size_t>(67108864, maximum_bytes / 12));
@@ -136,6 +148,12 @@ operation_result<std::unique_ptr<gpu_grid>> gpu_grid::create(const lookup& table
             if (!classified) return std::unexpected(classified.error());
             plan = std::move(*classified);
             bytes += plan.rows.size() * sizeof(std::uint32_t);
+        }
+        if (options.backend == gather_backend::warp_soa_subwarp_prepared) {
+            auto classified = classify_subwarps(layout.lengths);
+            if (!classified) return std::unexpected(classified.error());
+            groups = std::move(*classified);
+            bytes += groups.rows.size() * sizeof(std::uint32_t);
         }
     }
 
@@ -175,6 +193,10 @@ operation_result<std::unique_ptr<gpu_grid>> gpu_grid::create(const lookup& table
             data.layout.short_rows = plan.short_rows;
             if (status) status = data.upload(plan.rows, data.layout.row_ids);
         }
+        if (!groups.rows.empty()) {
+            for (unsigned i = 0; i < 2; ++i) std::copy_n(groups.bin_ends[i], 4, data.layout.bin_ends[i]);
+            if (status) status = data.upload(groups.rows, data.layout.row_ids);
+        }
     }
     data.table.offsets = offsets;
     data.table.intersections = entries;
@@ -182,6 +204,9 @@ operation_result<std::unique_ptr<gpu_grid>> gpu_grid::create(const lookup& table
 
     for (auto& event : data.events)
         if (status) status = data.check(cudaEventCreate(&event));
+    if (options.backend == gather_backend::warp_soa_subwarp_prepared)
+        for (auto& event : data.bin_events)
+            if (status) status = data.check(cudaEventCreate(&event));
     if (status) status = data.check(cudaMemcpyAsync(offsets, table.offsets.data(), table.offsets.size() * 4, cudaMemcpyHostToDevice, data.stream));
     if (status) status = data.check(cudaMemcpyAsync(entries, table.intersections.data(), table.intersections.size() * sizeof(intersection), cudaMemcpyHostToDevice, data.stream));
     if (status) status = data.check(cudaMemcpyAsync(active, table.active_voxels.data(), table.active_voxels.size() * 4, cudaMemcpyHostToDevice, data.stream));

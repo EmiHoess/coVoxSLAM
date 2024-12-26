@@ -6,7 +6,7 @@
 
 namespace covoxslam::sensor_grid
 {
-struct update_times { float upload_ms{}, gather_ms{}; };
+struct update_times { float upload_ms{}, gather_ms{}, prepare_ms{}, bin_ms[4]{}; };
 class gpu_grid
 {
     struct implementation;
