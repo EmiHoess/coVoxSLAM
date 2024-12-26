@@ -8,7 +8,10 @@ struct prepared_layout
 {
     std::vector<std::uint32_t> starts, lengths, cells, ray_ids;
     std::vector<float> entry_t, projected;
+    std::vector<row_range> ranges;
+    std::vector<std::uint16_t> ray_ids16;
     std::uint32_t stride{1};
+    std::uint32_t short_stride{1};
     layout_view view() const noexcept
     {
         return {starts.data(), lengths.data(), cells.data(), ray_ids.data(), entry_t.data(), projected.data(),
@@ -25,4 +28,12 @@ struct subwarp_plan
     std::uint32_t bin_ends[2][4]{};
 };
 operation_result<subwarp_plan> classify_subwarps(std::span<const std::uint32_t> lengths);
+struct hybrid_layout { prepared_layout data; row_plan plan; };
+operation_result<hybrid_layout> build_hybrid_layout(const lookup& table, gather_backend backend,
+    std::uint32_t threshold, std::size_t maximum_entries = 67108864);
+operation_result<std::vector<std::uint16_t>> pack_ray_ids(std::span<const std::uint32_t> ids);
+constexpr bool ray_ids_fit_u16(std::uint32_t original_ray_count) noexcept
+{
+    return original_ray_count > 0 && original_ray_count <= 65536;
+}
 }
