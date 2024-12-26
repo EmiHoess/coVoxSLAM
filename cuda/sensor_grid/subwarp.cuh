@@ -7,7 +7,7 @@ enum class subwarp_selection { all, cap_one, capped, first_entry };
 
 template <subwarp_selection selection>
 __global__ void subwarp_thread_gather_kernel(layout_view view, std::uint32_t offset, std::uint32_t rows,
-    const prepared_ray* prepared, settings settings, std::uint32_t max_rays, voxel* output) {
+    const prepared_ray* prepared, config settings, std::uint32_t max_rays, voxel* output) {
     const std::size_t worker = static_cast<std::size_t>(blockIdx.x) * blockDim.x + threadIdx.x;
 
     if (worker >= rows) return;
@@ -36,7 +36,7 @@ __global__ void subwarp_thread_gather_kernel(layout_view view, std::uint32_t off
 
 template <unsigned width_limit, subwarp_selection selection>
 __global__ void subwarp_group_gather_kernel(layout_view view, std::uint32_t offset, std::uint32_t rows,
-    const prepared_ray* prepared, settings settings, std::uint32_t max_rays, voxel* output) {
+    const prepared_ray* prepared, config settings, std::uint32_t max_rays, voxel* output) {
     static_assert(width_limit == 8 || width_limit == 16 || width_limit == 32);
     static_assert(selection != subwarp_selection::first_entry);
     const unsigned lane = threadIdx.x % width_limit;
