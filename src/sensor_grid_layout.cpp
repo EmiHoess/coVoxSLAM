@@ -4,6 +4,16 @@
 
 namespace covoxslam::sensor_grid
 {
+operation_result<std::vector<std::uint16_t>> pack_ray_ids(std::span<const std::uint32_t> ids)
+{
+    if (std::any_of(ids.begin(), ids.end(), [](auto id) { return id > UINT16_MAX; }))
+        return std::unexpected(operation_error{"sensor ray identifier exceeds sixteen bits"});
+    std::vector<std::uint16_t> result(ids.size());
+
+    for (std::size_t index = 0; index < ids.size(); ++index)
+        result[index] = static_cast<std::uint16_t>(ids[index]);
+    return result;
+}
 operation_result<hybrid_layout> build_hybrid_layout(const lookup& table, gather_backend backend,
     std::uint32_t threshold, std::size_t maximum_entries)
 {
@@ -75,6 +85,12 @@ operation_result<hybrid_layout> build_hybrid_layout(const lookup& table, gather_
     data.ray_ids = std::move(ids);
     data.entry_t = std::move(entry_t);
     data.projected = std::move(projected);
+    if (backend == gather_backend::hybrid_ray16 && ray_ids_fit_u16(table.ray_count))
+    {
+        auto packed = pack_ray_ids(data.ray_ids);
+        if (!packed) return std::unexpected(packed.error());
+        data.ray_ids16 = std::move(*packed);
+    }
      return result;
 }
 operation_result<subwarp_plan> classify_subwarps(std::span<const std::uint32_t> lengths)
