@@ -4,6 +4,79 @@
 
 namespace covoxslam::sensor_grid
 {
+operation_result<hybrid_layout> build_hybrid_layout(const lookup& table, gather_backend backend,
+    std::uint32_t threshold, std::size_t maximum_entries)
+{
+    if (!threshold || backend < gather_backend::hybrid_short_interleaved || backend > gather_backend::hybrid_ray16)
+        return std::unexpected(operation_error{"invalid hybrid memory layout"});
+    auto base = build_prepared_layout(table, false, maximum_entries);
+    if (!base) return std::unexpected(base.error());
+    auto classified = classify_rows(base->lengths, threshold);
+    if (!classified) return std::unexpected(classified.error());
+    hybrid_layout result{std::move(*base), std::move(*classified)};
+    auto& data = result.data;
+    auto& plan = result.plan;
+    data.ranges.resize(data.cells.size());
+    std::size_t entries{};
+    const auto append = [&](std::size_t count) {
+        if (entries > maximum_entries || count > maximum_entries - entries || count > UINT32_MAX - entries) return false;
+        entries += count;
+        return true;
+    };
+    if (backend == gather_backend::hybrid_short_interleaved)
+    {
+        data.short_stride = 32;
+
+        for (std::size_t window = 0; window < plan.short_rows; window += 256) {
+            const auto end = std::min<std::size_t>(window + 256, plan.short_rows);
+            std::stable_sort(plan.rows.begin() + window, plan.rows.begin() + end,
+                [&](auto a, auto b) { return data.lengths[a] < data.lengths[b]; });
+
+            for (auto group = window; group < end; group += 32) {
+                const auto group_end = std::min(group + 32, end);
+                const auto start = entries;
+                if (!append(std::size_t(data.lengths[plan.rows[group_end - 1]]) * 32))
+                    return std::unexpected(operation_error{"hybrid padding exceeds entry budget"});
+
+                for (auto worker = group; worker < group_end; ++worker) {
+                    const auto row = plan.rows[worker];
+                    data.ranges[row] = {static_cast<std::uint32_t>(start + worker - group), data.lengths[row]};
+                }
+            }
+        }
+    }
+
+    for (std::size_t row = 0; row < data.cells.size(); ++row) {
+        const auto count = data.lengths[row];
+        if (data.short_stride == 32 && count <= threshold) continue;
+        if (backend == gather_backend::hybrid_aligned && count > threshold && !append((8 - entries % 8) % 8))
+            return std::unexpected(operation_error{"aligned padding exceeds entry budget"});
+        const auto start = entries;
+        if (!append(count)) return std::unexpected(operation_error{"hybrid rows exceed entry budget"});
+        data.ranges[row] = {static_cast<std::uint32_t>(start), count};
+    }
+    std::vector<std::uint32_t> ids(entries);
+    std::vector<float> entry_t(entries), projected(entries);
+
+    for (std::size_t row = 0; row < data.cells.size(); ++row)
+    {
+        const auto range = data.ranges[row];
+        const auto stride = range.count <= threshold ? data.short_stride : 1U;
+
+        for (std::uint32_t step = 0; step < range.count; ++step) {
+            const auto source = data.starts[row] + step;
+            const auto destination = std::size_t(range.start) + std::size_t(step) * stride;
+            ids[destination] = data.ray_ids[source];
+            entry_t[destination] = data.entry_t[source];
+            projected[destination] = data.projected[source];
+        }
+        data.starts[row] = range.start;
+    }
+    data.ray_ids = std::move(ids);
+    data.entry_t = std::move(entry_t);
+    data.projected = std::move(projected);
+     return result;
+}
 operation_result<subwarp_plan> classify_subwarps(std::span<const std::uint32_t> lengths)
 {
     if (lengths.empty() || lengths.size() > 16777216 || std::find(lengths.begin(), lengths.end(), 0) != lengths.end())
