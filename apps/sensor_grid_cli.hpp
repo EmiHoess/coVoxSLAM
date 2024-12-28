@@ -119,6 +119,7 @@ inline int run_sensor_grid_cli(int argc, char** argv)
         auto created = sensor_grid::gpu_grid::create(*table, device, 1073741824, gather);
         if (!created) return error(created.error().message);
          gpu = std::move(*created);
+        std::cout << "gather_backend=" << sensor_gather_name(gather.backend) << " device_bytes=" << gpu->device_bytes() << '\n';
     }
     const auto allocation_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - allocation_start).count();
     double upload_ms{}, gather_ms{}, download_ms{};

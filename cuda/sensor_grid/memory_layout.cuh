@@ -87,8 +87,25 @@ __global__ void layout_warp_gather(layout_view view, std::uint32_t offset, std::
         for (unsigned delta = 16; delta != 0; delta /= 2) {
             sum_distance += __shfl_down_sync(mask, sum_distance, delta);
             sum_weight += __shfl_down_sync(mask, sum_weight, delta);
+}
+
+template<bool narrow>
+int launch_memory_layout(layout_view view, const prepared_ray* prepared, voxel* output,
+    config settings, gather_policy policy, cudaStream_t stream)
+{
+    if (policy.first_entry_only)
+        layout_thread_gather<true, narrow><<<(view.rows + 255) / 256, 256, 0, stream>>>(view, 0, view.rows, prepared, settings, policy.max_rays, output);
+    else {
+        if (view.short_rows) layout_thread_gather<false, narrow><<<(view.short_rows + 255) / 256, 256, 0, stream>>>(view, 0, view.short_rows, prepared, settings, policy.max_rays, output);
+        const auto count = view.rows - view.short_rows;
+        if (count) {
+            if (policy.max_rays == 1) layout_warp_gather<true, narrow><<<(count + 7) / 8, 256, 0, stream>>>(view, view.short_rows, count, prepared, settings, policy.max_rays, output);
+            else layout_warp_gather<false, narrow><<<(count + 7) / 8, 256, 0, stream>>>(view, view.short_rows, count, prepared, settings, policy.max_rays, output);
         }
     }
+    return int(cudaGetLastError());
+}
+}
     if (lane == 0)
         output[view.cells[row]] = finish_prepared(sum_distance, sum_weight, admitted, tested, settings);
 }

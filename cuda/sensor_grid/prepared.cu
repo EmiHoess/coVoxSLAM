@@ -1,6 +1,7 @@
 #include "prepared.cuh"
 #include "hybrid.cuh"
 #include "subwarp.cuh"
+#include "memory_layout.cuh"
 #include "native.h"
 
 namespace covoxslam::sensor_grid
@@ -12,11 +13,13 @@ int cuda_sensor_prepared(layout_view view, const float* ranges, prepared_ray* pr
     const bool warp = backend == gather_backend::warp_soa_prepared;
     const bool hybrid = backend == gather_backend::warp_soa_hybrid_prepared;
     const bool subwarp = backend == gather_backend::warp_soa_subwarp_prepared;
+    const bool packed = backend >= gather_backend::hybrid_short_interleaved && backend <= gather_backend::hybrid_ray16;
 
-    if ((!warp && !hybrid && !subwarp && backend != gather_backend::thread_interleaved_prepared) || !view.rows || !ray_count ||
+    if ((!warp && !hybrid && !subwarp && !packed && backend != gather_backend::thread_interleaved_prepared) || !view.rows || !ray_count ||
         view.rows > 16777216 || view.rows > view.entries || ray_count > 1048576 ||
-        !view.starts || !view.lengths || !view.cells || !view.ray_ids || !view.entry_t || !view.projected ||
-        !ranges || !prepared || !output || view.stride != (warp || hybrid || subwarp ? 1U : 32U) ||
+        !view.starts || !view.lengths || !view.cells || (!view.ray_ids && !(packed && view.ray_ids16)) || !view.entry_t || !view.projected ||
+        !ranges || !prepared || !output || view.stride != (warp || hybrid || subwarp || packed ? 1U : 32U) ||
+        (packed && (!view.ranges || !view.row_ids || view.short_rows > view.rows || (view.short_stride != 1 && view.short_stride != 32))) ||
         (subwarp && !view.row_ids) ||
         (hybrid && (!view.row_ids || view.short_rows > view.rows)) ||
         !valid_gather_policy(policy) || !safe_accumulation(settings, ray_count)) return int(cudaErrorInvalidValue);
@@ -24,6 +27,9 @@ int cuda_sensor_prepared(layout_view view, const float* ranges, prepared_ray* pr
     prepare_rays<<<unsigned((std::uint64_t(ray_count) + 255) / 256), 256, 0, stream>>>(ranges, ray_count, settings, prepared);
     const auto error = cudaGetLastError();
     if (error != cudaSuccess) return int(error);
+    if (packed) return view.ray_ids16
+        ? launch_memory_layout<true>(view, prepared, output, settings, policy, stream)
+        : launch_memory_layout<false>(view, prepared, output, settings, policy, stream);
     if (subwarp)
     {
         auto* events = static_cast<cudaEvent_t*>(profile_events);

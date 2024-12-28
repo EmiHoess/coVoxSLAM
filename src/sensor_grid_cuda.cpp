@@ -21,7 +21,7 @@ struct gpu_grid::implementation
     cudaStream_t stream{};
     std::array<cudaEvent_t, 3> events{};
     std::array<cudaEvent_t, 5> bin_events{};
-    std::array<void*, 13> allocations{};
+    std::array<void*, 14> allocations{};
     std::size_t count{}, bytes{};
     bool selected{}, failed{}, ready{};
     operation_status check(int code)
@@ -129,7 +129,7 @@ operation_result<std::unique_ptr<gpu_grid>> gpu_grid::create(const lookup& table
     if (!status) return std::unexpected(status.error());
     if (!safe_accumulation(table.settings, table.ray_count))
         return std::unexpected(operation_error{"sensor accumulation exceeds selected precision range"});
-    if (unsigned(options.backend) > 4 || !options.short_list_max)
+    if (unsigned(options.backend) > 7 || !options.short_list_max)
         return std::unexpected(operation_error{"invalid gather backend or row threshold"});
     std::size_t bytes = table.offsets.size() * 4 + table.intersections.size() * sizeof(intersection) +
         table.active_voxels.size() * 4 + std::size_t(table.ray_count) * 4 + std::size_t(table.grid.voxels) * sizeof(voxel);
@@ -141,7 +141,16 @@ operation_result<std::unique_ptr<gpu_grid>> gpu_grid::create(const lookup& table
             std::min<std::size_t>(67108864, maximum_bytes / 12));
         if (!built) return std::unexpected(built.error());
         layout = std::move(*built);
+        if (options.backend >= gather_backend::hybrid_short_interleaved) {
+            auto packed = build_hybrid_layout(table, options.backend, options.short_list_max,
+                std::min<std::size_t>(67108864, maximum_bytes / 12));
+            if (!packed) return std::unexpected(packed.error());
+            layout = std::move(packed->data);
+            plan = std::move(packed->plan);
+            bytes += layout.ranges.size() * sizeof(row_range) + plan.rows.size() * 4;
+        }
         bytes += layout.cells.size() * 12 + layout.ray_ids.size() * 12 + std::size_t(table.ray_count) * sizeof(prepared_ray);
+        bytes -= layout.ray_ids16.size() * 2;
         if (options.backend == gather_backend::warp_soa_hybrid_prepared)
         {
             auto classified = classify_rows(layout.lengths, options.short_list_max);
@@ -186,9 +195,12 @@ operation_result<std::unique_ptr<gpu_grid>> gpu_grid::create(const lookup& table
         if (status) status = data.upload(layout.starts, data.layout.starts);
         if (status) status = data.upload(layout.lengths, data.layout.lengths);
         if (status) status = data.upload(layout.cells, data.layout.cells);
-        if (status) status = data.upload(layout.ray_ids, data.layout.ray_ids);
+        if (status) status = layout.ray_ids16.empty() ? data.upload(layout.ray_ids, data.layout.ray_ids)
+            : data.upload(layout.ray_ids16, data.layout.ray_ids16);
         if (status) status = data.upload(layout.entry_t, data.layout.entry_t);
         if (status) status = data.upload(layout.projected, data.layout.projected);
+        data.layout.short_stride = layout.short_stride;
+        if (status && !layout.ranges.empty()) status = data.upload(layout.ranges, data.layout.ranges);
         if (!plan.rows.empty()) {
             data.layout.short_rows = plan.short_rows;
             if (status) status = data.upload(plan.rows, data.layout.row_ids);
