@@ -5,6 +5,8 @@
 
 namespace covoxslam::sensor_grid
 {
+int cuda_sensor_compact(layout_view view, const float* ranges, compact_ray* prepared, voxel* output,
+    config settings, std::uint32_t ray_count, gather_policy policy, void* stream);
 int cuda_sensor_prepared(layout_view view, const float* ranges, prepared_ray* prepared, voxel* output,
     config settings, std::uint32_t ray_count, gather_backend backend, gather_policy policy, void* stream,
     void* profile_events = nullptr);

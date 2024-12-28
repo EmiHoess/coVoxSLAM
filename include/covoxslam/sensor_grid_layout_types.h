@@ -4,9 +4,10 @@
 namespace covoxslam::sensor_grid
 {
 enum class gather_backend : std::uint32_t { csr, warp_soa_prepared, thread_interleaved_prepared, warp_soa_hybrid_prepared,
-    warp_soa_subwarp_prepared, hybrid_short_interleaved, hybrid_aligned, hybrid_ray16 };
+    warp_soa_subwarp_prepared, hybrid_short_interleaved, hybrid_aligned, hybrid_ray16, hybrid_compact };
 struct gather_options { gather_backend backend{gather_backend::csr}; std::uint32_t short_list_max{16}; };
 struct prepared_ray { float range{}, end{}; std::uint32_t flags{}; };
+struct alignas(8) compact_ray { float range{}, end{}; };
 struct row_range { std::uint32_t start{}, count{}; };
 struct layout_view
 {
