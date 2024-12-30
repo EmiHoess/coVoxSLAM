@@ -2,10 +2,33 @@
 #include "hybrid.cuh"
 #include "subwarp.cuh"
 #include "memory_layout.cuh"
+#include "compact.cuh"
 #include "native.h"
 
 namespace covoxslam::sensor_grid
 {
+int cuda_sensor_compact(layout_view view, const float* ranges, compact_ray* prepared, voxel* output,
+    config settings, std::uint32_t ray_count, gather_policy policy, void* opaque_stream)
+{
+    if (!view.rows || !ray_count || !view.starts || !view.lengths || !view.cells || !view.row_ids ||
+        !view.ray_ids || !view.entry_t || !view.projected || !ranges || !prepared || !output ||
+        view.stride != 1 || view.short_rows > view.rows || !valid_gather_policy(policy)) return int(cudaErrorInvalidValue);
+    const auto stream = static_cast<cudaStream_t>(opaque_stream);
+    prepare_compact<<<unsigned((std::uint64_t(ray_count) + 255) / 256), 256, 0, stream>>>(ranges, ray_count, settings, prepared);
+    const auto error = cudaGetLastError();
+    if (error != cudaSuccess) return int(error);
+
+    if (policy.first_entry_only) compact_thread_gather<true><<<(view.rows + 255) / 256, 256, 0, stream>>>(view, 0, view.rows, prepared, settings, policy.max_rays, output);
+    else {
+        if (view.short_rows) compact_thread_gather<false><<<(view.short_rows + 255) / 256, 256, 0, stream>>>(view, 0, view.short_rows, prepared, settings, policy.max_rays, output);
+        const auto count = view.rows - view.short_rows;
+        if (count) {
+            if (policy.max_rays == 1) compact_warp_gather<true><<<(count + 7) / 8, 256, 0, stream>>>(view, view.short_rows, count, prepared, settings, policy.max_rays, output);
+            else compact_warp_gather<false><<<(count + 7) / 8, 256, 0, stream>>>(view, view.short_rows, count, prepared, settings, policy.max_rays, output);
+        }
+    }
+    return int(cudaGetLastError());
+}
 int cuda_sensor_prepared(layout_view view, const float* ranges, prepared_ray* prepared, voxel* output,
     config settings, std::uint32_t ray_count, gather_backend backend, gather_policy policy, void* opaque_stream,
     void* profile_events)
