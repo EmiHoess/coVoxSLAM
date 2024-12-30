@@ -12,7 +12,11 @@ int cuda_sensor_compact(layout_view view, const float* ranges, compact_ray* prep
 {
     if (!view.rows || !ray_count || !view.starts || !view.lengths || !view.cells || !view.row_ids ||
         !view.ray_ids || !view.entry_t || !view.projected || !ranges || !prepared || !output ||
-        view.stride != 1 || view.short_rows > view.rows || !valid_gather_policy(policy)) return int(cudaErrorInvalidValue);
+        view.stride != 1 || view.short_rows > view.rows || !valid_gather_policy(policy) ||
+        view.rows > 16777216 || view.rows > view.entries || ray_count > 1048576 ||
+        !safe_accumulation(settings, ray_count) || !(settings.voxel_size > 0) ||
+        !(settings.truncation > settings.voxel_size) || !std::isfinite(settings.radius) ||
+        !(settings.radius > 0)) return int(cudaErrorInvalidValue);
     const auto stream = static_cast<cudaStream_t>(opaque_stream);
     prepare_compact<<<unsigned((std::uint64_t(ray_count) + 255) / 256), 256, 0, stream>>>(ranges, ray_count, settings, prepared);
     const auto error = cudaGetLastError();

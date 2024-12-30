@@ -20,6 +20,7 @@ __global__ void prepare_compact(const float* ranges, std::uint32_t count, config
 __device__ inline bool compact_contribution(compact_ray ray, float entry, float projected,
     config settings, float& weight, float& clipped)
 {
+    if (!(ray.range > 0) || !isfinite(ray.range) || !isfinite(ray.end)) return false;
     const prepared_ray expanded{ray.range, ray.end, ray.range > 0 ? (ray.range > settings.radius ? 3U : 1U) : 0U};
     return prepared_contribution(expanded, entry, projected, settings, weight, clipped);
 }
