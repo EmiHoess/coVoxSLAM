@@ -16,6 +16,7 @@ struct gpu_grid::implementation
     layout_view layout{};
     gather_options options{};
     prepared_ray* prepared{};
+    compact_ray* compact{};
     float* ranges{};
      voxel* output{};
     cudaStream_t stream{};
@@ -88,6 +89,9 @@ operation_result<update_times> gpu_grid::update(std::span<const float> ranges, g
     if (status) status = data.check(cudaEventRecord(data.events[1], data.stream));
     if (status) status = data.check(data.options.backend == gather_backend::csr
         ? cuda_sensor_gather(data.table, data.ranges, data.output, policy, data.stream)
+        : data.options.backend == gather_backend::hybrid_compact
+        ? cuda_sensor_compact(data.layout, data.ranges, data.compact, data.output, data.table.settings,
+            data.table.ray_count, policy, data.stream)
         : cuda_sensor_prepared(data.layout, data.ranges, data.prepared, data.output, data.table.settings,
             data.table.ray_count, data.options.backend, policy, data.stream,
             data.bin_events[0] ? data.bin_events.data() : nullptr));
@@ -129,7 +133,7 @@ operation_result<std::unique_ptr<gpu_grid>> gpu_grid::create(const lookup& table
     if (!status) return std::unexpected(status.error());
     if (!safe_accumulation(table.settings, table.ray_count))
         return std::unexpected(operation_error{"sensor accumulation exceeds selected precision range"});
-    if (unsigned(options.backend) > 7 || !options.short_list_max)
+    if (unsigned(options.backend) > 8 || !options.short_list_max)
         return std::unexpected(operation_error{"invalid gather backend or row threshold"});
     std::size_t bytes = table.offsets.size() * 4 + table.intersections.size() * sizeof(intersection) +
         table.active_voxels.size() * 4 + std::size_t(table.ray_count) * 4 + std::size_t(table.grid.voxels) * sizeof(voxel);
@@ -141,7 +145,7 @@ operation_result<std::unique_ptr<gpu_grid>> gpu_grid::create(const lookup& table
             std::min<std::size_t>(67108864, maximum_bytes / 12));
         if (!built) return std::unexpected(built.error());
         layout = std::move(*built);
-        if (options.backend >= gather_backend::hybrid_short_interleaved) {
+        if (options.backend >= gather_backend::hybrid_short_interleaved && options.backend <= gather_backend::hybrid_ray16) {
             auto packed = build_hybrid_layout(table, options.backend, options.short_list_max,
                 std::min<std::size_t>(67108864, maximum_bytes / 12));
             if (!packed) return std::unexpected(packed.error());
@@ -149,9 +153,10 @@ operation_result<std::unique_ptr<gpu_grid>> gpu_grid::create(const lookup& table
             plan = std::move(packed->plan);
             bytes += layout.ranges.size() * sizeof(row_range) + plan.rows.size() * 4;
         }
-        bytes += layout.cells.size() * 12 + layout.ray_ids.size() * 12 + std::size_t(table.ray_count) * sizeof(prepared_ray);
+        bytes += layout.cells.size() * 12 + layout.ray_ids.size() * 12 + std::size_t(table.ray_count) *
+            (options.backend == gather_backend::hybrid_compact ? sizeof(compact_ray) : sizeof(prepared_ray));
         bytes -= layout.ray_ids16.size() * 2;
-        if (options.backend == gather_backend::warp_soa_hybrid_prepared)
+        if (options.backend == gather_backend::warp_soa_hybrid_prepared || options.backend == gather_backend::hybrid_compact)
         {
             auto classified = classify_rows(layout.lengths, options.short_list_max);
             if (!classified) return std::unexpected(classified.error());
@@ -191,7 +196,8 @@ operation_result<std::unique_ptr<gpu_grid>> gpu_grid::create(const lookup& table
         data.layout.rows = static_cast<std::uint32_t>(layout.cells.size());
         data.layout.entries = static_cast<std::uint32_t>(layout.ray_ids.size());
         data.layout.stride = layout.stride;
-        if (status) status = data.allocate(data.prepared, table.ray_count);
+        if (status) status = options.backend == gather_backend::hybrid_compact
+            ? data.allocate(data.compact, table.ray_count) : data.allocate(data.prepared, table.ray_count);
         if (status) status = data.upload(layout.starts, data.layout.starts);
         if (status) status = data.upload(layout.lengths, data.layout.lengths);
         if (status) status = data.upload(layout.cells, data.layout.cells);

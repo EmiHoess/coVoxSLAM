@@ -5,14 +5,15 @@
 
 namespace covoxslam
 {
-enum class gather_choice { unknown, csr, warp, interleaved, hybrid, subwarp, short_interleaved, aligned, ray16 };
+enum class gather_choice { unknown, csr, warp, interleaved, hybrid, subwarp, short_interleaved, aligned, ray16, compact };
 inline constexpr cli_option_entry<gather_choice> gather_choices[]{
     {"csr", gather_choice::csr}, {"warp-soa-prepared", gather_choice::warp},
     {"thread-interleaved-prepared", gather_choice::interleaved},
     {"warp-soa-hybrid-prepared", gather_choice::hybrid},
     {"warp-soa-subwarp-prepared", gather_choice::subwarp},
     {"hybrid-short-interleaved", gather_choice::short_interleaved},
-    {"hybrid-aligned", gather_choice::aligned}, {"hybrid-ray16", gather_choice::ray16}
+    {"hybrid-aligned", gather_choice::aligned}, {"hybrid-ray16", gather_choice::ray16},
+    {"hybrid-compact", gather_choice::compact}
 };
 inline operation_status select_sensor_gather(std::string_view text, sensor_grid::gather_options& options)
 {
@@ -25,6 +26,7 @@ inline operation_status select_sensor_gather(std::string_view text, sensor_grid:
     case gather_choice::short_interleaved: options.backend = sensor_grid::gather_backend::hybrid_short_interleaved; break;
     case gather_choice::aligned: options.backend = sensor_grid::gather_backend::hybrid_aligned; break;
     case gather_choice::ray16: options.backend = sensor_grid::gather_backend::hybrid_ray16; break;
+    case gather_choice::compact: options.backend = sensor_grid::gather_backend::hybrid_compact; break;
     default: return std::unexpected(operation_error{"unsupported sensor gather backend"});
     }
     return {};
@@ -40,6 +42,7 @@ inline const char* sensor_gather_name(sensor_grid::gather_backend mode)
     case sensor_grid::gather_backend::hybrid_short_interleaved: return "cuda-sensor-grid-hybrid-short-interleaved";
     case sensor_grid::gather_backend::hybrid_aligned: return "cuda-sensor-grid-hybrid-aligned";
     case sensor_grid::gather_backend::hybrid_ray16: return "cuda-sensor-grid-hybrid-ray16";
+    case sensor_grid::gather_backend::hybrid_compact: return "cuda-sensor-grid-hybrid-compact";
     }
     return "invalid";
 }
