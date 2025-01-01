@@ -13,6 +13,12 @@ __device__ inline staged_sample load_staged_sample(layout_view view, std::uint32
 {
     return {prepared[view.ray_ids[index]], view.entry_t[index], view.projected[index]};
 }
+__device__ inline staged_sample load_staged_chunk(layout_view view, std::uint32_t start,
+    std::uint32_t remaining, unsigned lane, const prepared_ray* prepared)
+{
+    if (lane >= remaining) return {};
+    return load_staged_sample(view, start + lane, prepared);
+}
 __global__ void pipelined_warp_gather(layout_view view, std::uint32_t offset, std::uint32_t rows,
     const prepared_ray* prepared, config settings, std::uint32_t max_rays, voxel* output) {
     constexpr unsigned mask = 0xffffffffU;
@@ -24,10 +30,7 @@ __global__ void pipelined_warp_gather(layout_view view, std::uint32_t offset, st
     const auto start = view.starts[row], count = view.lengths[row];
     gather_accumulator sum_distance = 0, sum_weight = 0;
     std::uint32_t admitted = 0, tested = 0;
-    staged_sample current;
-
-    if (lane < count)
-        current = load_staged_sample(view, start + lane, prepared);
+    auto current = load_staged_chunk(view, start, count, lane, prepared);
 
     for (std::uint32_t base = 0; base < count;) {
         const unsigned remaining = count - base;
@@ -35,8 +38,8 @@ __global__ void pipelined_warp_gather(layout_view view, std::uint32_t offset, st
         staged_sample next;
 
 
-        if (remaining > 32U && lane < remaining - 32U)
-            next = load_staged_sample(view, start + base + 32U + lane, prepared);
+        if (remaining > 32U)
+            next = load_staged_chunk(view, start + base + 32U, remaining - 32U, lane, prepared);
 
         float weight = 0, clipped = 0;
         const bool valid = lane < width && prepared_contribution(current.ray,

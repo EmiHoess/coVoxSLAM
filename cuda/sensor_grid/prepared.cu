@@ -14,7 +14,10 @@ int cuda_sensor_pipelined(layout_view view, const float* ranges, prepared_ray* p
     if (!view.rows || view.rows > 16777216 || view.rows > view.entries || !ray_count || ray_count > 1048576 ||
         !view.starts || !view.lengths || !view.cells || !view.row_ids || !view.ray_ids || !view.entry_t || !view.projected ||
         !ranges || !prepared || !output || view.stride != 1 || view.short_rows > view.rows ||
-        policy.max_rays || policy.first_entry_only || !safe_accumulation(settings, ray_count)) return int(cudaErrorInvalidValue);
+        !valid_gather_policy(policy) || !safe_accumulation(settings, ray_count)) return int(cudaErrorInvalidValue);
+    if (policy.max_rays || policy.first_entry_only)
+        return cuda_sensor_prepared(view, ranges, prepared, output, settings, ray_count,
+            gather_backend::warp_soa_hybrid_prepared, policy, opaque_stream);
     const auto stream = static_cast<cudaStream_t>(opaque_stream);
     prepare_rays<<<unsigned((std::uint64_t(ray_count) + 255) / 256), 256, 0, stream>>>(ranges, ray_count, settings, prepared);
     auto error = cudaGetLastError();
