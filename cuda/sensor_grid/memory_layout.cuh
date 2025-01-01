@@ -87,6 +87,10 @@ __global__ void layout_warp_gather(layout_view view, std::uint32_t offset, std::
         for (unsigned delta = 16; delta != 0; delta /= 2) {
             sum_distance += __shfl_down_sync(mask, sum_distance, delta);
             sum_weight += __shfl_down_sync(mask, sum_weight, delta);
+        }
+    }
+    if (lane == 0)
+        output[view.cells[row]] = finish_prepared(sum_distance, sum_weight, admitted, tested, settings);
 }
 
 template<bool narrow>
@@ -104,10 +108,6 @@ int launch_memory_layout(layout_view view, const prepared_ray* prepared, voxel* 
         }
     }
     return int(cudaGetLastError());
-}
-}
-    if (lane == 0)
-        output[view.cells[row]] = finish_prepared(sum_distance, sum_weight, admitted, tested, settings);
 }
 
 }

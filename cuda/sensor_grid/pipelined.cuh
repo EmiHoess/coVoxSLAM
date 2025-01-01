@@ -71,6 +71,6 @@ __global__ void pipelined_warp_gather(layout_view view, std::uint32_t offset, st
     }
 
     if (lane == 0)
-        output[view.cells[row]] = finish_prepared(sum_distance, sum_weight, admitted, tested, config);
+        output[view.cells[row]] = finish_prepared(sum_distance, sum_weight, admitted, tested, settings);
 }
 }
