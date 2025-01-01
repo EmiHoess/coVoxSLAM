@@ -3,10 +3,29 @@
 #include "subwarp.cuh"
 #include "memory_layout.cuh"
 #include "compact.cuh"
+#include "pipelined.cuh"
 #include "native.h"
 
 namespace covoxslam::sensor_grid
 {
+int cuda_sensor_pipelined(layout_view view, const float* ranges, prepared_ray* prepared, voxel* output,
+    config settings, std::uint32_t ray_count, gather_policy policy, void* opaque_stream)
+{
+    if (!view.rows || view.rows > 16777216 || view.rows > view.entries || !ray_count || ray_count > 1048576 ||
+        !view.starts || !view.lengths || !view.cells || !view.row_ids || !view.ray_ids || !view.entry_t || !view.projected ||
+        !ranges || !prepared || !output || view.stride != 1 || view.short_rows > view.rows ||
+        policy.max_rays || policy.first_entry_only || !safe_accumulation(settings, ray_count)) return int(cudaErrorInvalidValue);
+    const auto stream = static_cast<cudaStream_t>(opaque_stream);
+    prepare_rays<<<unsigned((std::uint64_t(ray_count) + 255) / 256), 256, 0, stream>>>(ranges, ray_count, settings, prepared);
+    auto error = cudaGetLastError();
+    if (error != cudaSuccess) return int(error);
+    if (view.short_rows) hybrid_thread_gather_kernel<false><<<(view.short_rows + 255) / 256, 256, 0, stream>>>(view, 0, view.short_rows, prepared, settings, 0, output);
+    error = cudaGetLastError();
+    if (error != cudaSuccess) return int(error);
+    const auto count = view.rows - view.short_rows;
+    if (count) pipelined_warp_gather<<<(count + 7) / 8, 256, 0, stream>>>(view, view.short_rows, count, prepared, settings, 0, output);
+    return int(cudaGetLastError());
+}
 int cuda_sensor_compact(layout_view view, const float* ranges, compact_ray* prepared, voxel* output,
     config settings, std::uint32_t ray_count, gather_policy policy, void* opaque_stream)
 {
