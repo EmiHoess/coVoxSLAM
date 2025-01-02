@@ -4,6 +4,18 @@
 
 namespace covoxslam::sensor_grid
 {
+operation_result<row_plan> classify_blocks(std::span<const std::uint32_t> lengths,
+    std::uint32_t short_max, std::uint32_t block_min)
+{
+    if (!short_max || block_min <= short_max)
+        return std::unexpected(operation_error{"block threshold must exceed short row threshold"});
+    auto result = classify_rows(lengths, short_max);
+    if (!result) return std::unexpected(result.error());
+    const auto split = std::stable_partition(result->rows.begin() + result->short_rows, result->rows.end(),
+        [&](auto row) { return lengths[row] < block_min; });
+    result->block_rows = static_cast<std::uint32_t>(result->rows.end() - split);
+     return result;
+}
 operation_result<std::vector<std::uint16_t>> pack_ray_ids(std::span<const std::uint32_t> ids)
 {
     if (std::any_of(ids.begin(), ids.end(), [](auto id) { return id > UINT16_MAX; }))
