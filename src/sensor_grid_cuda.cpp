@@ -92,6 +92,9 @@ operation_result<update_times> gpu_grid::update(std::span<const float> ranges, g
         : data.options.backend == gather_backend::hybrid_compact
         ? cuda_sensor_compact(data.layout, data.ranges, data.compact, data.output, data.table.settings,
             data.table.ray_count, policy, data.stream)
+        : data.options.backend == gather_backend::hybrid_pipelined
+        ? cuda_sensor_pipelined(data.layout, data.ranges, data.prepared, data.output, data.table.settings,
+            data.table.ray_count, policy, data.stream)
         : cuda_sensor_prepared(data.layout, data.ranges, data.prepared, data.output, data.table.settings,
             data.table.ray_count, data.options.backend, policy, data.stream,
             data.bin_events[0] ? data.bin_events.data() : nullptr));
@@ -133,7 +136,7 @@ operation_result<std::unique_ptr<gpu_grid>> gpu_grid::create(const lookup& table
     if (!status) return std::unexpected(status.error());
     if (!safe_accumulation(table.settings, table.ray_count))
         return std::unexpected(operation_error{"sensor accumulation exceeds selected precision range"});
-    if (unsigned(options.backend) > 8 || !options.short_list_max)
+    if (unsigned(options.backend) > 9 || !options.short_list_max)
         return std::unexpected(operation_error{"invalid gather backend or row threshold"});
     std::size_t bytes = table.offsets.size() * 4 + table.intersections.size() * sizeof(intersection) +
         table.active_voxels.size() * 4 + std::size_t(table.ray_count) * 4 + std::size_t(table.grid.voxels) * sizeof(voxel);
@@ -156,7 +159,8 @@ operation_result<std::unique_ptr<gpu_grid>> gpu_grid::create(const lookup& table
         bytes += layout.cells.size() * 12 + layout.ray_ids.size() * 12 + std::size_t(table.ray_count) *
             (options.backend == gather_backend::hybrid_compact ? sizeof(compact_ray) : sizeof(prepared_ray));
         bytes -= layout.ray_ids16.size() * 2;
-        if (options.backend == gather_backend::warp_soa_hybrid_prepared || options.backend == gather_backend::hybrid_compact)
+        if (options.backend == gather_backend::warp_soa_hybrid_prepared || options.backend == gather_backend::hybrid_compact ||
+            options.backend == gather_backend::hybrid_pipelined)
         {
             auto classified = classify_rows(layout.lengths, options.short_list_max);
             if (!classified) return std::unexpected(classified.error());
