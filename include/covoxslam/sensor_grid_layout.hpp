@@ -24,6 +24,8 @@ struct row_plan { std::vector<std::uint32_t> rows; std::uint32_t short_rows{}, b
 operation_result<row_plan> classify_rows(std::span<const std::uint32_t> lengths, std::uint32_t threshold);
 operation_result<row_plan> classify_blocks(std::span<const std::uint32_t> lengths,
     std::uint32_t short_max, std::uint32_t block_min);
+operation_status validate_row_plan(std::span<const std::uint32_t> lengths, const row_plan& plan,
+    std::uint32_t short_max, std::uint32_t block_min);
 struct subwarp_plan
 {
     std::vector<std::uint32_t> rows;

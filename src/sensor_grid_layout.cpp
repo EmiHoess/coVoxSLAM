@@ -4,6 +4,28 @@
 
 namespace covoxslam::sensor_grid
 {
+operation_status validate_row_plan(std::span<const std::uint32_t> lengths, const row_plan& plan,
+    std::uint32_t short_max, std::uint32_t block_min)
+{
+    if (lengths.empty() || lengths.size() > 16777216 || plan.rows.size() != lengths.size() ||
+        plan.short_rows > plan.rows.size() || plan.block_rows > plan.rows.size() - plan.short_rows ||
+        !short_max || block_min <= short_max)
+        return std::unexpected(operation_error{"invalid row partition dimensions"});
+    std::vector<bool> visited(lengths.size());
+    const auto block_start = plan.rows.size() - plan.block_rows;
+
+    for (std::size_t worker = 0; worker < plan.rows.size(); ++worker) {
+        const auto row = plan.rows[worker];
+        if (row >= lengths.size() || visited[row] || !lengths[row])
+            return std::unexpected(operation_error{"row partition does not have unique ownership"});
+        visited[row] = true;
+        const auto length = lengths[row];
+        const bool eligible = worker < plan.short_rows ? length <= short_max :
+            worker < block_start ? length > short_max && length < block_min : length >= block_min;
+        if (!eligible) return std::unexpected(operation_error{"row partition threshold mismatch"});
+    }
+    return {};
+}
 operation_result<row_plan> classify_blocks(std::span<const std::uint32_t> lengths,
     std::uint32_t short_max, std::uint32_t block_min)
 {
@@ -14,6 +36,8 @@ operation_result<row_plan> classify_blocks(std::span<const std::uint32_t> length
     const auto split = std::stable_partition(result->rows.begin() + result->short_rows, result->rows.end(),
         [&](auto row) { return lengths[row] < block_min; });
     result->block_rows = static_cast<std::uint32_t>(result->rows.end() - split);
+    const auto valid = validate_row_plan(lengths, *result, short_max, block_min);
+    if (!valid) return std::unexpected(valid.error());
      return result;
 }
 operation_result<std::vector<std::uint16_t>> pack_ray_ids(std::span<const std::uint32_t> ids)
