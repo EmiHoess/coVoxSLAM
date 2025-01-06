@@ -71,6 +71,12 @@ gpu_grid::gpu_grid() = default;
 gpu_grid::~gpu_grid() = default;
 std::size_t gpu_grid::device_bytes() const noexcept { return state->bytes; }
 int gpu_grid::device_index() const noexcept { return state->device; }
+gather_statistics gpu_grid::statistics() const noexcept
+{
+    const auto& view = state->layout;
+    return {view.short_rows, view.rows - view.short_rows - view.block_rows, view.block_rows,
+        state->table.entry_count, view.entries ? view.entries : state->table.entry_count};
+}
 field_view gpu_grid::device_field() const noexcept
 {
     if (!state->ready || state->failed) return {};
@@ -94,6 +100,9 @@ operation_result<update_times> gpu_grid::update(std::span<const float> ranges, g
             data.table.ray_count, policy, data.stream)
         : data.options.backend == gather_backend::hybrid_pipelined
         ? cuda_sensor_pipelined(data.layout, data.ranges, data.prepared, data.output, data.table.settings,
+            data.table.ray_count, policy, data.stream)
+        : data.options.backend == gather_backend::hybrid_block_long
+        ? cuda_sensor_block_long(data.layout, data.ranges, data.prepared, data.output, data.table.settings,
             data.table.ray_count, policy, data.stream)
         : cuda_sensor_prepared(data.layout, data.ranges, data.prepared, data.output, data.table.settings,
             data.table.ray_count, data.options.backend, policy, data.stream,
@@ -136,7 +145,7 @@ operation_result<std::unique_ptr<gpu_grid>> gpu_grid::create(const lookup& table
     if (!status) return std::unexpected(status.error());
     if (!safe_accumulation(table.settings, table.ray_count))
         return std::unexpected(operation_error{"sensor accumulation exceeds selected precision range"});
-    if (unsigned(options.backend) > 9 || !options.short_list_max)
+    if (unsigned(options.backend) > 10 || !options.short_list_max)
         return std::unexpected(operation_error{"invalid gather backend or row threshold"});
     std::size_t bytes = table.offsets.size() * 4 + table.intersections.size() * sizeof(intersection) +
         table.active_voxels.size() * 4 + std::size_t(table.ray_count) * 4 + std::size_t(table.grid.voxels) * sizeof(voxel);
@@ -172,6 +181,12 @@ operation_result<std::unique_ptr<gpu_grid>> gpu_grid::create(const lookup& table
             if (!classified) return std::unexpected(classified.error());
             groups = std::move(*classified);
             bytes += groups.rows.size() * sizeof(std::uint32_t);
+        }
+        if (options.backend == gather_backend::hybrid_block_long) {
+            auto classified = classify_blocks(layout.lengths, options.short_list_max, options.block_list_min);
+            if (!classified) return std::unexpected(classified.error());
+            plan = std::move(*classified);
+            bytes += plan.rows.size() * 4;
         }
     }
 
@@ -213,6 +228,7 @@ operation_result<std::unique_ptr<gpu_grid>> gpu_grid::create(const lookup& table
         if (status && !layout.ranges.empty()) status = data.upload(layout.ranges, data.layout.ranges);
         if (!plan.rows.empty()) {
             data.layout.short_rows = plan.short_rows;
+            data.layout.block_rows = plan.block_rows;
             if (status) status = data.upload(plan.rows, data.layout.row_ids);
         }
         if (!groups.rows.empty()) {

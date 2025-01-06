@@ -7,6 +7,7 @@
 namespace covoxslam::sensor_grid
 {
 struct update_times { float upload_ms{}, gather_ms{}, prepare_ms{}, bin_ms[4]{}; };
+struct gather_statistics { std::uint32_t short_rows{}, warp_rows{}, block_rows{}, logical_entries{}, stored_entries{}; };
 class gpu_grid
 {
     struct implementation;
@@ -20,6 +21,7 @@ public:
     gpu_grid& operator=(const gpu_grid&) = delete;
     std::size_t device_bytes() const noexcept;
     int device_index() const noexcept;
+    gather_statistics statistics() const noexcept;
     field_view device_field() const noexcept;
     operation_result<update_times> update(std::span<const float> ranges, gather_policy policy = {});
     operation_result<std::vector<voxel>> download();

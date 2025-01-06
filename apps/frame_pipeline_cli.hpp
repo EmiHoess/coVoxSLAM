@@ -85,6 +85,12 @@ inline int run_submap_cli(int argc, char** argv)
                 sensor_options_set = true;
                 continue;
             }
+            case sensor_mapping_option::block_threshold: {
+                const auto selected = select_block_threshold(value, sensor_gather);
+                if (!selected) return report_error(selected.error().message);
+                sensor_options_set = true;
+                continue;
+            }
             case sensor_mapping_option::gather: {
                 const auto selected = select_sensor_gather(value, sensor_gather);
                 if (!selected) return report_error(selected.error().message);

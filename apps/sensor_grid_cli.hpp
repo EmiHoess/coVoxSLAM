@@ -11,7 +11,7 @@
 
 namespace covoxslam
 {
-enum class sensor_option { unknown, dataset, radius, size, factor, truncation, frames, cap, first, backend, device, gather, threshold };
+enum class sensor_option { unknown, dataset, radius, size, factor, truncation, frames, cap, first, backend, device, gather, threshold, block_threshold };
 inline constexpr cli_option_entry<sensor_option> sensor_options[]{
     {"--dataset", sensor_option::dataset}, {"--sensor-grid-radius", sensor_option::radius},
     {"--sensor-grid-voxel-size", sensor_option::size}, {"--sensor-grid-factor", sensor_option::factor},
@@ -19,7 +19,7 @@ inline constexpr cli_option_entry<sensor_option> sensor_options[]{
     {"--sensor-grid-frames", sensor_option::frames}, {"--sensor-grid-ray-cap", sensor_option::cap},
     {"--sensor-grid-first-entry", sensor_option::first}, {"--sensor-grid-backend", sensor_option::backend},
     {"--cuda-device", sensor_option::device}, {"--sensor-grid-gather", sensor_option::gather},
-    {"--sensor-grid-short-list-max", sensor_option::threshold}
+    {"--sensor-grid-short-list-max", sensor_option::threshold}, {"--sensor-grid-block-list-min", sensor_option::block_threshold}
 };
 static_assert(valid_cli_options(sensor_options));
 enum class sensor_backend { unknown, cpu, cuda };
@@ -74,6 +74,7 @@ inline int run_sensor_grid_cli(int argc, char** argv)
         case sensor_option::device: status = sensor_number(value, device); break;
         case sensor_option::gather: status = select_sensor_gather(value, gather); break;
         case sensor_option::threshold: status = select_sensor_threshold(value, gather); break;
+        case sensor_option::block_threshold: status = select_block_threshold(value, gather); break;
         case sensor_option::backend:
             backend = lookup_cli_option(value, sensor_backends);
             if (backend == sensor_backend::unknown) return error("sensor backend must be cpu or cuda");
@@ -120,6 +121,9 @@ inline int run_sensor_grid_cli(int argc, char** argv)
         if (!created) return error(created.error().message);
          gpu = std::move(*created);
         std::cout << "gather_backend=" << sensor_gather_name(gather.backend) << " device_bytes=" << gpu->device_bytes() << '\n';
+        const auto stats = gpu->statistics();
+        std::cout << "short_rows=" << stats.short_rows << " warp_rows=" << stats.warp_rows << " block_rows=" << stats.block_rows
+                  << " logical_entries=" << stats.logical_entries << " stored_entries=" << stats.stored_entries << '\n';
     }
     const auto allocation_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - allocation_start).count();
     double upload_ms{}, gather_ms{}, download_ms{};
