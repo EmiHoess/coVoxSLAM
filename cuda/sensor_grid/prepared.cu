@@ -5,6 +5,7 @@
 #include "compact.cuh"
 #include "pipelined.cuh"
 #include "block_long.cuh"
+#include "combined.cuh"
 #include "native.h"
 
 namespace covoxslam::sensor_grid
