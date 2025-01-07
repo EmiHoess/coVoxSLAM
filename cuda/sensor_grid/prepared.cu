@@ -109,7 +109,7 @@ int cuda_sensor_prepared(layout_view view, const float* ranges, prepared_ray* pr
     {
         auto* events = static_cast<cudaEvent_t*>(profile_events);
         if (events) {
-            const auto recorded = cudaEventRecord(events[0], stream);
+            const auto recorded = cudaEventRecordWithFlags(events[0], stream, cudaEventRecordExternal);
             if (recorded != cudaSuccess) return int(recorded);
         }
         if (policy.first_entry_only) {
@@ -118,7 +118,7 @@ int cuda_sensor_prepared(layout_view view, const float* ranges, prepared_ray* pr
             if (launched != cudaSuccess) return int(launched);
             if (events)
                 for (unsigned i = 1; i < 5; ++i) {
-                    const auto recorded = cudaEventRecord(events[i], stream);
+                    const auto recorded = cudaEventRecordWithFlags(events[i], stream, cudaEventRecordExternal);
                     if (recorded != cudaSuccess) return int(recorded);
                 }
             return 0;

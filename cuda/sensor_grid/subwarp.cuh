@@ -149,7 +149,7 @@ int launch_subwarp(layout_view view, const prepared_ray* prepared, voxel* output
         }
         offset += count;
         if (events) {
-            const auto error = cudaEventRecord(events[bin + 1], stream);
+            const auto error = cudaEventRecordWithFlags(events[bin + 1], stream, cudaEventRecordExternal);
             if (error != cudaSuccess) return int(error);
         }
     }
