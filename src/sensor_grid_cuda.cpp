@@ -43,7 +43,7 @@ struct gpu_grid::implementation
         case gather_backend::hybrid_block_long:
             return cuda_sensor_block_long(layout, ranges, prepared, output, table.settings, table.ray_count, policy, stream);
         default: return cuda_sensor_prepared(layout, ranges, prepared, output, table.settings, table.ray_count,
-            options.backend, policy, stream, bin_events[0] ? bin_events.data() : nullptr);
+            options.backend, policy, stream, bin_events[0] ? bin_events.data() : nullptr, options.execution == execution_mode::cuda_graph);
         }
     }
     operation_result<cudaGraphExec_t> prepare_graph(gather_policy policy)

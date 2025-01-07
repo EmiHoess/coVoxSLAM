@@ -83,7 +83,7 @@ int cuda_sensor_compact(layout_view view, const float* ranges, compact_ray* prep
 }
 int cuda_sensor_prepared(layout_view view, const float* ranges, prepared_ray* prepared, voxel* output,
     config settings, std::uint32_t ray_count, gather_backend backend, gather_policy policy, void* opaque_stream,
-    void* profile_events)
+    void* profile_events, bool captured_profile)
 {
     const bool warp = backend == gather_backend::warp_soa_prepared;
     const bool hybrid = backend == gather_backend::warp_soa_hybrid_prepared;
@@ -108,8 +108,9 @@ int cuda_sensor_prepared(layout_view view, const float* ranges, prepared_ray* pr
     if (subwarp)
     {
         auto* events = static_cast<cudaEvent_t*>(profile_events);
+        const unsigned event_flags = captured_profile ? cudaEventRecordExternal : cudaEventRecordDefault;
         if (events) {
-            const auto recorded = cudaEventRecordWithFlags(events[0], stream, cudaEventRecordExternal);
+            const auto recorded = cudaEventRecordWithFlags(events[0], stream, event_flags);
             if (recorded != cudaSuccess) return int(recorded);
         }
         if (policy.first_entry_only) {
@@ -118,14 +119,14 @@ int cuda_sensor_prepared(layout_view view, const float* ranges, prepared_ray* pr
             if (launched != cudaSuccess) return int(launched);
             if (events)
                 for (unsigned i = 1; i < 5; ++i) {
-                    const auto recorded = cudaEventRecordWithFlags(events[i], stream, cudaEventRecordExternal);
+                    const auto recorded = cudaEventRecordWithFlags(events[i], stream, event_flags);
                     if (recorded != cudaSuccess) return int(recorded);
                 }
             return 0;
         }
-        if (!policy.max_rays) return launch_subwarp<subwarp_selection::all>(view, prepared, output, settings, policy, stream, events);
-        if (policy.max_rays == 1) return launch_subwarp<subwarp_selection::cap_one>(view, prepared, output, settings, policy, stream, events);
-        return launch_subwarp<subwarp_selection::capped>(view, prepared, output, settings, policy, stream, events);
+        if (!policy.max_rays) return launch_subwarp<subwarp_selection::all>(view, prepared, output, settings, policy, stream, events, event_flags);
+        if (policy.max_rays == 1) return launch_subwarp<subwarp_selection::cap_one>(view, prepared, output, settings, policy, stream, events, event_flags);
+        return launch_subwarp<subwarp_selection::capped>(view, prepared, output, settings, policy, stream, events, event_flags);
     }
     if (hybrid)
     {

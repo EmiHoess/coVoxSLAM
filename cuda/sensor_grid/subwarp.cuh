@@ -119,7 +119,7 @@ __global__ void subwarp_group_gather_kernel(layout_view view, std::uint32_t offs
 
 template<subwarp_selection selection>
 int launch_subwarp(layout_view view, const prepared_ray* prepared, voxel* output,
-    config settings, gather_policy policy, cudaStream_t stream, cudaEvent_t* events)
+    config settings, gather_policy policy, cudaStream_t stream, cudaEvent_t* events, unsigned event_flags)
 {
     static_assert(selection != subwarp_selection::first_entry);
     const auto selected = policy.max_rays ? 1U : 0U;
@@ -149,7 +149,7 @@ int launch_subwarp(layout_view view, const prepared_ray* prepared, voxel* output
         }
         offset += count;
         if (events) {
-            const auto error = cudaEventRecordWithFlags(events[bin + 1], stream, cudaEventRecordExternal);
+            const auto error = cudaEventRecordWithFlags(events[bin + 1], stream, event_flags);
             if (error != cudaSuccess) return int(error);
         }
     }
