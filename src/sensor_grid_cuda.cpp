@@ -5,6 +5,8 @@
 #include <cuda_runtime_api.h>
 #include <array>
 #include <algorithm>
+#include <chrono>
+#include "sensor_grid_graph.hpp"
 
 namespace covoxslam::sensor_grid
 {
@@ -25,6 +27,54 @@ struct gpu_grid::implementation
     std::array<void*, 14> allocations{};
     std::size_t count{}, bytes{};
     bool selected{}, failed{}, ready{};
+    std::array<graph_plan, 4> graphs{};
+    std::uint64_t generation{1};
+    unsigned next_graph{};
+    int launch(gather_policy policy)
+    {
+        switch (options.backend)
+        {
+        case gather_backend::csr: return cuda_sensor_gather(table, ranges, output, policy, stream);
+        case gather_backend::hybrid_compact:
+            return cuda_sensor_compact(layout, ranges, compact, output, table.settings, table.ray_count, policy, stream);
+        case gather_backend::hybrid_pipelined:
+            return cuda_sensor_pipelined(layout, ranges, prepared, output, table.settings, table.ray_count, policy, stream);
+        case gather_backend::hybrid_block_long:
+            return cuda_sensor_block_long(layout, ranges, prepared, output, table.settings, table.ray_count, policy, stream);
+        default: return cuda_sensor_prepared(layout, ranges, prepared, output, table.settings, table.ray_count,
+            options.backend, policy, stream, bin_events[0] ? bin_events.data() : nullptr);
+        }
+    }
+    operation_result<cudaGraphExec_t> prepare_graph(gather_policy policy)
+    {
+        if (options.execution == execution_mode::stream) return nullptr;
+        const graph_key key{options.backend, policy.max_rays, accumulation_bits, generation,
+            policy.first_entry_only, bin_events[0] != nullptr,
+            {ranges, output, prepared ? static_cast<void*>(prepared) : static_cast<void*>(compact), table.offsets, layout.row_ids}};
+
+        for (auto& plan : graphs)
+            if (plan.executable && plan.key == key) return plan.executable;
+        graph_plan plan;
+        plan.key = key;
+        auto status = check(cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal));
+        if (!status) return std::unexpected(status.error());
+        status = check(launch(policy));
+        const auto ended = check(cudaStreamEndCapture(stream, &plan.graph));
+        if (status) status = ended;
+        if (status) status = check(cudaGraphInstantiate(&plan.executable, plan.graph, 0));
+        if (status) status = check(cudaGraphUpload(plan.executable, stream));
+        const auto waited = check(cudaStreamSynchronize(stream));
+        if (status) status = waited;
+
+        if (!status) {
+            plan.release();
+            return std::unexpected(status.error());
+        }
+        auto& slot = graphs[next_graph++ % graphs.size()];
+        slot.release();
+        slot = plan;
+        return slot.executable;
+    }
     operation_status check(int code)
     {
         if (code) {
@@ -56,6 +106,8 @@ struct gpu_grid::implementation
         if (!selected) return;
         cudaSetDevice(device);
         if (stream) cudaStreamSynchronize(stream);
+
+        for (auto& plan : graphs) plan.release();
 
         for (auto event : events)
             if (event) cudaEventDestroy(event);
@@ -90,23 +142,13 @@ operation_result<update_times> gpu_grid::update(std::span<const float> ranges, g
         return std::unexpected(operation_error{"invalid sensor update or failed CUDA field"});
     data.ready = false;
     auto status = data.check(cudaSetDevice(data.device));
+    if (!status) return std::unexpected(status.error());
+    const auto graph = data.prepare_graph(policy);
+    if (!graph) return std::unexpected(graph.error());
     if (status) status = data.check(cudaEventRecord(data.events[0], data.stream));
     if (status) status = data.check(cudaMemcpyAsync(data.ranges, ranges.data(), ranges.size_bytes(), cudaMemcpyHostToDevice, data.stream));
     if (status) status = data.check(cudaEventRecord(data.events[1], data.stream));
-    if (status) status = data.check(data.options.backend == gather_backend::csr
-        ? cuda_sensor_gather(data.table, data.ranges, data.output, policy, data.stream)
-        : data.options.backend == gather_backend::hybrid_compact
-        ? cuda_sensor_compact(data.layout, data.ranges, data.compact, data.output, data.table.settings,
-            data.table.ray_count, policy, data.stream)
-        : data.options.backend == gather_backend::hybrid_pipelined
-        ? cuda_sensor_pipelined(data.layout, data.ranges, data.prepared, data.output, data.table.settings,
-            data.table.ray_count, policy, data.stream)
-        : data.options.backend == gather_backend::hybrid_block_long
-        ? cuda_sensor_block_long(data.layout, data.ranges, data.prepared, data.output, data.table.settings,
-            data.table.ray_count, policy, data.stream)
-        : cuda_sensor_prepared(data.layout, data.ranges, data.prepared, data.output, data.table.settings,
-            data.table.ray_count, data.options.backend, policy, data.stream,
-            data.bin_events[0] ? data.bin_events.data() : nullptr));
+    if (status) status = data.check(*graph ? int(cudaGraphLaunch(*graph, data.stream)) : data.launch(policy));
     if (status) status = data.check(cudaEventRecord(data.events[2], data.stream));
     const auto waited = data.check(cudaStreamSynchronize(data.stream));
     if (status) status = waited;
@@ -145,7 +187,7 @@ operation_result<std::unique_ptr<gpu_grid>> gpu_grid::create(const lookup& table
     if (!status) return std::unexpected(status.error());
     if (!safe_accumulation(table.settings, table.ray_count))
         return std::unexpected(operation_error{"sensor accumulation exceeds selected precision range"});
-    if (unsigned(options.backend) > 10 || !options.short_list_max)
+    if (unsigned(options.backend) > 10 || !options.short_list_max || unsigned(options.execution) > 1)
         return std::unexpected(operation_error{"invalid gather backend or row threshold"});
     std::size_t bytes = table.offsets.size() * 4 + table.intersections.size() * sizeof(intersection) +
         table.active_voxels.size() * 4 + std::size_t(table.ray_count) * 4 + std::size_t(table.grid.voxels) * sizeof(voxel);
