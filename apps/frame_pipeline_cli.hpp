@@ -97,6 +97,12 @@ inline int run_submap_cli(int argc, char** argv)
                 sensor_options_set = true;
                 continue;
             }
+            case sensor_mapping_option::execution: {
+                const auto selected = select_sensor_execution(value, sensor_gather);
+                if (!selected) return report_error(selected.error().message);
+                sensor_options_set = true;
+                continue;
+            }
             default: break;
             }
             const auto resident_parsed = parse_resident_option(option, value, resident_options);

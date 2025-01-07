@@ -30,6 +30,7 @@ struct gpu_grid::implementation
     std::array<graph_plan, 4> graphs{};
     std::uint64_t generation{1};
     unsigned next_graph{};
+    execution_statistics execution_stats{};
     int launch(gather_policy policy)
     {
         switch (options.backend)
@@ -53,7 +54,8 @@ struct gpu_grid::implementation
             {ranges, output, prepared ? static_cast<void*>(prepared) : static_cast<void*>(compact), table.offsets, layout.row_ids}};
 
         for (auto& plan : graphs)
-            if (plan.executable && plan.key == key) return plan.executable;
+            if (plan.executable && plan.key == key) { ++execution_stats.graph_hits; return plan.executable; }
+        const auto start = std::chrono::steady_clock::now();
         graph_plan plan;
         plan.key = key;
         auto status = check(cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal));
@@ -73,6 +75,8 @@ struct gpu_grid::implementation
         auto& slot = graphs[next_graph++ % graphs.size()];
         slot.release();
         slot = plan;
+        ++execution_stats.graph_builds;
+        execution_stats.setup_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
         return slot.executable;
     }
     operation_status check(int code)
@@ -123,6 +127,7 @@ gpu_grid::gpu_grid() = default;
 gpu_grid::~gpu_grid() = default;
 std::size_t gpu_grid::device_bytes() const noexcept { return state->bytes; }
 int gpu_grid::device_index() const noexcept { return state->device; }
+execution_statistics gpu_grid::execution_statistics_value() const noexcept { return state->execution_stats; }
 gather_statistics gpu_grid::statistics() const noexcept
 {
     const auto& view = state->layout;
@@ -132,6 +137,7 @@ gather_statistics gpu_grid::statistics() const noexcept
 operation_status gpu_grid::invalidate_graphs()
 {
     auto& data = *state;
+    const auto start = std::chrono::steady_clock::now();
     if (data.failed || data.generation == UINT64_MAX)
         return std::unexpected(operation_error{"cannot invalidate failed sensor graph generation"});
     auto status = data.check(cudaSetDevice(data.device));
@@ -141,6 +147,8 @@ operation_status gpu_grid::invalidate_graphs()
     for (auto& plan : data.graphs) plan.release();
     ++data.generation;
     data.next_graph = 0;
+    ++data.execution_stats.invalidations;
+    data.execution_stats.invalidation_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
      return {};
 }
 field_view gpu_grid::device_field() const noexcept
@@ -157,6 +165,7 @@ operation_result<update_times> gpu_grid::update(std::span<const float> ranges, g
     data.ready = false;
     auto status = data.check(cudaSetDevice(data.device));
     if (!status) return std::unexpected(status.error());
+    const auto previous = data.execution_stats;
     const auto graph = data.prepare_graph(policy);
     if (!graph) return std::unexpected(graph.error());
     if (status) status = data.check(cudaEventRecord(data.events[0], data.stream));
@@ -167,6 +176,8 @@ operation_result<update_times> gpu_grid::update(std::span<const float> ranges, g
     const auto waited = data.check(cudaStreamSynchronize(data.stream));
     if (status) status = waited;
     update_times result;
+    result.graph_setup_ms = data.execution_stats.setup_ms - previous.setup_ms;
+    result.graph_reused = data.execution_stats.graph_hits != previous.graph_hits;
     if (status) status = data.check(cudaEventElapsedTime(&result.upload_ms, data.events[0], data.events[1]));
     if (status) status = data.check(cudaEventElapsedTime(&result.gather_ms, data.events[1], data.events[2]));
     if (status && data.bin_events[0]) {

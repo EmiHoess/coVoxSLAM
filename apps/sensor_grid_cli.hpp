@@ -11,7 +11,7 @@
 
 namespace covoxslam
 {
-enum class sensor_option { unknown, dataset, radius, size, factor, truncation, frames, cap, first, backend, device, gather, threshold, block_threshold };
+enum class sensor_option { unknown, dataset, radius, size, factor, truncation, frames, cap, first, backend, device, gather, threshold, block_threshold, execution };
 inline constexpr cli_option_entry<sensor_option> sensor_options[]{
     {"--dataset", sensor_option::dataset}, {"--sensor-grid-radius", sensor_option::radius},
     {"--sensor-grid-voxel-size", sensor_option::size}, {"--sensor-grid-factor", sensor_option::factor},
@@ -19,7 +19,8 @@ inline constexpr cli_option_entry<sensor_option> sensor_options[]{
     {"--sensor-grid-frames", sensor_option::frames}, {"--sensor-grid-ray-cap", sensor_option::cap},
     {"--sensor-grid-first-entry", sensor_option::first}, {"--sensor-grid-backend", sensor_option::backend},
     {"--cuda-device", sensor_option::device}, {"--sensor-grid-gather", sensor_option::gather},
-    {"--sensor-grid-short-list-max", sensor_option::threshold}, {"--sensor-grid-block-list-min", sensor_option::block_threshold}
+    {"--sensor-grid-short-list-max", sensor_option::threshold}, {"--sensor-grid-block-list-min", sensor_option::block_threshold},
+    {"--sensor-grid-execution", sensor_option::execution}
 };
 static_assert(valid_cli_options(sensor_options));
 enum class sensor_backend { unknown, cpu, cuda };
@@ -75,6 +76,7 @@ inline int run_sensor_grid_cli(int argc, char** argv)
         case sensor_option::gather: status = select_sensor_gather(value, gather); break;
         case sensor_option::threshold: status = select_sensor_threshold(value, gather); break;
         case sensor_option::block_threshold: status = select_block_threshold(value, gather); break;
+        case sensor_option::execution: status = select_sensor_execution(value, gather); break;
         case sensor_option::backend:
             backend = lookup_cli_option(value, sensor_backends);
             if (backend == sensor_backend::unknown) return error("sensor backend must be cpu or cuda");
@@ -95,7 +97,7 @@ inline int run_sensor_grid_cli(int argc, char** argv)
 
     if (!geometry) return error(geometry.error().message);
     if (path.empty() || !factor) return error("sensor grid requires a dataset and positive factor");
-    if (backend != sensor_backend::cuda && gather.backend != sensor_grid::gather_backend::csr)
+    if (backend != sensor_backend::cuda && (gather.backend != sensor_grid::gather_backend::csr || gather.execution != sensor_grid::execution_mode::stream))
         return error("prepared gathering requires the CUDA backend");
     if (!sensor_grid::valid_gather_policy(policy) || device < 0)
         return error("conflicting ray cap or invalid device");
@@ -173,6 +175,11 @@ inline int run_sensor_grid_cli(int argc, char** argv)
     if (gather.backend == sensor_grid::gather_backend::warp_soa_subwarp_prepared)
         std::cout << "prepare_ms=" << prepare_ms << " thread_ms=" << bin_ms[0] << " group8_ms=" << bin_ms[1]
                   << " group16_ms=" << bin_ms[2] << " warp_ms=" << bin_ms[3] << '\n';
+    if (gpu) {
+        const auto stats = gpu->execution_statistics_value();
+        std::cout << "graph_builds=" << stats.graph_builds << " graph_hits=" << stats.graph_hits << " graph_setup_ms=" << stats.setup_ms
+                  << " invalidations=" << stats.invalidations << " invalidation_ms=" << stats.invalidation_ms << '\n';
+    }
     return 0;
 }
 }

@@ -5,6 +5,19 @@
 
 namespace covoxslam
 {
+enum class execution_choice { unknown, stream, graph };
+inline constexpr cli_option_entry<execution_choice> execution_choices[]{
+    {"stream", execution_choice::stream}, {"cuda-graph", execution_choice::graph}
+};
+inline operation_status select_sensor_execution(std::string_view text, sensor_grid::gather_options& options)
+{
+    switch (lookup_cli_option(text, execution_choices)) {
+    case execution_choice::stream: options.execution = sensor_grid::execution_mode::stream; break;
+    case execution_choice::graph: options.execution = sensor_grid::execution_mode::cuda_graph; break;
+    default: return std::unexpected(operation_error{"sensor execution must be stream or cuda-graph"});
+    }
+    return {};
+}
 enum class gather_choice { unknown, csr, warp, interleaved, hybrid, subwarp, short_interleaved, aligned, ray16, compact, pipelined, block_long };
 inline constexpr cli_option_entry<gather_choice> gather_choices[]{
     {"csr", gather_choice::csr}, {"warp-soa-prepared", gather_choice::warp},

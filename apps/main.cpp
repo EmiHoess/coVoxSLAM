@@ -62,6 +62,7 @@ void usage()
               << "    --sensor-grid-interpolation neighborhood8|neighborhood27  Strict equal coefficient stencils\n"
               << "    --sensor-grid-gather csr|warp-soa-prepared|thread-interleaved-prepared|warp-soa-hybrid-prepared\n"
               << "    --sensor-grid-short-list-max positive_integer\n"
+              << "    --sensor-grid-block-list-min positive_integer --sensor-grid-execution stream|cuda-graph\n"
               << "  --projective-interpolation nearest|linear-nearest --projective-candidate-capacity N\n"
               << "  --backend cuda-projective-calibrated --projective-raycast-subsampling-factor N  Default factor 4\n"
               << "  --backend cuda-ray-resident --resident-tiles N --resident-rays N --resident-contributions N  Bounded resident mapping\n"
