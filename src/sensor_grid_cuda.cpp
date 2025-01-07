@@ -129,6 +129,20 @@ gather_statistics gpu_grid::statistics() const noexcept
     return {view.short_rows, view.rows - view.short_rows - view.block_rows, view.block_rows,
         state->table.entry_count, view.entries ? view.entries : state->table.entry_count};
 }
+operation_status gpu_grid::invalidate_graphs()
+{
+    auto& data = *state;
+    if (data.failed || data.generation == UINT64_MAX)
+        return std::unexpected(operation_error{"cannot invalidate failed sensor graph generation"});
+    auto status = data.check(cudaSetDevice(data.device));
+    if (status) status = data.check(cudaStreamSynchronize(data.stream));
+    if (!status) return status;
+
+    for (auto& plan : data.graphs) plan.release();
+    ++data.generation;
+    data.next_graph = 0;
+     return {};
+}
 field_view gpu_grid::device_field() const noexcept
 {
     if (!state->ready || state->failed) return {};

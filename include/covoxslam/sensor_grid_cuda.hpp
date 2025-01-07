@@ -22,6 +22,7 @@ public:
     std::size_t device_bytes() const noexcept;
     int device_index() const noexcept;
     gather_statistics statistics() const noexcept;
+    operation_status invalidate_graphs();
     field_view device_field() const noexcept;
     operation_result<update_times> update(std::span<const float> ranges, gather_policy policy = {});
     operation_result<std::vector<voxel>> download();
