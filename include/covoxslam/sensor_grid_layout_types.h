@@ -5,7 +5,7 @@ namespace covoxslam::sensor_grid
 {
 enum class gather_backend : std::uint32_t { csr, warp_soa_prepared, thread_interleaved_prepared, warp_soa_hybrid_prepared,
     warp_soa_subwarp_prepared, hybrid_short_interleaved, hybrid_aligned, hybrid_ray16, hybrid_compact,
-    hybrid_pipelined, hybrid_block_long };
+    hybrid_pipelined, hybrid_block_long, hybrid_combined };
 enum class execution_mode : std::uint32_t { stream, cuda_graph };
 struct gather_options
 {
