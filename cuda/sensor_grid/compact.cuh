@@ -27,7 +27,13 @@ __device__ inline bool compact_contribution(compact_ray ray, float entry, float 
 
 
 
-template <bool first_entry_only>
+template <bool narrow>
+__device__ inline std::uint32_t compact_ray_id(layout_view view, std::uint32_t index)
+{
+    if constexpr (narrow) return view.ray_ids16[index];
+    return view.ray_ids[index];
+}
+template <bool first_entry_only, bool narrow = false>
 __global__ void compact_thread_gather(layout_view view, std::uint32_t offset, std::uint32_t rows,
     const compact_ray* prepared, config settings, std::uint32_t max_rays, voxel* output)
 {
@@ -41,7 +47,7 @@ __global__ void compact_thread_gather(layout_view view, std::uint32_t offset, st
     for (auto index = start; index < end; ++index) {
         ++tested;
         float weight = 0, clipped = 0;
-        if (!compact_contribution(prepared[view.ray_ids[index]], view.entry_t[index],
+        if (!compact_contribution(prepared[compact_ray_id<narrow>(view, index)], view.entry_t[index],
                                    view.projected[index], settings, weight, clipped)) continue;
         sum_weight += static_cast<gather_accumulator>(weight);
         sum_distance += static_cast<gather_accumulator>(weight) * static_cast<gather_accumulator>(clipped);
@@ -51,7 +57,7 @@ __global__ void compact_thread_gather(layout_view view, std::uint32_t offset, st
     output[view.cells[row]] = finish_prepared(sum_distance, sum_weight, admitted, tested, settings);
 }
 
-template <bool cap_one>
+template <bool cap_one, bool narrow = false>
 __global__ void compact_warp_gather(layout_view view, std::uint32_t offset, std::uint32_t rows,
     const compact_ray* prepared, config settings, std::uint32_t max_rays, voxel* output)
 {
@@ -70,7 +76,7 @@ __global__ void compact_warp_gather(layout_view view, std::uint32_t offset, std:
         bool valid = false;
         if (lane < width) {
             const auto index = start + base + lane;
-            valid = compact_contribution(prepared[view.ray_ids[index]], view.entry_t[index],
+            valid = compact_contribution(prepared[compact_ray_id<narrow>(view, index)], view.entry_t[index],
                                           view.projected[index], settings, weight, clipped);
         }
         const auto valid_mask = __ballot_sync(mask, valid);

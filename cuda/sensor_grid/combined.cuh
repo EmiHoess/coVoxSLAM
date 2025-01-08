@@ -151,5 +151,35 @@ void combined_block_gather(layout_view view, std::uint32_t plan_offset, std::uin
     }
 }
 
+template <bool narrow>
+inline int launch_combined(layout_view view, const compact_ray* prepared, voxel* output,
+    config settings, gather_policy policy, cudaStream_t stream)
+{
+    if (policy.first_entry_only) {
+        compact_thread_gather<true, narrow><<<(view.rows + 255) / 256, 256, 0, stream>>>(view, 0, view.rows, prepared, settings, policy.max_rays, output);
+        return int(cudaGetLastError());
+    }
 
+    if (view.short_rows)
+        compact_thread_gather<false, narrow><<<(view.short_rows + 255) / 256, 256, 0, stream>>>(view, 0, view.short_rows, prepared, settings, policy.max_rays, output);
+    auto error = cudaGetLastError();
+    if (error != cudaSuccess) return int(error);
+    const auto count = view.rows - view.short_rows - (policy.max_rays ? 0 : view.block_rows);
+
+    if (count) {
+        if (!policy.max_rays)
+            combined_pipelined_gather<narrow><<<(count + 7) / 8, 256, 0, stream>>>(view, view.short_rows, count, prepared, settings, 0, output);
+        else if (policy.max_rays == 1)
+            compact_warp_gather<true, narrow><<<(count + 7) / 8, 256, 0, stream>>>(view, view.short_rows, count, prepared, settings, 1, output);
+        else
+            compact_warp_gather<false, narrow><<<(count + 7) / 8, 256, 0, stream>>>(view, view.short_rows, count, prepared, settings, policy.max_rays, output);
+    }
+    error = cudaGetLastError();
+
+    if (error != cudaSuccess) return int(error);
+
+    if (!policy.max_rays && view.block_rows)
+        combined_block_gather<narrow><<<view.block_rows, 128, 0, stream>>>(view, view.rows - view.block_rows, view.block_rows, prepared, settings, output);
+     return int(cudaGetLastError());
+}
 }
