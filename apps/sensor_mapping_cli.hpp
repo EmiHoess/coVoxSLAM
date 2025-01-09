@@ -1,5 +1,6 @@
 #pragma once
 #include <covoxslam/sensor_grid_map.hpp>
+#include <covoxslam/sensor_grid_combined.hpp>
 #include <covoxslam/sensor_grid_calibration.hpp>
 #include <covoxslam/sensor_grid_precision.h>
 #include "cli_lookup.hpp"
@@ -52,26 +53,34 @@ inline operation_result<pipeline_callbacks> sensor_mapping_callbacks(const senso
     settings.maximum_weight = config.maximum_weight;
     auto table = sensor_grid::build_lookup(settings, *directions);
     if (!table) return std::unexpected(table.error());
-    auto grid = sensor_grid::gpu_grid::create(*table, device, maximum_bytes, gather);
-    if (!grid) return std::unexpected(grid.error());
-    auto map = sensor_grid::gpu_map::create(*table, static_cast<std::uint32_t>(config.maximum_tiles), device,
-        maximum_bytes - (*grid)->device_bytes());
-    if (!map) return std::unexpected(map.error());
     struct context
     {
         std::unique_ptr<sensor_grid::gpu_grid> grid;
         std::unique_ptr<sensor_grid::gpu_map> map;
+        std::unique_ptr<sensor_grid::combined_map> combined;
         std::vector<float> ranges;
         mapping_statistics statistics;
     };
     auto state = std::make_shared<context>();
-    state->grid = std::move(*grid); state->map = std::move(*map);
+    if (gather.backend == sensor_grid::gather_backend::hybrid_combined) {
+        auto combined = sensor_grid::combined_map::create(*table,
+            static_cast<std::uint32_t>(config.maximum_tiles), device, maximum_bytes, gather);
+        if (!combined) return std::unexpected(combined.error());
+        state->combined = std::move(*combined);
+    } else {
+        auto grid = sensor_grid::gpu_grid::create(*table, device, maximum_bytes, gather);
+        if (!grid) return std::unexpected(grid.error());
+        auto map = sensor_grid::gpu_map::create(*table, static_cast<std::uint32_t>(config.maximum_tiles),
+            device, maximum_bytes - (*grid)->device_bytes());
+        if (!map) return std::unexpected(map.error());
+        state->grid = std::move(*grid); state->map = std::move(*map);
+    }
     state->ranges.resize(directions->size());
     pipeline_callbacks callbacks;
     callbacks.begin = [state, &failure](const submap_frame&) {
         state->statistics = {};
         state->statistics.cuda_accumulator_bits = sensor_grid::accumulation_bits;
-        const auto result = state->map->reset();
+        const auto result = state->combined ? state->combined->reset() : state->map->reset();
         if (!result) failure = result.error();
     };
     callbacks.cancelled = [&failure] { return failure.has_value(); };
@@ -87,20 +96,28 @@ inline operation_result<pipeline_callbacks> sensor_mapping_callbacks(const senso
             state->ranges[ray.ring * columns + ray.column] = ray.measured_range_m;
             accepted += std::isfinite(ray.measured_range_m) && ray.measured_range_m >= minimum && ray.measured_range_m > 0;
         }
-        const auto updated = state->grid->update(state->ranges);
-        if (!updated) { failure = updated.error(); return; }
-        const auto transferred = state->map->integrate(*state->grid, transform, mode);
-        if (!transferred) { failure = transferred.error(); return; }
+        std::uint64_t updates{};
+        if (state->combined) {
+            const auto result = state->combined->integrate(state->ranges, transform, mode);
+            if (!result) { failure = result.error(); return; }
+            updates = result->transfer.updates;
+        } else {
+            const auto updated = state->grid->update(state->ranges);
+            if (!updated) { failure = updated.error(); return; }
+            const auto transferred = state->map->integrate(*state->grid, transform, mode);
+            if (!transferred) { failure = transferred.error(); return; }
+            updates = transferred->updates;
+        }
         state->statistics.rays_submitted += rays.size();
         state->statistics.rays_integrated += accepted;
         state->statistics.rays_rejected += rays.size() - accepted;
-        state->statistics.voxel_updates += transferred->updates;
+        state->statistics.voxel_updates += updates;
         state->statistics.integration_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
     };
     callbacks.finish = [state, &failure, config, publish, finalize](const submap_frame& frame)
     {
         if (failure) return;
-        auto tiles = state->map->download();
+        auto tiles = state->combined ? state->combined->download() : state->map->download();
         if (!tiles) { failure = tiles.error(); return; }
         submap completed;
         completed.frame = frame; completed.optimized_world_pose = frame.anchor;
