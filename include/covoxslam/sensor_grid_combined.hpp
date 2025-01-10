@@ -8,7 +8,7 @@ struct combined_times
     update_times gather{};
     transfer_times transfer{};
     double integration_ms{}, readback_ms{};
-    std::uint64_t completed_scans{};
+    std::uint64_t completed_scans{}, kernel_launches{};
 };
 class combined_map
 {

@@ -157,6 +157,9 @@ struct mapping_statistics {
      std::uint64_t cuda_contributing_rays{};
     std::uint64_t cuda_voxel_segments{};
     double cuda_task_expansion_ms{}, cuda_task_evaluation_ms{}, cuda_task_fusion_ms{};
+    double sensor_gather_ms{}, sensor_mask_ms{}, sensor_discovery_ms{}, sensor_fusion_ms{};
+    double sensor_graph_setup_ms{}, sensor_upload_ms{}, sensor_readback_ms{};
+    std::uint64_t sensor_candidate_voxels{}, sensor_kernel_launches{};
     double cuda_compact_discovery_ms{}, cuda_compact_accumulation_ms{};
     double cuda_compact_validation_ms{}, cuda_compact_clear_ms{};
     double cuda_skip_clear_discovery_ms{}, cuda_skip_accumulation_ms{}, cuda_skip_validation_ms{}, cuda_skip_finalize_ms{};

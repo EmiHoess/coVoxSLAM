@@ -49,6 +49,8 @@ operation_result<transfer_times> gpu_map::integrate(const gpu_grid& source, pose
         slots.push_back(found->second);
     }
     transfer_times result;
+    result.candidate_voxels = std::uint64_t(slots.size()) * 512;
+    result.kernel_launches = 1 + !slots.empty();
     result.discovery_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
     if (!new_keys.empty()) status = data.check(cudaMemcpyAsync(data.keys + first, new_keys.data(),
         new_keys.size() * sizeof(*data.keys), cudaMemcpyHostToDevice, data.stream));

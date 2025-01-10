@@ -34,6 +34,14 @@ operation_result<combined_times> combined_map::integrate(std::span<const float> 
     combined_times result;
     result.gather = *gathered;
     result.transfer = *transferred;
+    const auto rows = grid->statistics();
+    result.kernel_launches = 1 + transferred->kernel_launches;
+    if (policy.first_entry_only) ++result.kernel_launches;
+    else {
+        result.kernel_launches += rows.short_rows != 0;
+        result.kernel_launches += policy.max_rays ? rows.warp_rows + rows.block_rows != 0 : rows.warp_rows != 0;
+        result.kernel_launches += !policy.max_rays && rows.block_rows != 0;
+    }
     result.integration_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
     result.completed_scans = ++totals.completed_scans;
     totals.integration_ms += result.integration_ms;
@@ -44,6 +52,9 @@ operation_result<combined_times> combined_map::integrate(std::span<const float> 
     totals.transfer.discovery_ms += transferred->discovery_ms;
     totals.transfer.fusion_ms += transferred->fusion_ms;
     totals.transfer.updates += transferred->updates;
+    totals.transfer.candidate_voxels += transferred->candidate_voxels;
+    totals.transfer.kernel_launches += transferred->kernel_launches;
+    totals.kernel_launches += result.kernel_launches;
      return result;
 }
 operation_result<tsdf_tiles> combined_map::download()

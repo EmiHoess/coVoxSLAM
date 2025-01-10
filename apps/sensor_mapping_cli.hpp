@@ -122,6 +122,18 @@ inline operation_result<pipeline_callbacks> sensor_mapping_callbacks(const senso
         submap completed;
         completed.frame = frame; completed.optimized_world_pose = frame.anchor;
         completed.config = config; completed.statistics = state->statistics;
+        if (state->combined) {
+            const auto timing = state->combined->statistics();
+            completed.statistics.sensor_gather_ms = timing.gather.gather_ms;
+            completed.statistics.sensor_upload_ms = timing.gather.upload_ms;
+            completed.statistics.sensor_graph_setup_ms = timing.gather.graph_setup_ms;
+            completed.statistics.sensor_mask_ms = timing.transfer.mask_ms;
+            completed.statistics.sensor_discovery_ms = timing.transfer.discovery_ms;
+            completed.statistics.sensor_fusion_ms = timing.transfer.fusion_ms;
+            completed.statistics.sensor_readback_ms = timing.readback_ms;
+            completed.statistics.sensor_candidate_voxels = timing.transfer.candidate_voxels;
+            completed.statistics.sensor_kernel_launches = timing.kernel_launches;
+        }
         completed.tsdf = std::move(*tiles);
         completed.statistics.allocated_tiles = completed.tsdf.size();
         if (config.esdf_generator == esdf_backend::cpu_blocks_batch)

@@ -270,6 +270,15 @@ void map_exporter::write(const submap& value)
              << ",\"cuda_task_expansion_ms\":" << statistics.cuda_task_expansion_ms
              << ",\"cuda_task_evaluation_ms\":" << statistics.cuda_task_evaluation_ms
              << ",\"cuda_task_fusion_ms\":" << statistics.cuda_task_fusion_ms
+             << ",\"sensor_gather_ms\":" << statistics.sensor_gather_ms
+             << ",\"sensor_upload_ms\":" << statistics.sensor_upload_ms
+             << ",\"sensor_graph_setup_ms\":" << statistics.sensor_graph_setup_ms
+             << ",\"sensor_mask_ms\":" << statistics.sensor_mask_ms
+             << ",\"sensor_discovery_ms\":" << statistics.sensor_discovery_ms
+             << ",\"sensor_fusion_ms\":" << statistics.sensor_fusion_ms
+             << ",\"sensor_readback_ms\":" << statistics.sensor_readback_ms
+             << ",\"sensor_candidate_voxels\":" << statistics.sensor_candidate_voxels
+             << ",\"sensor_kernel_launches\":" << statistics.sensor_kernel_launches
              << ",\"cuda_compact_discovery_ms\":" << statistics.cuda_compact_discovery_ms
              << ",\"cuda_compact_accumulation_ms\":" << statistics.cuda_compact_accumulation_ms
              << ",\"cuda_compact_validation_ms\":" << statistics.cuda_compact_validation_ms
