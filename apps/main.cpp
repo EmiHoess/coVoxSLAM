@@ -59,6 +59,8 @@ void usage()
               << "  --verification cached|full  Default cached\n"
               << "  --submaps --dataset PATH --backend cpu-ray|cuda-ray|cuda-projective  Build local TSDF maps\n"
               << "    --backend cuda-sensor-grid --sensor-grid-interpolation nearest|tetrahedral|trilinear|exact-overlap\n"
+              << "    --backend cuda-sensor-grid-combined --sensor-grid-execution stream|cuda-graph\n"
+              << "    --sensor-grid-short-list-max 16 --sensor-grid-block-list-min 1024\n"
               << "    --sensor-grid-interpolation neighborhood8|neighborhood27  Strict equal coefficient stencils\n"
               << "    --sensor-grid-gather csr|warp-soa-prepared|thread-interleaved-prepared|warp-soa-hybrid-prepared\n"
               << "    --sensor-grid-short-list-max positive_integer\n"

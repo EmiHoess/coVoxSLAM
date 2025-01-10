@@ -64,7 +64,16 @@ inline int run_submap_cli(int argc, char** argv)
             const std::string_view value(argv[index + 1]);
             switch (lookup_cli_option(option, sensor_mapping_options)) {
             case sensor_mapping_option::backend:
-                if (value == "cuda-sensor-grid") { sensor_selected = mapping_enabled = true; continue; }
+                switch (lookup_cli_option(value, sensor_backend_choices)) {
+                case sensor_backend_choice::sensor:
+                    sensor_selected = mapping_enabled = true;
+                    continue;
+                case sensor_backend_choice::combined:
+                    sensor_selected = mapping_enabled = true;
+                    sensor_gather.backend = sensor_grid::gather_backend::hybrid_combined;
+                    continue;
+                default: break;
+                }
                 sensor_selected = false;
                 break;
             case sensor_mapping_option::interpolation:

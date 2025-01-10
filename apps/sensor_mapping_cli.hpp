@@ -10,6 +10,11 @@
 
 namespace covoxslam
 {
+enum class sensor_backend_choice { unknown, sensor, combined };
+inline constexpr cli_option_entry<sensor_backend_choice> sensor_backend_choices[]{
+    {"cuda-sensor-grid", sensor_backend_choice::sensor},
+    {"cuda-sensor-grid-combined", sensor_backend_choice::combined}
+};
 enum class sensor_mapping_option { unknown, backend, interpolation, gather, threshold, block_threshold, execution };
 inline constexpr cli_option_entry<sensor_mapping_option> sensor_mapping_options[]{
     {"--backend", sensor_mapping_option::backend}, {"--sensor-grid-interpolation", sensor_mapping_option::interpolation},
