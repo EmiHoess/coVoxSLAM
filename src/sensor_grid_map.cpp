@@ -5,19 +5,27 @@ namespace covoxslam::sensor_grid
 gpu_map::gpu_map() = default;
 gpu_map::~gpu_map() = default;
 operation_result<std::unique_ptr<gpu_map>> gpu_map::create(const lookup& table,
-    std::uint32_t capacity, int device, std::size_t maximum_bytes)
+    std::uint32_t capacity, int device, std::size_t maximum_bytes, transfer_options options)
 {
     auto status = validate_lookup(table);
 
     if (!status) return std::unexpected(status.error());
     const std::size_t side = (table.grid.side + 7) / 8, count = side * side * side;
-    const std::size_t bytes = std::size_t(capacity) * (sizeof(detail::cuda_tsdf_tile) + 16) + count + 8;
-    if (!capacity || capacity > 1048576 || device < 0 || bytes > maximum_bytes)
+    compact_mask_layout compact;
+    if (options.source_mask == source_mask_mode::compact) {
+        auto built = build_compact_mask(table);
+        if (!built) return std::unexpected(built.error());
+        compact = std::move(*built);
+    }
+    const std::size_t bytes = std::size_t(capacity) * (sizeof(detail::cuda_tsdf_tile) + 16) + count + 8 +
+        (compact.offsets.size() + compact.cells.size()) * 4;
+    if (!capacity || capacity > 1048576 || device < 0 || bytes > maximum_bytes || unsigned(options.source_mask) > 1)
         return std::unexpected(operation_error{"sensor TSDF exceeds storage budget"});
     auto owner = std::unique_ptr<gpu_map>(new gpu_map);
     owner->state = std::make_unique<implementation>();
     auto& data = *owner->state;
     data.settings = table.settings;
+    data.options = options;
      data.grid = table.grid;
     data.capacity = capacity;
     data.device = device;
@@ -31,6 +39,12 @@ operation_result<std::unique_ptr<gpu_map>> gpu_map::create(const lookup& table,
     if (status) status = data.allocate(data.slots, capacity);
     if (status) status = data.allocate(data.mask, count);
     if (status) status = data.allocate(data.updates, 1);
+    if (status && !compact.offsets.empty()) status = data.allocate(data.mask_offsets, compact.offsets.size());
+    if (status && !compact.cells.empty()) status = data.allocate(data.mask_cells, compact.cells.size());
+    if (status && data.mask_offsets) status = data.check(cudaMemcpyAsync(data.mask_offsets, compact.offsets.data(),
+        compact.offsets.size() * 4, cudaMemcpyHostToDevice, data.stream));
+    if (status && data.mask_cells) status = data.check(cudaMemcpyAsync(data.mask_cells, compact.cells.data(),
+        compact.cells.size() * 4, cudaMemcpyHostToDevice, data.stream));
 
     for (auto& event : data.events)
         if (status) status = data.check(cudaEventCreate(&event));

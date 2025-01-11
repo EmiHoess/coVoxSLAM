@@ -2,6 +2,7 @@
 
 #include <covoxslam/sensor_grid_cuda.hpp>
 #include <covoxslam/sensor_grid_sampling.h>
+#include <covoxslam/sensor_grid_masks.hpp>
 #include <covoxslam/mapping.hpp>
 
 namespace covoxslam::sensor_grid
@@ -19,7 +20,8 @@ class gpu_map
      gpu_map();
 public:
     static operation_result<std::unique_ptr<gpu_map>> create(const lookup& table,
-        std::uint32_t capacity = 32768, int device = 0, std::size_t maximum_bytes = 1073741824);
+        std::uint32_t capacity = 32768, int device = 0, std::size_t maximum_bytes = 1073741824,
+        transfer_options options = {});
     ~gpu_map();
     gpu_map(const gpu_map&) = delete;
     gpu_map& operator=(const gpu_map&) = delete;

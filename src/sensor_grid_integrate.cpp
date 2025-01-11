@@ -19,7 +19,9 @@ operation_result<transfer_times> gpu_map::integrate(const gpu_grid& source, pose
     transform.rotation = normalized(q);
     auto status = data.check(cudaSetDevice(data.device));
     if (status) status = data.check(cudaEventRecord(data.events[0], data.stream));
-    if (status) status = data.check(cuda_sensor_mask(field, data.mask, data.stream));
+    if (status) status = data.check(data.options.source_mask == source_mask_mode::compact
+        ? cuda_sensor_compact_mask(field, data.mask_offsets, data.mask_cells, data.mask, data.stream)
+        : cuda_sensor_mask(field, data.mask, data.stream));
     if (status) status = data.check(cudaEventRecord(data.events[1], data.stream));
     if (status) status = data.check(cudaMemcpyAsync(data.flags.data(), data.mask, data.flags.size(), cudaMemcpyDeviceToHost, data.stream));
     status = data.wait(status);

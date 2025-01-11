@@ -16,13 +16,15 @@ struct gpu_map::implementation
     detail::cuda_tile_coordinate* keys{};
     std::uint32_t* slots{};
     std::uint8_t* mask{};
+    std::uint32_t* mask_offsets{}, *mask_cells{};
+    transfer_options options{};
     unsigned long long* updates{};
     std::vector<std::uint8_t> flags;
     std::vector<int3> indices;
     std::unordered_map<int3, std::uint32_t, int3_hash> index;
     cudaStream_t stream{};
     std::array<cudaEvent_t, 4> events{};
-    std::array<void*, 5> allocations{};
+    std::array<void*, 7> allocations{};
     std::size_t allocated{};
     bool selected{}, failed{};
     operation_status check(int code)

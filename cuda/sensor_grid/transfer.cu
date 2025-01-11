@@ -7,6 +7,22 @@ namespace covoxslam::sensor_grid
 {
 namespace
 {
+__global__ void compact_mask_cells(field_view source, const std::uint32_t* offsets,
+    const std::uint32_t* cells, std::uint8_t* flags)
+{
+    const auto tile = blockIdx.x;
+    bool observed{};
+
+    for (std::size_t i = std::size_t(offsets[tile]) + threadIdx.x;
+         i < offsets[tile + 1] && !observed; i += blockDim.x)
+    {
+        const auto value = source.voxels[cells[i]];
+        observed = value.contributions && value.weight > 0 && isfinite(value.weight) && isfinite(value.distance);
+    }
+    const auto any = __syncthreads_or(observed);
+
+    if (!threadIdx.x) flags[tile] = any ? 1 : 0;
+}
 __global__ void mask_cells(field_view source, unsigned n, std::uint8_t* flags)
 {
     const auto block = blockIdx.x, local = threadIdx.x;
@@ -72,6 +88,15 @@ int cuda_sensor_mask(field_view source, std::uint8_t* flags, void* stream)
     if (!source.voxels || !source.side || source.side > 1624 || !flags) return int(cudaErrorInvalidValue);
     const auto n = (source.side + 7) / 8;
     mask_cells<<<n * n * n, 512, 0, static_cast<cudaStream_t>(stream)>>>(source, n, flags);
+    return int(cudaGetLastError());
+}
+int cuda_sensor_compact_mask(field_view source, const std::uint32_t* offsets,
+    const std::uint32_t* cells, std::uint8_t* flags, void* stream)
+{
+    if (!source.voxels || !source.side || source.side > 1624 || !offsets || !cells || !flags)
+        return int(cudaErrorInvalidValue);
+    const auto n = (source.side + 7) / 8;
+    compact_mask_cells<<<n * n * n, 128, 0, static_cast<cudaStream_t>(stream)>>>(source, offsets, cells, flags);
     return int(cudaGetLastError());
 }
 int cuda_sensor_transfer(field_view source, interpolation mode, const std::uint32_t* slots,
