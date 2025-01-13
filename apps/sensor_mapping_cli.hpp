@@ -15,13 +15,18 @@ inline constexpr cli_option_entry<sensor_backend_choice> sensor_backend_choices[
     {"cuda-sensor-grid", sensor_backend_choice::sensor},
     {"cuda-sensor-grid-combined", sensor_backend_choice::combined}
 };
-enum class sensor_mapping_option { unknown, backend, interpolation, gather, threshold, block_threshold, execution };
+enum class sensor_mapping_option { unknown, backend, interpolation, gather, threshold, block_threshold, execution, source_mask };
 inline constexpr cli_option_entry<sensor_mapping_option> sensor_mapping_options[]{
     {"--backend", sensor_mapping_option::backend}, {"--sensor-grid-interpolation", sensor_mapping_option::interpolation},
     {"--sensor-grid-gather", sensor_mapping_option::gather},
     {"--sensor-grid-short-list-max", sensor_mapping_option::threshold},
     {"--sensor-grid-block-list-min", sensor_mapping_option::block_threshold},
-    {"--sensor-grid-execution", sensor_mapping_option::execution}
+    {"--sensor-grid-execution", sensor_mapping_option::execution},
+    {"--sensor-grid-source-mask", sensor_mapping_option::source_mask}
+};
+enum class source_mask_choice { unknown, dense, compact };
+inline constexpr cli_option_entry<source_mask_choice> source_mask_choices[]{
+    {"dense", source_mask_choice::dense}, {"compact", source_mask_choice::compact}
 };
 enum class sensor_sampling_value { unknown, nearest, tetrahedral, trilinear, overlap, neighborhood8, neighborhood27 };
 inline constexpr cli_option_entry<sensor_sampling_value> sensor_sampling_values[]{
@@ -44,7 +49,7 @@ inline const char* sensor_sampling_name(sensor_grid::interpolation mode)
 inline operation_result<pipeline_callbacks> sensor_mapping_callbacks(const sensor& model, mapping_config config,
     int device, std::optional<operation_error>& failure, std::function<void(const submap&)> publish,
     std::function<void(submap&)> finalize, sensor_grid::interpolation mode, sensor_grid::gather_options gather,
-    std::size_t maximum_bytes)
+    std::size_t maximum_bytes, sensor_grid::transfer_options transfer = {})
 {
     if (!config.valid() || config.maximum_tiles > 1048576)
         return std::unexpected(operation_error{"invalid sensor mapping configuration"});
@@ -69,14 +74,14 @@ inline operation_result<pipeline_callbacks> sensor_mapping_callbacks(const senso
     auto state = std::make_shared<context>();
     if (gather.backend == sensor_grid::gather_backend::hybrid_combined) {
         auto combined = sensor_grid::combined_map::create(*table,
-            static_cast<std::uint32_t>(config.maximum_tiles), device, maximum_bytes, gather);
+            static_cast<std::uint32_t>(config.maximum_tiles), device, maximum_bytes, gather, transfer);
         if (!combined) return std::unexpected(combined.error());
         state->combined = std::move(*combined);
     } else {
         auto grid = sensor_grid::gpu_grid::create(*table, device, maximum_bytes, gather);
         if (!grid) return std::unexpected(grid.error());
         auto map = sensor_grid::gpu_map::create(*table, static_cast<std::uint32_t>(config.maximum_tiles),
-            device, maximum_bytes - (*grid)->device_bytes());
+            device, maximum_bytes - (*grid)->device_bytes(), transfer);
         if (!map) return std::unexpected(map.error());
         state->grid = std::move(*grid); state->map = std::move(*map);
     }

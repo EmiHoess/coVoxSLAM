@@ -4,14 +4,14 @@
 namespace covoxslam::sensor_grid
 {
 operation_result<std::unique_ptr<combined_map>> combined_map::create(const lookup& table,
-    std::uint32_t capacity, int device, std::size_t maximum_bytes, gather_options options)
+    std::uint32_t capacity, int device, std::size_t maximum_bytes, gather_options options, transfer_options transfer)
 {
     if (options.backend != gather_backend::hybrid_combined)
         return std::unexpected(operation_error{"combined mapping requires combined gathering"});
     auto grid = gpu_grid::create(table, device, maximum_bytes, options);
 
     if (!grid) return std::unexpected(grid.error());
-    auto map = gpu_map::create(table, capacity, device, maximum_bytes - (*grid)->device_bytes());
+    auto map = gpu_map::create(table, capacity, device, maximum_bytes - (*grid)->device_bytes(), transfer);
 
     if (!map) return std::unexpected(map.error());
     auto result = std::unique_ptr<combined_map>(new combined_map);

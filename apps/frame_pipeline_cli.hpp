@@ -45,6 +45,7 @@ inline int run_submap_cli(int argc, char** argv)
         bool sensor_selected{};
         bool sensor_options_set{};
         sensor_grid::gather_options sensor_gather;
+        sensor_grid::transfer_options sensor_transfer;
         auto sensor_mode = sensor_grid::interpolation::trilinear;
         cuda_mapping_cli_options cuda_options;
         resident_cli_options resident_options;
@@ -112,6 +113,14 @@ inline int run_submap_cli(int argc, char** argv)
                 sensor_options_set = true;
                 continue;
             }
+            case sensor_mapping_option::source_mask:
+                switch (lookup_cli_option(value, source_mask_choices)) {
+                case source_mask_choice::dense: sensor_transfer.source_mask = sensor_grid::source_mask_mode::dense; break;
+                case source_mask_choice::compact: sensor_transfer.source_mask = sensor_grid::source_mask_mode::compact; break;
+                default: return report_error("sensor source mask must be dense or compact");
+                }
+                sensor_options_set = true;
+                continue;
             default: break;
             }
             const auto resident_parsed = parse_resident_option(option, value, resident_options);
@@ -269,7 +278,10 @@ inline int run_submap_cli(int argc, char** argv)
         if (gpu) std::cout << "ray fusion " << cuda_ray_fusion_name(fusion_options.mode)
                            << ", short threshold " << fusion_options.short_segment_threshold
                            << ", maximum rays per batch " << cuda_options.mapper.ray_capacity << '\n';
-        auto exporter = open_map_export(output, input, mapping_options, backend,
+        std::string backend_label = backend;
+        if (sensor_selected && sensor_transfer.source_mask == sensor_grid::source_mask_mode::compact)
+            backend_label += "-compact-mask";
+        auto exporter = open_map_export(output, input, mapping_options, backend_label,
             sensor_selected ? sensor_sampling_name(sensor_mode) : resident ? resident_fusion_name(resident->fusion_order(), resident->reduction_mode(), resident->uses_step_tasks(), resident->warp_configuration().mode, resident->free_space_configuration().enabled, resident->segment_length() != 0, resident->uses_compact(), resident->uses_compact_batched(), resident->uses_fp32()) : "unspecified");
         const auto publish = [&](const submap& completed) { if (exporter) exporter->write(completed); };
         auto callbacks = resident ? resident_callbacks(*resident, mapping_options, resident_failure, publish, finalize) :
@@ -278,7 +290,7 @@ inline int run_submap_cli(int argc, char** argv)
             cpu ? mapping_callbacks(*cpu, publish, finalize) : pipeline_callbacks{};
         if (sensor_selected) {
             auto selected = sensor_mapping_callbacks(input.sensor, mapper_options, cuda_options.mapper.device,
-                resident_failure, publish, finalize, sensor_mode, sensor_gather, cuda_options.mapper.maximum_device_bytes);
+                resident_failure, publish, finalize, sensor_mode, sensor_gather, cuda_options.mapper.maximum_device_bytes, sensor_transfer);
             if (!selected) return report_error(selected.error().message);
             callbacks = std::move(*selected);
             std::cout << "sensor field uses calibrated ranges and scan start poses\n";
