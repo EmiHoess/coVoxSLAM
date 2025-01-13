@@ -33,6 +33,12 @@ inline operation_result<compact_mask_layout> build_compact_mask(const lookup& ta
 
     for (auto cell : table.active_voxels)
         result.cells[cursor[tile_of(cell)]++] = cell;
+    if (result.offsets.back() != result.cells.size())
+        return std::unexpected(operation_error{"invalid compact mask coverage"});
+
+    for (std::size_t tile = 0; tile < tiles; ++tile)
+        if (cursor[tile] != result.offsets[tile + 1] || result.offsets[tile + 1] - result.offsets[tile] > 512)
+            return std::unexpected(operation_error{"invalid compact mask tile ownership"});
     return result;
 }
 }

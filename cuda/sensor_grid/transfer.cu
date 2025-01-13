@@ -11,6 +11,11 @@ __global__ void compact_mask_cells(field_view source, const std::uint32_t* offse
     const std::uint32_t* cells, std::uint8_t* flags)
 {
     const auto tile = blockIdx.x;
+    if (offsets[tile] == offsets[tile + 1])
+    {
+        if (!threadIdx.x) flags[tile] = 0;
+        return;
+    }
     bool observed{};
 
     for (std::size_t i = std::size_t(offsets[tile]) + threadIdx.x;
