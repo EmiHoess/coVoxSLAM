@@ -1,10 +1,15 @@
 #pragma once
 #include <covoxslam/sensor_grid.hpp>
+#include <covoxslam/sensor_grid_fp32.h>
 
 namespace covoxslam::sensor_grid
 {
 enum class source_mask_mode : std::uint32_t { dense, compact };
-struct transfer_options { source_mask_mode source_mask{source_mask_mode::dense}; };
+struct transfer_options
+{
+    source_mask_mode source_mask{source_mask_mode::dense};
+    transfer_arithmetic arithmetic{transfer_arithmetic::fp64};
+};
 struct compact_mask_layout
 {
     std::vector<std::uint32_t> offsets, cells;

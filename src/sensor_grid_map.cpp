@@ -19,7 +19,8 @@ operation_result<std::unique_ptr<gpu_map>> gpu_map::create(const lookup& table,
     }
     const std::size_t bytes = std::size_t(capacity) * (sizeof(detail::cuda_tsdf_tile) + 16) + count + 8 +
         (compact.offsets.size() + compact.cells.size()) * 4;
-    if (!capacity || capacity > 1048576 || device < 0 || bytes > maximum_bytes || unsigned(options.source_mask) > 1)
+    if (!capacity || capacity > 1048576 || device < 0 || bytes > maximum_bytes ||
+        unsigned(options.source_mask) > 1 || unsigned(options.arithmetic) > 1)
         return std::unexpected(operation_error{"sensor TSDF exceeds storage budget"});
     auto owner = std::unique_ptr<gpu_map>(new gpu_map);
     owner->state = std::make_unique<implementation>();
