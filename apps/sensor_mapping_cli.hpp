@@ -15,18 +15,23 @@ inline constexpr cli_option_entry<sensor_backend_choice> sensor_backend_choices[
     {"cuda-sensor-grid", sensor_backend_choice::sensor},
     {"cuda-sensor-grid-combined", sensor_backend_choice::combined}
 };
-enum class sensor_mapping_option { unknown, backend, interpolation, gather, threshold, block_threshold, execution, source_mask };
+enum class sensor_mapping_option { unknown, backend, interpolation, gather, threshold, block_threshold, execution, source_mask, transfer_precision };
 inline constexpr cli_option_entry<sensor_mapping_option> sensor_mapping_options[]{
     {"--backend", sensor_mapping_option::backend}, {"--sensor-grid-interpolation", sensor_mapping_option::interpolation},
     {"--sensor-grid-gather", sensor_mapping_option::gather},
     {"--sensor-grid-short-list-max", sensor_mapping_option::threshold},
     {"--sensor-grid-block-list-min", sensor_mapping_option::block_threshold},
     {"--sensor-grid-execution", sensor_mapping_option::execution},
-    {"--sensor-grid-source-mask", sensor_mapping_option::source_mask}
+    {"--sensor-grid-source-mask", sensor_mapping_option::source_mask},
+    {"--sensor-grid-transfer-precision", sensor_mapping_option::transfer_precision}
 };
 enum class source_mask_choice { unknown, dense, compact };
 inline constexpr cli_option_entry<source_mask_choice> source_mask_choices[]{
     {"dense", source_mask_choice::dense}, {"compact", source_mask_choice::compact}
+};
+enum class transfer_precision_choice { unknown, fp32, fp64 };
+inline constexpr cli_option_entry<transfer_precision_choice> transfer_precision_choices[]{
+    {"32", transfer_precision_choice::fp32}, {"64", transfer_precision_choice::fp64}
 };
 enum class sensor_sampling_value { unknown, nearest, tetrahedral, trilinear, overlap, neighborhood8, neighborhood27 };
 inline constexpr cli_option_entry<sensor_sampling_value> sensor_sampling_values[]{

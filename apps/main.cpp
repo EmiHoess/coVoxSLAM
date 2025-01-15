@@ -62,6 +62,7 @@ void usage()
               << "    --backend cuda-sensor-grid-combined --sensor-grid-execution stream|cuda-graph\n"
               << "    --sensor-grid-short-list-max 16 --sensor-grid-block-list-min 1024\n"
               << "    --sensor-grid-source-mask dense|compact\n"
+              << "    --sensor-grid-transfer-precision 32|64 (independent of gather precision)\n"
               << "    --sensor-grid-interpolation neighborhood8|neighborhood27  Strict equal coefficient stencils\n"
               << "    --sensor-grid-gather csr|warp-soa-prepared|thread-interleaved-prepared|warp-soa-hybrid-prepared\n"
               << "    --sensor-grid-short-list-max positive_integer\n"

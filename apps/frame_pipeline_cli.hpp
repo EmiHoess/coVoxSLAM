@@ -121,6 +121,14 @@ inline int run_submap_cli(int argc, char** argv)
                 }
                 sensor_options_set = true;
                 continue;
+            case sensor_mapping_option::transfer_precision:
+                switch (lookup_cli_option(value, transfer_precision_choices)) {
+                case transfer_precision_choice::fp32: sensor_transfer.arithmetic = sensor_grid::transfer_arithmetic::fp32; break;
+                case transfer_precision_choice::fp64: sensor_transfer.arithmetic = sensor_grid::transfer_arithmetic::fp64; break;
+                default: return report_error("sensor transfer precision must be 32 or 64");
+                }
+                sensor_options_set = true;
+                continue;
             default: break;
             }
             const auto resident_parsed = parse_resident_option(option, value, resident_options);
@@ -212,6 +220,8 @@ inline int run_submap_cli(int argc, char** argv)
         }
          if (root.empty()) return report_error("--submaps requires --dataset directory");
         if (sensor_options_set && !sensor_selected) return report_error("sensor options require cuda-sensor-grid");
+        if (sensor_selected && sensor_transfer.arithmetic == sensor_grid::transfer_arithmetic::fp32 && unsigned(sensor_mode) > 2)
+            return report_error("fp32 transfer supports nearest, tetrahedral or trilinear sampling");
         if (!options.submap_duration_ns || !options.ring_stride || !options.column_stride)
             return report_error("duration and sampling strides must be positive");
         if (!output.empty() && !mapping_enabled)
@@ -281,6 +291,8 @@ inline int run_submap_cli(int argc, char** argv)
         std::string backend_label = backend;
         if (sensor_selected && sensor_transfer.source_mask == sensor_grid::source_mask_mode::compact)
             backend_label += "-compact-mask";
+        if (sensor_selected && sensor_transfer.arithmetic == sensor_grid::transfer_arithmetic::fp32)
+            backend_label += "-fp32-transfer";
         auto exporter = open_map_export(output, input, mapping_options, backend_label,
             sensor_selected ? sensor_sampling_name(sensor_mode) : resident ? resident_fusion_name(resident->fusion_order(), resident->reduction_mode(), resident->uses_step_tasks(), resident->warp_configuration().mode, resident->free_space_configuration().enabled, resident->segment_length() != 0, resident->uses_compact(), resident->uses_compact_batched(), resident->uses_fp32()) : "unspecified");
         const auto publish = [&](const submap& completed) { if (exporter) exporter->write(completed); };
