@@ -279,6 +279,7 @@ void map_exporter::write(const submap& value)
              << ",\"sensor_readback_ms\":" << statistics.sensor_readback_ms
              << ",\"sensor_candidate_voxels\":" << statistics.sensor_candidate_voxels
              << ",\"sensor_kernel_launches\":" << statistics.sensor_kernel_launches
+             << ",\"sensor_transfer_bits\":" << statistics.sensor_transfer_bits
              << ",\"cuda_compact_discovery_ms\":" << statistics.cuda_compact_discovery_ms
              << ",\"cuda_compact_accumulation_ms\":" << statistics.cuda_compact_accumulation_ms
              << ",\"cuda_compact_validation_ms\":" << statistics.cuda_compact_validation_ms

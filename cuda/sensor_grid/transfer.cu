@@ -81,18 +81,22 @@ __global__ void transfer_cells(field_view source, interpolation mode, const std:
     {
         auto value = tiles[slot].voxels[local];
         const float old = value.flags & 1U ? value.weight : 0.f;
-        const double total = double(old) + measured.weight;
-        value.distance = static_cast<float>((double(old) * (old > 0 ? value.distance : 0.f) +
-            double(measured.weight) * measured.distance) / total);
-        value.weight = static_cast<float>(fmin(double(maximum_weight), total));
+        bool use_wide = true;
         if constexpr (fp32) {
             const float total32 = old + measured.weight;
-            const float distance32 = (old * (old > 0 ? tiles[slot].voxels[local].distance : 0.f) +
+            const float distance32 = (old * (old > 0 ? value.distance : 0.f) +
                 measured.weight * measured.distance) / total32;
             if (isfinite(total32) && isfinite(distance32)) {
                 value.distance = distance32;
                 value.weight = fminf(maximum_weight, total32);
+                use_wide = false;
             }
+        }
+        if (use_wide) {
+            const double total = double(old) + measured.weight;
+            value.distance = static_cast<float>((double(old) * (old > 0 ? value.distance : 0.f) +
+                double(measured.weight) * measured.distance) / total);
+            value.weight = static_cast<float>(fmin(double(maximum_weight), total));
         }
         value.flags = 1U | (fabsf(value.distance) <= band ? 2U : 0U);
         if (value.sample_count != UINT32_MAX) ++value.sample_count;

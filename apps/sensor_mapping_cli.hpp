@@ -87,9 +87,10 @@ inline operation_result<pipeline_callbacks> sensor_mapping_callbacks(const senso
     }
     state->ranges.resize(directions->size());
     pipeline_callbacks callbacks;
-    callbacks.begin = [state, &failure](const submap_frame&) {
+    callbacks.begin = [state, &failure, transfer](const submap_frame&) {
         state->statistics = {};
         state->statistics.cuda_accumulator_bits = sensor_grid::accumulation_bits;
+        state->statistics.sensor_transfer_bits = transfer.arithmetic == sensor_grid::transfer_arithmetic::fp32 ? 32 : 64;
         const auto result = state->combined ? state->combined->reset() : state->map->reset();
         if (!result) failure = result.error();
     };
