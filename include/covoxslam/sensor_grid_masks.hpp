@@ -9,6 +9,7 @@ struct transfer_options
 {
     source_mask_mode source_mask{source_mask_mode::dense};
     transfer_arithmetic arithmetic{transfer_arithmetic::fp64};
+    bool specialized{};
 };
 struct compact_mask_layout
 {

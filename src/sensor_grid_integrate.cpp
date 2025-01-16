@@ -13,6 +13,7 @@ operation_result<transfer_times> gpu_map::integrate(const gpu_grid& source, pose
 
     if (data.failed || !field.voxels || source.device_index() != data.device || unsigned(mode) > 5 ||
         (data.options.arithmetic == transfer_arithmetic::fp32 && unsigned(mode) > 2) ||
+        (data.options.specialized && (data.options.arithmetic != transfer_arithmetic::fp64 || mode != interpolation::trilinear)) ||
         field.side != data.grid.side || field.origin != data.grid.origin || field.voxel_size != data.settings.voxel_size ||
         !std::isfinite(norm) || std::abs(norm - 1) > .001 || !std::isfinite(transform.translation.x) ||
         !std::isfinite(transform.translation.y) || !std::isfinite(transform.translation.z))
@@ -65,7 +66,8 @@ operation_result<transfer_times> gpu_map::integrate(const gpu_grid& source, pose
         {rotation.x, rotation.y, rotation.z, rotation.w}};
     if (status) status = data.check(cuda_sensor_transfer(field, mode, data.slots, static_cast<std::uint32_t>(slots.size()),
         data.keys, data.tiles, packed, data.settings.voxel_size, data.settings.maximum_weight,
-        data.settings.voxel_size, data.updates, data.stream, data.options.arithmetic == transfer_arithmetic::fp32));
+        data.settings.voxel_size, data.updates, data.stream, data.options.arithmetic == transfer_arithmetic::fp32,
+        data.options.specialized));
     if (status) status = data.check(cudaEventRecord(data.events[3], data.stream));
     if (status) status = data.check(cudaMemcpyAsync(&result.updates, data.updates, 8, cudaMemcpyDeviceToHost, data.stream));
     status = data.wait(status);

@@ -2,6 +2,7 @@
 #include <covoxslam/sensor_grid_overlap.h>
 #include <covoxslam/sensor_grid_neighborhood.h>
 #include <covoxslam/sensor_grid_fp32.h>
+#include "specialized.cuh"
 #include "../projective/geometry.cuh"
 
 namespace covoxslam::sensor_grid
@@ -126,13 +127,16 @@ int cuda_sensor_compact_mask(field_view source, const std::uint32_t* offsets,
 int cuda_sensor_transfer(field_view source, interpolation mode, const std::uint32_t* slots,
     std::uint32_t count, const detail::cuda_tile_coordinate* keys, detail::cuda_tsdf_tile* tiles,
     detail::cuda_projective_pose transform, float size, float maximum_weight, float band,
-    unsigned long long* updates, void* stream, bool fp32)
+    unsigned long long* updates, void* stream, bool fp32, bool specialized)
 {
     if (!count) return int(cudaSuccess);
+    if (specialized && (fp32 || mode != interpolation::trilinear)) return int(cudaErrorInvalidValue);
     if (!source.voxels || !slots || !keys || !tiles || !updates || unsigned(mode) > 5 || (fp32 && unsigned(mode) > 2) ||
         !(size > 0) || !isfinite(size) || !(maximum_weight > 0) || !isfinite(maximum_weight) ||
         !(band >= 0) || !isfinite(band)) return int(cudaErrorInvalidValue);
-    if (fp32) transfer_cells<true><<<count * 4, 128, 0, static_cast<cudaStream_t>(stream)>>>(source, mode, slots, keys, tiles,
+    if (specialized) specialized_transfer<<<count, 128, 0, static_cast<cudaStream_t>(stream)>>>(source, slots, keys, tiles,
+        transform, prepare_affine(transform, size), size, maximum_weight, band, updates);
+    else if (fp32) transfer_cells<true><<<count * 4, 128, 0, static_cast<cudaStream_t>(stream)>>>(source, mode, slots, keys, tiles,
         transform, size, maximum_weight, band, updates);
     else transfer_cells<false><<<count * 4, 128, 0, static_cast<cudaStream_t>(stream)>>>(source, mode, slots, keys, tiles,
         transform, size, maximum_weight, band, updates);
