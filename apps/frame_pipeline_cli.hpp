@@ -129,6 +129,14 @@ inline int run_submap_cli(int argc, char** argv)
                 }
                 sensor_options_set = true;
                 continue;
+            case sensor_mapping_option::transfer_kernel:
+                switch (lookup_cli_option(value, transfer_kernel_choices)) {
+                case transfer_kernel_choice::reference: sensor_transfer.specialized = false; break;
+                case transfer_kernel_choice::specialized: sensor_transfer.specialized = true; break;
+                default: return report_error("sensor transfer must be reference or specialized");
+                }
+                sensor_options_set = true;
+                continue;
             default: break;
             }
             const auto resident_parsed = parse_resident_option(option, value, resident_options);
@@ -222,6 +230,9 @@ inline int run_submap_cli(int argc, char** argv)
         if (sensor_options_set && !sensor_selected) return report_error("sensor options require cuda-sensor-grid");
         if (sensor_selected && sensor_transfer.arithmetic == sensor_grid::transfer_arithmetic::fp32 && unsigned(sensor_mode) > 2)
             return report_error("fp32 transfer supports nearest, tetrahedral or trilinear sampling");
+        if (sensor_selected && sensor_transfer.specialized && (sensor_mode != sensor_grid::interpolation::trilinear ||
+            sensor_transfer.arithmetic != sensor_grid::transfer_arithmetic::fp64))
+            return report_error("specialized transfer requires fp64 trilinear sampling");
         if (!options.submap_duration_ns || !options.ring_stride || !options.column_stride)
             return report_error("duration and sampling strides must be positive");
         if (!output.empty() && !mapping_enabled)
@@ -293,6 +304,7 @@ inline int run_submap_cli(int argc, char** argv)
             backend_label += "-compact-mask";
         if (sensor_selected && sensor_transfer.arithmetic == sensor_grid::transfer_arithmetic::fp32)
             backend_label += "-fp32-transfer";
+        if (sensor_selected && sensor_transfer.specialized) backend_label += "-specialized-transfer";
         auto exporter = open_map_export(output, input, mapping_options, backend_label,
             sensor_selected ? sensor_sampling_name(sensor_mode) : resident ? resident_fusion_name(resident->fusion_order(), resident->reduction_mode(), resident->uses_step_tasks(), resident->warp_configuration().mode, resident->free_space_configuration().enabled, resident->segment_length() != 0, resident->uses_compact(), resident->uses_compact_batched(), resident->uses_fp32()) : "unspecified");
         const auto publish = [&](const submap& completed) { if (exporter) exporter->write(completed); };
