@@ -131,9 +131,22 @@ int cuda_sensor_transfer(field_view source, interpolation mode, const std::uint3
 {
     if (!count) return int(cudaSuccess);
     if (specialized && (fp32 || mode != interpolation::trilinear)) return int(cudaErrorInvalidValue);
-    if (!source.voxels || !slots || !keys || !tiles || !updates || unsigned(mode) > 5 || (fp32 && unsigned(mode) > 2) ||
+    if (!sampling_detail::valid_view(source) || !slots || !keys || !tiles || !updates || unsigned(mode) > 5 || (fp32 && unsigned(mode) > 2) ||
         !(size > 0) || !isfinite(size) || !(maximum_weight > 0) || !isfinite(maximum_weight) ||
         !(band >= 0) || !isfinite(band)) return int(cudaErrorInvalidValue);
+    if (specialized) {
+        double norm{};
+
+        for (float value : transform.rotation_xyzw) {
+            if (!std::isfinite(value)) return int(cudaErrorInvalidValue);
+            norm += double(value) * value;
+        }
+
+        for (float value : transform.translation)
+            if (!std::isfinite(value)) return int(cudaErrorInvalidValue);
+
+        if (std::abs(norm - 1) > .001) return int(cudaErrorInvalidValue);
+    }
     if (specialized) specialized_transfer<<<count, 128, 0, static_cast<cudaStream_t>(stream)>>>(source, slots, keys, tiles,
         transform, prepare_affine(transform, size), size, maximum_weight, band, updates);
     else if (fp32) transfer_cells<true><<<count * 4, 128, 0, static_cast<cudaStream_t>(stream)>>>(source, mode, slots, keys, tiles,

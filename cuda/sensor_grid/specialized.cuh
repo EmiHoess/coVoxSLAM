@@ -25,6 +25,10 @@ __device__ inline float coordinate_error_bound(field_view source,
 __device__ inline sample_value specialized_sample(field_view view, float3 point, float error, bool& reference)
 {
     using namespace sampling_detail;
+    if (!(error >= 0) || !finite(error) || error >= .25f) {
+        reference = true;
+        return {};
+    }
     const float u[]{(point.x - view.origin) / view.voxel_size - .5f,
         (point.y - view.origin) / view.voxel_size - .5f, (point.z - view.origin) / view.voxel_size - .5f};
     int base[3]{};
