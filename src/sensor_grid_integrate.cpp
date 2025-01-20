@@ -67,7 +67,7 @@ operation_result<transfer_times> gpu_map::integrate(const gpu_grid& source, pose
     if (status) status = data.check(cuda_sensor_transfer(field, mode, data.slots, static_cast<std::uint32_t>(slots.size()),
         data.keys, data.tiles, packed, data.settings.voxel_size, data.settings.maximum_weight,
         data.settings.voxel_size, data.updates, data.stream, data.options.arithmetic == transfer_arithmetic::fp32,
-        data.options.specialized));
+        data.options.specialized, data.settings.truncation));
     if (status) status = data.check(cudaEventRecord(data.events[3], data.stream));
     if (status) status = data.check(cudaMemcpyAsync(&result.updates, data.updates, 8, cudaMemcpyDeviceToHost, data.stream));
     status = data.wait(status);

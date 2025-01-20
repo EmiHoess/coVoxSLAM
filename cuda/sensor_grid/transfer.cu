@@ -49,7 +49,7 @@ template <bool fp32>
 __global__ void transfer_cells(field_view source, interpolation mode, const std::uint32_t* slots,
     const detail::cuda_tile_coordinate* keys, detail::cuda_tsdf_tile* tiles,
     detail::cuda_projective_pose transform, float size, float maximum_weight, float band,
-    unsigned long long* count)
+    unsigned long long* count, float truncation)
 {
     const auto slot = slots[blockIdx.x / 4], local = (blockIdx.x % 4) * 128 + threadIdx.x;
     const auto key = keys[slot];
@@ -99,6 +99,9 @@ __global__ void transfer_cells(field_view source, interpolation mode, const std:
                 double(measured.weight) * measured.distance) / total);
             value.weight = static_cast<float>(fmin(double(maximum_weight), total));
         }
+        if constexpr (fp32)
+            value.distance = fmaxf(-truncation, fminf(truncation, value.distance));
+
         value.flags = 1U | (fabsf(value.distance) <= band ? 2U : 0U);
         if (value.sample_count != UINT32_MAX) ++value.sample_count;
          tiles[slot].voxels[local] = value;
@@ -127,9 +130,10 @@ int cuda_sensor_compact_mask(field_view source, const std::uint32_t* offsets,
 int cuda_sensor_transfer(field_view source, interpolation mode, const std::uint32_t* slots,
     std::uint32_t count, const detail::cuda_tile_coordinate* keys, detail::cuda_tsdf_tile* tiles,
     detail::cuda_projective_pose transform, float size, float maximum_weight, float band,
-    unsigned long long* updates, void* stream, bool fp32, bool specialized)
+    unsigned long long* updates, void* stream, bool fp32, bool specialized, float truncation)
 {
     if (!count) return int(cudaSuccess);
+    if (fp32 && (!(truncation > 0) || !isfinite(truncation))) return int(cudaErrorInvalidValue);
     if (specialized && (fp32 || mode != interpolation::trilinear)) return int(cudaErrorInvalidValue);
     if (!sampling_detail::valid_view(source) || !slots || !keys || !tiles || !updates || unsigned(mode) > 5 || (fp32 && unsigned(mode) > 2) ||
         !(size > 0) || !isfinite(size) || !(maximum_weight > 0) || !isfinite(maximum_weight) ||
@@ -150,9 +154,9 @@ int cuda_sensor_transfer(field_view source, interpolation mode, const std::uint3
     if (specialized) specialized_transfer<<<count, 128, 0, static_cast<cudaStream_t>(stream)>>>(source, slots, keys, tiles,
         transform, prepare_affine(transform, size), size, maximum_weight, band, updates);
     else if (fp32) transfer_cells<true><<<count * 4, 128, 0, static_cast<cudaStream_t>(stream)>>>(source, mode, slots, keys, tiles,
-        transform, size, maximum_weight, band, updates);
+        transform, size, maximum_weight, band, updates, truncation);
     else transfer_cells<false><<<count * 4, 128, 0, static_cast<cudaStream_t>(stream)>>>(source, mode, slots, keys, tiles,
-        transform, size, maximum_weight, band, updates);
+        transform, size, maximum_weight, band, updates, truncation);
     return int(cudaGetLastError());
 }
 }
