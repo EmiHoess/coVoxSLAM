@@ -4,6 +4,13 @@
 namespace covoxslam::sensor_grid
 {
 enum class combined_path : std::uint32_t { invalid, thread, warp, pipelined_warp, block };
+#if defined(__CUDACC__)
+__host__ __device__
+#endif
+constexpr bool accepts_uncapped_policy(gather_policy policy) noexcept
+{
+    return policy.max_rays == 0 && !policy.first_entry_only;
+}
 struct combined_schedule
 {
     std::uint32_t short_list_max{16}, block_list_min{1024};
