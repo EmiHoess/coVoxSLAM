@@ -305,7 +305,7 @@ inline int run_submap_cli(int argc, char** argv)
         if (sensor_selected && sensor_transfer.arithmetic == sensor_grid::transfer_arithmetic::fp32)
             backend_label += "-fp32-transfer";
         if (sensor_selected && sensor_transfer.specialized) backend_label += "-specialized-transfer";
-        auto exporter = open_map_export(output, input, mapping_options, backend_label,
+        auto exporter = open_map_export(output, input, mapping_options, backend_label.c_str(),
             sensor_selected ? sensor_sampling_name(sensor_mode) : resident ? resident_fusion_name(resident->fusion_order(), resident->reduction_mode(), resident->uses_step_tasks(), resident->warp_configuration().mode, resident->free_space_configuration().enabled, resident->segment_length() != 0, resident->uses_compact(), resident->uses_compact_batched(), resident->uses_fp32()) : "unspecified");
         const auto publish = [&](const submap& completed) { if (exporter) exporter->write(completed); };
         auto callbacks = resident ? resident_callbacks(*resident, mapping_options, resident_failure, publish, finalize) :
