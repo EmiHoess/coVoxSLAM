@@ -5,6 +5,10 @@
 
 namespace covoxslam::sensor_grid
 {
+int cuda_sensor_candidates(field_view source, interpolation mode, const std::uint32_t* active,
+    std::uint32_t active_count, const std::uint32_t* slots, std::uint32_t count,
+    const detail::cuda_tile_coordinate* keys, detail::cuda_projective_pose transform,
+    std::uint32_t* masks, void* stream);
 int cuda_sensor_mask(field_view source, std::uint8_t* flags, void* stream);
 int cuda_sensor_compact_mask(field_view source, const std::uint32_t* offsets,
     const std::uint32_t* cells, std::uint8_t* flags, void* stream);

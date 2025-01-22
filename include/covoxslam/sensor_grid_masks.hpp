@@ -5,11 +5,13 @@
 namespace covoxslam::sensor_grid
 {
 enum class source_mask_mode : std::uint32_t { dense, compact };
+enum class candidate_mode : std::uint32_t { whole_tiles, voxel_mask, compacted_control };
 struct transfer_options
 {
     source_mask_mode source_mask{source_mask_mode::dense};
     transfer_arithmetic arithmetic{transfer_arithmetic::fp64};
     bool specialized{};
+    candidate_mode candidates{candidate_mode::whole_tiles};
 };
 struct compact_mask_layout
 {
