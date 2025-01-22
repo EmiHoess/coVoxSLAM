@@ -46,18 +46,22 @@ __global__ void mask_cells(field_view source, unsigned n, std::uint8_t* flags)
     const auto any = __syncthreads_or(observed);
     if (!local) flags[block] = any ? 1 : 0;
 }
-template <bool fp32>
+template <bool fp32, bool masked = false>
 __global__ void transfer_cells(field_view source, interpolation mode, const std::uint32_t* slots,
     const detail::cuda_tile_coordinate* keys, detail::cuda_tsdf_tile* tiles,
     detail::cuda_projective_pose transform, float size, float maximum_weight, float band,
-    unsigned long long* count, float truncation)
+    unsigned long long* count, float truncation, const std::uint32_t* masks = nullptr,
+    unsigned long long* candidate_count = nullptr)
 {
     const auto slot = slots[blockIdx.x / 4], local = (blockIdx.x % 4) * 128 + threadIdx.x;
     const auto key = keys[slot];
     const float3 point{(key.x * 8 + int(local % 8) + .5f) * size,
         (key.y * 8 + int(local / 8 % 8) + .5f) * size, (key.z * 8 + int(local / 64) + .5f) * size};
     const auto sensor = detail::projective_reference_point(transform, point);
+    bool selected = true;
+    if constexpr (masked) selected = (masks[std::size_t(slot) * 16 + local / 32] & (1U << (local % 32))) != 0;
     const auto measured_sample = [&]() {
+        if (!selected) return sample_value{};
         if constexpr (fp32) return sample_fp32(source, sensor.x, sensor.y, sensor.z, mode);
         return sample(source, sensor.x, sensor.y, sensor.z, mode);
     };
@@ -110,7 +114,34 @@ __global__ void transfer_cells(field_view source, interpolation mode, const std:
     }
     const unsigned updates = __syncthreads_count(updated);
     if (!threadIdx.x && updates) atomicAdd(count, static_cast<unsigned long long>(updates));
+    if constexpr (masked) {
+        const unsigned candidates = __syncthreads_count(selected);
+
+        if (!threadIdx.x) atomicAdd(candidate_count, static_cast<unsigned long long>(candidates));
+    }
 }
+}
+int cuda_sensor_masked_transfer(field_view source, interpolation mode, const std::uint32_t* slots,
+    std::uint32_t count, const detail::cuda_tile_coordinate* keys, detail::cuda_tsdf_tile* tiles,
+    detail::cuda_projective_pose transform, float size, float maximum_weight, float band,
+    const std::uint32_t* masks, unsigned long long* updates, unsigned long long* candidates,
+    void* opaque_stream, bool compacted_control)
+{
+    if (!count) return 0;
+
+    if (!sampling_detail::valid_view(source) || unsigned(mode) > 2 || !slots || !keys || !tiles ||
+        !masks || !updates || !candidates || !(size > 0) || !isfinite(size) ||
+        !(maximum_weight > 0) || !isfinite(maximum_weight) || !(band >= 0) || !isfinite(band))
+        return int(cudaErrorInvalidValue);
+    const auto stream = static_cast<cudaStream_t>(opaque_stream);
+
+    if (compacted_control)
+        compacted_candidate_transfer<<<count, 32, 0, stream>>>(source, mode, slots, keys, masks, tiles,
+            transform, size, maximum_weight, band, updates, candidates);
+    else
+        transfer_cells<false, true><<<count * 4, 128, 0, stream>>>(source, mode, slots, keys, tiles,
+            transform, size, maximum_weight, band, updates, FLT_MAX, masks, candidates);
+    return int(cudaGetLastError());
 }
 int cuda_sensor_mask(field_view source, std::uint8_t* flags, void* stream)
 {
