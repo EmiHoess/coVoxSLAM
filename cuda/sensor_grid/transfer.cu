@@ -3,6 +3,7 @@
 #include <covoxslam/sensor_grid_neighborhood.h>
 #include <covoxslam/sensor_grid_fp32.h>
 #include "specialized.cuh"
+#include "candidates.cuh"
 #include "../projective/geometry.cuh"
 
 namespace covoxslam::sensor_grid
@@ -116,6 +117,26 @@ int cuda_sensor_mask(field_view source, std::uint8_t* flags, void* stream)
     if (!source.voxels || !source.side || source.side > 1624 || !flags) return int(cudaErrorInvalidValue);
     const auto n = (source.side + 7) / 8;
     mask_cells<<<n * n * n, 512, 0, static_cast<cudaStream_t>(stream)>>>(source, n, flags);
+    return int(cudaGetLastError());
+}
+int cuda_sensor_candidates(field_view source, interpolation mode, const std::uint32_t* active,
+    std::uint32_t active_count, const std::uint32_t* slots, std::uint32_t count,
+    const detail::cuda_tile_coordinate* keys, detail::cuda_projective_pose transform,
+    std::uint32_t* masks, void* opaque_stream)
+{
+    if (!count) return 0;
+
+    if (!sampling_detail::valid_view(source) || unsigned(mode) > 2 || !active || !active_count ||
+        !slots || !keys || !masks || active_count > 16777216 || count > 1048576)
+        return int(cudaErrorInvalidValue);
+    const auto bounds = prepare_candidates(source, transform, mode);
+    const auto stream = static_cast<cudaStream_t>(opaque_stream);
+    reset_candidates<<<count, 32, 0, stream>>>(slots, masks, !bounds.safe);
+    const auto error = cudaGetLastError();
+
+    if (error != cudaSuccess || !bounds.safe) return int(error);
+    mark_candidates<<<(active_count + 255) / 256, 256, 0, stream>>>(source, active, active_count,
+        bounds, slots, count, keys, masks);
     return int(cudaGetLastError());
 }
 int cuda_sensor_compact_mask(field_view source, const std::uint32_t* offsets,
