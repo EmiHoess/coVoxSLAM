@@ -5,7 +5,11 @@ namespace covoxslam::sensor_grid
 {
 enum class gather_backend : std::uint32_t { csr, warp_soa_prepared, thread_interleaved_prepared, warp_soa_hybrid_prepared,
     warp_soa_subwarp_prepared, hybrid_short_interleaved, hybrid_aligned, hybrid_ray16, hybrid_compact,
-    hybrid_pipelined, hybrid_block_long, hybrid_combined };
+    hybrid_pipelined, hybrid_block_long, hybrid_combined, hybrid_combined_uncapped };
+constexpr bool combined_gather(gather_backend backend) noexcept
+{
+    return backend == gather_backend::hybrid_combined || backend == gather_backend::hybrid_combined_uncapped;
+}
 enum class execution_mode : std::uint32_t { stream, cuda_graph };
 struct gather_options
 {

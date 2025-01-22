@@ -82,7 +82,7 @@ inline operation_result<pipeline_callbacks> sensor_mapping_callbacks(const senso
         mapping_statistics statistics;
     };
     auto state = std::make_shared<context>();
-    if (gather.backend == sensor_grid::gather_backend::hybrid_combined) {
+    if (sensor_grid::combined_gather(gather.backend)) {
         auto combined = sensor_grid::combined_map::create(*table,
             static_cast<std::uint32_t>(config.maximum_tiles), device, maximum_bytes, gather, transfer);
         if (!combined) return std::unexpected(combined.error());
