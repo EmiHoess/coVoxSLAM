@@ -113,4 +113,46 @@ inline float list_boundary_guard(field_view source, candidate_transform p)
             (std::abs(p.matrix[i][0]) + std::abs(p.matrix[i][1]) + std::abs(p.matrix[i][2])) + 2);
     return float(64 * FLT_EPSILON * scale + 16 * FLT_EPSILON);
 }
+__global__ void transfer_candidate_list(field_view source, interpolation mode, candidate_list_view list,
+    const detail::cuda_tile_coordinate* keys, detail::cuda_tsdf_tile* tiles,
+    detail::cuda_projective_pose transform, float size, float maximum_weight, float band,
+    unsigned long long* updates, unsigned long long* candidates)
+{
+    if (list.counters->overflow) return;
+    const auto first = std::size_t(blockIdx.x) * blockDim.x;
+
+    if (first >= list.capacity || first >= list.counters->count) return;
+    const auto index = first + threadIdx.x;
+    const bool selected = index < list.capacity && index < list.counters->count;
+    bool changed{};
+
+    if (selected) {
+        const auto packed = list.ids[index], slot = packed / 512, local = packed % 512;
+        const auto key = keys[slot];
+        const float3 point{(key.x * 8 + int(local % 8) + .5f) * size,
+            (key.y * 8 + int(local / 8 % 8) + .5f) * size, (key.z * 8 + int(local / 64) + .5f) * size};
+        const auto sensor = detail::projective_reference_point(transform, point);
+        const auto measured = sample(source, sensor.x, sensor.y, sensor.z, mode);
+
+        if (measured.valid) {
+            auto value = tiles[slot].voxels[local];
+            const float old = value.flags & 1U ? value.weight : 0.f;
+            const double total = double(old) + measured.weight;
+            value.distance = float((double(old) * (old > 0 ? value.distance : 0.f) +
+                double(measured.weight) * measured.distance) / total);
+            value.weight = float(fmin(double(maximum_weight), total));
+            value.flags = 1U | (fabsf(value.distance) <= band ? 2U : 0U);
+
+            if (value.sample_count != UINT32_MAX) ++value.sample_count;
+            tiles[slot].voxels[local] = value;
+            changed = true;
+        }
+    }
+    const unsigned consumed = __syncthreads_count(selected), written = __syncthreads_count(changed);
+
+    if (!threadIdx.x) {
+        atomicAdd(candidates, static_cast<unsigned long long>(consumed));
+        atomicAdd(updates, static_cast<unsigned long long>(written));
+    }
+}
 }

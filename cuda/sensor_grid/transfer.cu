@@ -47,13 +47,15 @@ __global__ void mask_cells(field_view source, unsigned n, std::uint8_t* flags)
     const auto any = __syncthreads_or(observed);
     if (!local) flags[block] = any ? 1 : 0;
 }
-template <bool fp32, bool masked = false>
+template <bool fp32, bool masked = false, bool overflow_fallback = false>
 __global__ void transfer_cells(field_view source, interpolation mode, const std::uint32_t* slots,
     const detail::cuda_tile_coordinate* keys, detail::cuda_tsdf_tile* tiles,
     detail::cuda_projective_pose transform, float size, float maximum_weight, float band,
     unsigned long long* count, float truncation, const std::uint32_t* masks = nullptr,
-    unsigned long long* candidate_count = nullptr)
+    unsigned long long* candidate_count = nullptr, const candidate_list_counters* list_state = nullptr)
 {
+    if constexpr (overflow_fallback)
+        if (!list_state->overflow) return;
     const auto slot = slots[blockIdx.x / 4], local = (blockIdx.x % 4) * 128 + threadIdx.x;
     const auto key = keys[slot];
     const float3 point{(key.x * 8 + int(local % 8) + .5f) * size,
@@ -142,6 +144,27 @@ int cuda_sensor_masked_transfer(field_view source, interpolation mode, const std
     else
         transfer_cells<false, true><<<count * 4, 128, 0, stream>>>(source, mode, slots, keys, tiles,
             transform, size, maximum_weight, band, updates, FLT_MAX, masks, candidates);
+    return int(cudaGetLastError());
+}
+int cuda_sensor_list_transfer(field_view source, interpolation mode, const std::uint32_t* slots,
+    std::uint32_t count, const detail::cuda_tile_coordinate* keys, detail::cuda_tsdf_tile* tiles,
+    detail::cuda_projective_pose transform, float size, float maximum_weight, float band,
+    candidate_list_view list, unsigned long long* updates, unsigned long long* candidates, void* opaque_stream)
+{
+    if (!count) return 0;
+
+    if (!sampling_detail::valid_view(source) || unsigned(mode) > 2 || !slots || !keys || !tiles ||
+        !list.masks || !list.ids || !list.counters || !list.capacity || list.capacity > 536870912 ||
+        !updates || !candidates || !(size > 0) || !isfinite(size) || !(maximum_weight > 0) ||
+        !isfinite(maximum_weight) || !(band >= 0) || !isfinite(band)) return int(cudaErrorInvalidValue);
+    const auto stream = static_cast<cudaStream_t>(opaque_stream);
+    transfer_candidate_list<<<(list.capacity + 127) / 128, 128, 0, stream>>>(source, mode, list, keys, tiles,
+        transform, size, maximum_weight, band, updates, candidates);
+    const auto error = cudaGetLastError();
+
+    if (error != cudaSuccess) return int(error);
+    transfer_cells<false, true, true><<<count * 4, 128, 0, stream>>>(source, mode, slots, keys, tiles,
+        transform, size, maximum_weight, band, updates, FLT_MAX, list.masks, candidates, list.counters);
     return int(cudaGetLastError());
 }
 int cuda_sensor_mask(field_view source, std::uint8_t* flags, void* stream)
