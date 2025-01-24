@@ -4,6 +4,7 @@
 #include <covoxslam/sensor_grid_fp32.h>
 #include "specialized.cuh"
 #include "candidates.cuh"
+#include "candidate_list.cuh"
 #include "../projective/geometry.cuh"
 
 namespace covoxslam::sensor_grid
@@ -168,6 +169,32 @@ int cuda_sensor_candidates(field_view source, interpolation mode, const std::uin
     if (error != cudaSuccess || !bounds.safe) return int(error);
     mark_candidates<<<(active_count + 255) / 256, 256, 0, stream>>>(source, active, active_count,
         bounds, slots, count, keys, masks);
+    return int(cudaGetLastError());
+}
+int cuda_sensor_list_candidates(field_view source, interpolation mode, const std::uint32_t* active,
+    std::uint32_t active_count, const std::uint32_t* slots, std::uint32_t count,
+    const detail::cuda_tile_coordinate* keys, detail::cuda_projective_pose transform,
+    candidate_list_view list, void* opaque_stream)
+{
+    if (!sampling_detail::valid_view(source) || unsigned(mode) > 2 || !list.counters || !list.ids ||
+        !list.masks || !list.capacity || list.capacity > 536870912 || !active || !active_count ||
+        !slots || !keys || active_count > 16777216 || count > 1048576) return int(cudaErrorInvalidValue);
+    const auto stream = static_cast<cudaStream_t>(opaque_stream);
+    auto error = cudaMemsetAsync(list.counters, 0, sizeof(candidate_list_counters), stream);
+
+    if (error != cudaSuccess || !count) return int(error);
+    const auto bounds = prepare_candidates(source, transform, mode);
+    reset_candidates<<<count, 32, 0, stream>>>(slots, list.masks, !bounds.safe);
+    error = cudaGetLastError();
+
+    if (error != cudaSuccess) return int(error);
+
+    if (bounds.safe) list_mark<float><<<(active_count + 255) / 256, 256, 0, stream>>>(source, active,
+        active_count, bounds, list_boundary_guard(source, bounds), slots, count, keys, list);
+    error = cudaGetLastError();
+
+    if (error != cudaSuccess) return int(error);
+    compact_candidate_bits<<<count, 32, 0, stream>>>(slots, list);
     return int(cudaGetLastError());
 }
 int cuda_sensor_compact_mask(field_view source, const std::uint32_t* offsets,
