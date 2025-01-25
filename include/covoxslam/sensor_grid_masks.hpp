@@ -5,7 +5,11 @@
 namespace covoxslam::sensor_grid
 {
 enum class source_mask_mode : std::uint32_t { dense, compact };
-enum class candidate_mode : std::uint32_t { whole_tiles, voxel_mask, compacted_control, compact_fp32 };
+enum class candidate_mode : std::uint32_t { whole_tiles, voxel_mask, compacted_control, compact_fp32, append_fp32 };
+constexpr bool candidate_uses_list(candidate_mode mode) noexcept
+{
+    return mode == candidate_mode::compact_fp32 || mode == candidate_mode::append_fp32;
+}
 struct transfer_options
 {
     source_mask_mode source_mask{source_mask_mode::dense};
