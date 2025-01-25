@@ -54,6 +54,7 @@ operation_result<combined_times> combined_map::integrate(std::span<const float> 
     totals.transfer.candidates_ms += transferred->candidates_ms;
     totals.transfer.updates += transferred->updates;
     totals.transfer.candidate_voxels += transferred->candidate_voxels;
+    totals.transfer.candidate_overflows += transferred->candidate_overflows;
     totals.transfer.kernel_launches += transferred->kernel_launches;
     totals.kernel_launches += result.kernel_launches;
      return result;

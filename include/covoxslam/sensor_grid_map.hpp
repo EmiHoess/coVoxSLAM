@@ -12,6 +12,7 @@ struct transfer_times
     double discovery_ms{};
     float mask_ms{}, fusion_ms{}, candidates_ms{};
     std::uint64_t updates{}, candidate_voxels{}, kernel_launches{};
+    std::uint64_t candidate_overflows{};
 };
 class gpu_map
 {

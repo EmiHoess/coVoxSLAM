@@ -10,6 +10,7 @@ operation_result<transfer_times> gpu_map::integrate(const gpu_grid& source, pose
     const auto field = source.device_field();
     const auto q = transform.rotation;
     const bool masked = data.options.candidates != candidate_mode::whole_tiles;
+    const bool listed = data.options.candidates == candidate_mode::compact_fp32;
     const double norm = double(q.x) * q.x + double(q.y) * q.y + double(q.z) * q.z + double(q.w) * q.w;
 
     if (data.failed || !field.voxels || source.device_index() != data.device || unsigned(mode) > 5 ||
@@ -58,6 +59,7 @@ operation_result<transfer_times> gpu_map::integrate(const gpu_grid& source, pose
     result.candidate_voxels = std::uint64_t(slots.size()) * 512;
     result.kernel_launches = 1 + !slots.empty();
     if (masked && !slots.empty()) result.kernel_launches += 2;
+    if (listed && !slots.empty()) result.kernel_launches += 2;
     result.discovery_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
     if (!new_keys.empty()) status = data.check(cudaMemcpyAsync(data.keys + first, new_keys.data(),
         new_keys.size() * sizeof(*data.keys), cudaMemcpyHostToDevice, data.stream));
@@ -68,11 +70,16 @@ operation_result<transfer_times> gpu_map::integrate(const gpu_grid& source, pose
         {rotation.x, rotation.y, rotation.z, rotation.w}};
     if (status && masked) status = data.check(cudaMemsetAsync(data.candidate_count, 0, 8, data.stream));
     if (status) status = data.check(cudaEventRecord(data.events[4], data.stream));
-    if (status && masked) status = data.check(cuda_sensor_candidates(field, mode, data.active_cells, data.active_count,
+    if (status && listed) status = data.check(cuda_sensor_list_candidates(field, mode, data.active_cells, data.active_count,
+        data.slots, static_cast<std::uint32_t>(slots.size()), data.keys, packed, data.candidate_list, data.stream));
+    if (status && masked && !listed) status = data.check(cuda_sensor_candidates(field, mode, data.active_cells, data.active_count,
         data.slots, static_cast<std::uint32_t>(slots.size()), data.keys, packed, data.candidate_masks, data.stream));
     if (status) status = data.check(cudaEventRecord(data.events[5], data.stream));
     if (status) status = data.check(cudaEventRecord(data.events[2], data.stream));
-    if (status && masked) status = data.check(cuda_sensor_masked_transfer(field, mode, data.slots,
+    if (status && listed) status = data.check(cuda_sensor_list_transfer(field, mode, data.slots,
+        static_cast<std::uint32_t>(slots.size()), data.keys, data.tiles, packed, data.settings.voxel_size,
+        data.settings.maximum_weight, data.settings.voxel_size, data.candidate_list, data.updates, data.candidate_count, data.stream));
+    if (status && masked && !listed) status = data.check(cuda_sensor_masked_transfer(field, mode, data.slots,
         static_cast<std::uint32_t>(slots.size()), data.keys, data.tiles, packed, data.settings.voxel_size,
         data.settings.maximum_weight, data.settings.voxel_size, data.candidate_masks, data.updates,
         data.candidate_count, data.stream, data.options.candidates == candidate_mode::compacted_control));
@@ -83,11 +90,15 @@ operation_result<transfer_times> gpu_map::integrate(const gpu_grid& source, pose
     if (status) status = data.check(cudaEventRecord(data.events[3], data.stream));
     if (status) status = data.check(cudaMemcpyAsync(&result.updates, data.updates, 8, cudaMemcpyDeviceToHost, data.stream));
     if (status && masked) status = data.check(cudaMemcpyAsync(&result.candidate_voxels, data.candidate_count, 8, cudaMemcpyDeviceToHost, data.stream));
+    candidate_list_counters list_counts;
+    if (status && listed) status = data.check(cudaMemcpyAsync(&list_counts, data.candidate_list.counters,
+        sizeof(list_counts), cudaMemcpyDeviceToHost, data.stream));
     status = data.wait(status);
     if (status) status = data.check(cudaEventElapsedTime(&result.mask_ms, data.events[0], data.events[1]));
     if (status) status = data.check(cudaEventElapsedTime(&result.fusion_ms, data.events[2], data.events[3]));
     if (status && masked) status = data.check(cudaEventElapsedTime(&result.candidates_ms, data.events[4], data.events[5]));
     if (!status) return std::unexpected(status.error());
+    result.candidate_overflows = list_counts.overflow != 0;
     return result;
 }
 }

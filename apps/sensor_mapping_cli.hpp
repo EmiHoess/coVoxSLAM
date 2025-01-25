@@ -15,7 +15,7 @@ inline constexpr cli_option_entry<sensor_backend_choice> sensor_backend_choices[
     {"cuda-sensor-grid", sensor_backend_choice::sensor},
     {"cuda-sensor-grid-combined", sensor_backend_choice::combined}
 };
-enum class sensor_mapping_option { unknown, backend, interpolation, gather, threshold, block_threshold, execution, source_mask, transfer_precision, transfer_kernel, candidates };
+enum class sensor_mapping_option { unknown, backend, interpolation, gather, threshold, block_threshold, execution, source_mask, transfer_precision, transfer_kernel, candidates, candidate_capacity };
 inline constexpr cli_option_entry<sensor_mapping_option> sensor_mapping_options[]{
     {"--backend", sensor_mapping_option::backend}, {"--sensor-grid-interpolation", sensor_mapping_option::interpolation},
     {"--sensor-grid-gather", sensor_mapping_option::gather},
@@ -25,12 +25,13 @@ inline constexpr cli_option_entry<sensor_mapping_option> sensor_mapping_options[
     {"--sensor-grid-source-mask", sensor_mapping_option::source_mask},
     {"--sensor-grid-transfer-precision", sensor_mapping_option::transfer_precision},
     {"--sensor-grid-transfer", sensor_mapping_option::transfer_kernel},
-    {"--sensor-grid-candidates", sensor_mapping_option::candidates}
+    {"--sensor-grid-candidates", sensor_mapping_option::candidates},
+    {"--sensor-grid-candidate-capacity", sensor_mapping_option::candidate_capacity}
 };
-enum class candidate_choice { unknown, whole_tiles, voxel_mask, compacted_control };
+enum class candidate_choice { unknown, whole_tiles, voxel_mask, compacted_control, compact_fp32 };
 inline constexpr cli_option_entry<candidate_choice> candidate_choices[]{
     {"whole-tiles", candidate_choice::whole_tiles}, {"voxel-mask", candidate_choice::voxel_mask},
-    {"compacted-control", candidate_choice::compacted_control}
+    {"compacted-control", candidate_choice::compacted_control}, {"compact-fp32", candidate_choice::compact_fp32}
 };
 enum class source_mask_choice { unknown, dense, compact };
 inline constexpr cli_option_entry<source_mask_choice> source_mask_choices[]{
@@ -156,6 +157,7 @@ inline operation_result<pipeline_callbacks> sensor_mapping_callbacks(const senso
             completed.statistics.sensor_graph_setup_ms = timing.gather.graph_setup_ms;
             completed.statistics.sensor_mask_ms = timing.transfer.mask_ms;
             completed.statistics.sensor_candidates_ms = timing.transfer.candidates_ms;
+            completed.statistics.sensor_candidate_overflows = timing.transfer.candidate_overflows;
             completed.statistics.sensor_discovery_ms = timing.transfer.discovery_ms;
             completed.statistics.sensor_fusion_ms = timing.transfer.fusion_ms;
             completed.statistics.sensor_readback_ms = timing.readback_ms;

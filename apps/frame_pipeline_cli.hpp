@@ -142,10 +142,21 @@ inline int run_submap_cli(int argc, char** argv)
                 case candidate_choice::whole_tiles: sensor_transfer.candidates = sensor_grid::candidate_mode::whole_tiles; break;
                 case candidate_choice::voxel_mask: sensor_transfer.candidates = sensor_grid::candidate_mode::voxel_mask; break;
                 case candidate_choice::compacted_control: sensor_transfer.candidates = sensor_grid::candidate_mode::compacted_control; break;
+                case candidate_choice::compact_fp32: sensor_transfer.candidates = sensor_grid::candidate_mode::compact_fp32; break;
                 default: return report_error("invalid sensor candidate method");
                 }
                 sensor_options_set = true;
                 continue;
+            case sensor_mapping_option::candidate_capacity: {
+                std::uint32_t capacity{};
+                const auto parsed = std::from_chars(value.data(), value.data() + value.size(), capacity);
+
+                if (parsed.ec != std::errc{} || parsed.ptr != value.data() + value.size() || !capacity || capacity > 536870912)
+                    return report_error("invalid sensor candidate capacity");
+                sensor_transfer.candidate_capacity = capacity;
+                sensor_options_set = true;
+                continue;
+            }
             default: break;
             }
             const auto resident_parsed = parse_resident_option(option, value, resident_options);
@@ -319,6 +330,7 @@ inline int run_submap_cli(int argc, char** argv)
         if (sensor_selected && sensor_transfer.specialized) backend_label += "-specialized-transfer";
         if (sensor_selected && sensor_transfer.candidates == sensor_grid::candidate_mode::voxel_mask) backend_label += "-voxel-mask";
         if (sensor_selected && sensor_transfer.candidates == sensor_grid::candidate_mode::compacted_control) backend_label += "-compacted-control";
+        if (sensor_selected && sensor_transfer.candidates == sensor_grid::candidate_mode::compact_fp32) backend_label += "-compact-fp32";
         auto exporter = open_map_export(output, input, mapping_options, backend_label.c_str(),
             sensor_selected ? sensor_sampling_name(sensor_mode) : resident ? resident_fusion_name(resident->fusion_order(), resident->reduction_mode(), resident->uses_step_tasks(), resident->warp_configuration().mode, resident->free_space_configuration().enabled, resident->segment_length() != 0, resident->uses_compact(), resident->uses_compact_batched(), resident->uses_fp32()) : "unspecified");
         const auto publish = [&](const submap& completed) { if (exporter) exporter->write(completed); };

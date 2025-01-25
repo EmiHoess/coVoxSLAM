@@ -275,6 +275,7 @@ void map_exporter::write(const submap& value)
              << ",\"sensor_graph_setup_ms\":" << statistics.sensor_graph_setup_ms
              << ",\"sensor_mask_ms\":" << statistics.sensor_mask_ms
              << ",\"sensor_candidates_ms\":" << statistics.sensor_candidates_ms
+             << ",\"sensor_candidate_overflows\":" << statistics.sensor_candidate_overflows
              << ",\"sensor_discovery_ms\":" << statistics.sensor_discovery_ms
              << ",\"sensor_fusion_ms\":" << statistics.sensor_fusion_ms
              << ",\"sensor_readback_ms\":" << statistics.sensor_readback_ms

@@ -1,6 +1,7 @@
 #pragma once
 #include <covoxslam/sensor_grid_map.hpp>
 #include "sensor_grid/map_native.h"
+#include "sensor_grid/candidate_list.h"
 #include <cuda_runtime_api.h>
 #include <array>
 
@@ -20,6 +21,7 @@ struct gpu_map::implementation
     std::uint32_t* candidate_masks{}, *active_cells{};
     std::uint32_t active_count{};
     unsigned long long* candidate_count{};
+    candidate_list_view candidate_list{};
     transfer_options options{};
     unsigned long long* updates{};
     std::vector<std::uint8_t> flags;
@@ -27,7 +29,7 @@ struct gpu_map::implementation
     std::unordered_map<int3, std::uint32_t, int3_hash> index;
     cudaStream_t stream{};
     std::array<cudaEvent_t, 6> events{};
-    std::array<void*, 10> allocations{};
+    std::array<void*, 12> allocations{};
     std::size_t allocated{};
     bool selected{}, failed{};
     operation_status check(int code)

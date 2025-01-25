@@ -159,6 +159,7 @@ struct mapping_statistics {
     double cuda_task_expansion_ms{}, cuda_task_evaluation_ms{}, cuda_task_fusion_ms{};
     double sensor_gather_ms{}, sensor_mask_ms{}, sensor_discovery_ms{}, sensor_fusion_ms{};
     double sensor_candidates_ms{};
+    std::uint64_t sensor_candidate_overflows{};
     double sensor_graph_setup_ms{}, sensor_upload_ms{}, sensor_readback_ms{};
     std::uint64_t sensor_candidate_voxels{}, sensor_kernel_launches{};
     std::uint32_t sensor_transfer_bits{};
