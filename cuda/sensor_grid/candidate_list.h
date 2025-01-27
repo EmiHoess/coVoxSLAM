@@ -6,7 +6,7 @@ namespace covoxslam::sensor_grid
 struct candidate_list_counters
 {
     unsigned long long count{};
-    unsigned overflow{}, reserved{};
+    unsigned overflow{}, invalid{};
 };
 static_assert(sizeof(candidate_list_counters) == 16);
 struct candidate_list_view

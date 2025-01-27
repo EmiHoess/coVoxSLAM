@@ -59,7 +59,7 @@ operation_result<transfer_times> gpu_map::integrate(const gpu_grid& source, pose
     result.candidate_voxels = std::uint64_t(slots.size()) * 512;
     result.kernel_launches = 1 + !slots.empty();
     if (masked && !slots.empty()) result.kernel_launches += 2;
-    if (listed && !slots.empty()) result.kernel_launches += 2;
+    if (listed && !slots.empty()) result.kernel_launches += 3;
     result.discovery_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
     if (!new_keys.empty()) status = data.check(cudaMemcpyAsync(data.keys + first, new_keys.data(),
         new_keys.size() * sizeof(*data.keys), cudaMemcpyHostToDevice, data.stream));
@@ -99,6 +99,10 @@ operation_result<transfer_times> gpu_map::integrate(const gpu_grid& source, pose
     if (status && masked) status = data.check(cudaEventElapsedTime(&result.candidates_ms, data.events[4], data.events[5]));
     if (!status) return std::unexpected(status.error());
     result.candidate_overflows = list_counts.overflow != 0;
+    if (list_counts.invalid) {
+        data.failed = true;
+        return std::unexpected(operation_error{"candidate list violates unique tile ownership"});
+    }
     return result;
 }
 }

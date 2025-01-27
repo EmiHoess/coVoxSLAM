@@ -55,7 +55,7 @@ __global__ void transfer_cells(field_view source, interpolation mode, const std:
     unsigned long long* candidate_count = nullptr, const candidate_list_counters* list_state = nullptr)
 {
     if constexpr (overflow_fallback)
-        if (!list_state->overflow) return;
+        if (!list_state->overflow || list_state->invalid) return;
     const auto slot = slots[blockIdx.x / 4], local = (blockIdx.x % 4) * 128 + threadIdx.x;
     const auto key = keys[slot];
     const float3 point{(key.x * 8 + int(local % 8) + .5f) * size,
@@ -219,6 +219,10 @@ int launch_list_candidates(field_view source, interpolation mode, const std::uin
 
     if (error != cudaSuccess) return int(error);
     if (!append || !bounds.safe) compact_candidate_bits<<<count, 32, 0, stream>>>(slots, list);
+    error = cudaGetLastError();
+
+    if (error != cudaSuccess) return int(error);
+    validate_candidate_list<<<(count + 127) / 128, 128, 0, stream>>>(slots, count, keys, list.counters);
     return int(cudaGetLastError());
 }
 int cuda_sensor_list_candidates(field_view source, interpolation mode, const std::uint32_t* active,

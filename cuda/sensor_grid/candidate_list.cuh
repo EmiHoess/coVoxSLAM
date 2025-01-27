@@ -106,6 +106,17 @@ __global__ void compact_candidate_bits(const std::uint32_t* slots, candidate_lis
     const auto word = slots[blockIdx.x] * 16 + threadIdx.x;
     list_emit(word, list.masks[word], list);
 }
+__global__ void validate_candidate_list(const std::uint32_t* slots, std::uint32_t count,
+    const detail::cuda_tile_coordinate* keys, candidate_list_counters* state)
+{
+    const auto index = std::size_t(blockIdx.x) * blockDim.x + threadIdx.x;
+
+    if (!index && state->count > static_cast<unsigned long long>(count) * 512)
+        atomicExch(&state->invalid, 1U);
+
+    if (index && index < count && !candidate_key_less(keys[slots[index - 1]], keys[slots[index]]))
+        atomicExch(&state->invalid, 1U);
+}
 inline float list_boundary_guard(field_view source, candidate_transform p)
 {
     const double source_scale = std::max(1.0, std::max(std::abs(p.origin), std::abs(p.origin + source.side)) + 2);
@@ -121,7 +132,7 @@ __global__ void transfer_candidate_list(field_view source, interpolation mode, c
     detail::cuda_projective_pose transform, float size, float maximum_weight, float band,
     unsigned long long* updates, unsigned long long* candidates)
 {
-    if (list.counters->overflow) return;
+    if (list.counters->overflow || list.counters->invalid) return;
     const auto first = std::size_t(blockIdx.x) * blockDim.x;
 
     if (first >= list.capacity || first >= list.counters->count) return;
