@@ -47,7 +47,8 @@ __device__ inline void list_emit(unsigned word, unsigned bits, candidate_list_vi
         ++offset;
     }
 }
-__device__ inline void grouped_mask_or(unsigned word, unsigned bits, std::uint32_t* masks)
+template<bool append>
+__device__ inline void grouped_mask_or(unsigned word, unsigned bits, candidate_list_view list)
 {
 #if __CUDA_ARCH__ >= 700
     const unsigned peers = __match_any_sync(__activemask(), word);
@@ -59,9 +60,11 @@ __device__ inline void grouped_mask_or(unsigned word, unsigned bits, std::uint32
     if ((threadIdx.x & 31U) != unsigned(__ffs(peers) - 1)) return;
     bits = merged;
 #endif
-    atomicOr(masks + word, bits);
+    const unsigned previous = atomicOr(list.masks + word, bits);
+
+    if constexpr (append) list_emit(word, bits & ~previous, list);
 }
-template<class real>
+template<class real, bool append = false>
 __global__ void list_mark(field_view source, const std::uint32_t* active, std::uint32_t active_count,
     candidate_transform transform, float guard, const std::uint32_t* slots, std::uint32_t count,
     const detail::cuda_tile_coordinate* keys, candidate_list_view list)
@@ -93,7 +96,7 @@ __global__ void list_mark(field_view source, const std::uint32_t* active, std::u
 
                         for (int ty = max(ly, half * 4); ty <= min(uy, half * 4 + 3); ++ty)
                             bits |= x_bits << (8 * (ty % 4));
-                        grouped_mask_or(unsigned(slot) * 16 + unsigned(tz) * 2 + unsigned(half), bits, list.masks);
+                        grouped_mask_or<append>(unsigned(slot) * 16 + unsigned(tz) * 2 + unsigned(half), bits, list);
                     }
             }
 }
