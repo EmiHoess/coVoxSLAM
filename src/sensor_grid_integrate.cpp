@@ -10,7 +10,8 @@ operation_result<transfer_times> gpu_map::integrate(const gpu_grid& source, pose
     const auto field = source.device_field();
     const auto q = transform.rotation;
     const bool masked = data.options.candidates != candidate_mode::whole_tiles;
-    const bool listed = data.options.candidates == candidate_mode::compact_fp32;
+    const bool listed = candidate_uses_list(data.options.candidates);
+    const bool append = data.options.candidates == candidate_mode::append_fp32;
     const double norm = double(q.x) * q.x + double(q.y) * q.y + double(q.z) * q.z + double(q.w) * q.w;
 
     if (data.failed || !field.voxels || source.device_index() != data.device || unsigned(mode) > 5 ||
@@ -70,7 +71,7 @@ operation_result<transfer_times> gpu_map::integrate(const gpu_grid& source, pose
         {rotation.x, rotation.y, rotation.z, rotation.w}};
     if (status && masked) status = data.check(cudaMemsetAsync(data.candidate_count, 0, 8, data.stream));
     if (status) status = data.check(cudaEventRecord(data.events[4], data.stream));
-    if (status && listed) status = data.check(cuda_sensor_list_candidates(field, mode, data.active_cells, data.active_count,
+    if (status && listed) status = data.check((append ? cuda_sensor_append_candidates : cuda_sensor_list_candidates)(field, mode, data.active_cells, data.active_count,
         data.slots, static_cast<std::uint32_t>(slots.size()), data.keys, packed, data.candidate_list, data.stream));
     if (status && masked && !listed) status = data.check(cuda_sensor_candidates(field, mode, data.active_cells, data.active_count,
         data.slots, static_cast<std::uint32_t>(slots.size()), data.keys, packed, data.candidate_masks, data.stream));
