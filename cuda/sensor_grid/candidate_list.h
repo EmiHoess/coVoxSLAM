@@ -20,6 +20,10 @@ int cuda_sensor_append_candidates(field_view source, interpolation mode, const s
     std::uint32_t active_count, const std::uint32_t* slots, std::uint32_t count,
     const detail::cuda_tile_coordinate* keys, detail::cuda_projective_pose transform,
     candidate_list_view list, void* stream);
+int cuda_sensor_list_candidates_fp64(field_view source, interpolation mode, const std::uint32_t* active,
+    std::uint32_t active_count, const std::uint32_t* slots, std::uint32_t count,
+    const detail::cuda_tile_coordinate* keys, detail::cuda_projective_pose transform,
+    candidate_list_view list, void* stream);
 int cuda_sensor_list_candidates(field_view source, interpolation mode, const std::uint32_t* active,
     std::uint32_t active_count, const std::uint32_t* slots, std::uint32_t count,
     const detail::cuda_tile_coordinate* keys, detail::cuda_projective_pose transform,
