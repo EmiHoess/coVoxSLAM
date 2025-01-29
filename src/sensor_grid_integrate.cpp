@@ -59,8 +59,7 @@ operation_result<transfer_times> gpu_map::integrate(const gpu_grid& source, pose
     transfer_times result;
     result.candidate_voxels = std::uint64_t(slots.size()) * 512;
     result.kernel_launches = 1 + !slots.empty();
-    if (masked && !slots.empty()) result.kernel_launches += 2;
-    if (listed && !slots.empty()) result.kernel_launches += 3;
+    if (listed && !slots.empty()) ++result.kernel_launches;
     result.discovery_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
     if (!new_keys.empty()) status = data.check(cudaMemcpyAsync(data.keys + first, new_keys.data(),
         new_keys.size() * sizeof(*data.keys), cudaMemcpyHostToDevice, data.stream));
@@ -71,10 +70,11 @@ operation_result<transfer_times> gpu_map::integrate(const gpu_grid& source, pose
         {rotation.x, rotation.y, rotation.z, rotation.w}};
     if (status && masked) status = data.check(cudaMemsetAsync(data.candidate_count, 0, 8, data.stream));
     if (status) status = data.check(cudaEventRecord(data.events[4], data.stream));
+    unsigned marking_launches{};
     if (status && listed) status = data.check((append ? cuda_sensor_append_candidates : cuda_sensor_list_candidates)(field, mode, data.active_cells, data.active_count,
-        data.slots, static_cast<std::uint32_t>(slots.size()), data.keys, packed, data.candidate_list, data.stream));
+        data.slots, static_cast<std::uint32_t>(slots.size()), data.keys, packed, data.candidate_list, data.stream, &marking_launches));
     if (status && masked && !listed) status = data.check(cuda_sensor_candidates(field, mode, data.active_cells, data.active_count,
-        data.slots, static_cast<std::uint32_t>(slots.size()), data.keys, packed, data.candidate_masks, data.stream));
+        data.slots, static_cast<std::uint32_t>(slots.size()), data.keys, packed, data.candidate_masks, data.stream, &marking_launches));
     if (status) status = data.check(cudaEventRecord(data.events[5], data.stream));
     if (status) status = data.check(cudaEventRecord(data.events[2], data.stream));
     if (status && listed) status = data.check(cuda_sensor_list_transfer(field, mode, data.slots,
@@ -100,6 +100,7 @@ operation_result<transfer_times> gpu_map::integrate(const gpu_grid& source, pose
     if (status && masked) status = data.check(cudaEventElapsedTime(&result.candidates_ms, data.events[4], data.events[5]));
     if (!status) return std::unexpected(status.error());
     result.candidate_overflows = list_counts.overflow != 0;
+    result.kernel_launches += marking_launches;
     if (list_counts.invalid) {
         data.failed = true;
         return std::unexpected(operation_error{"candidate list violates unique tile ownership"});

@@ -177,8 +177,9 @@ int cuda_sensor_mask(field_view source, std::uint8_t* flags, void* stream)
 int cuda_sensor_candidates(field_view source, interpolation mode, const std::uint32_t* active,
     std::uint32_t active_count, const std::uint32_t* slots, std::uint32_t count,
     const detail::cuda_tile_coordinate* keys, detail::cuda_projective_pose transform,
-    std::uint32_t* masks, void* opaque_stream)
+    std::uint32_t* masks, void* opaque_stream, unsigned* launches)
 {
+    if (launches) *launches = 0;
     if (!count) return 0;
 
     if (!sampling_detail::valid_view(source) || unsigned(mode) > 2 || !active || !active_count ||
@@ -186,6 +187,7 @@ int cuda_sensor_candidates(field_view source, interpolation mode, const std::uin
         return int(cudaErrorInvalidValue);
     const auto bounds = prepare_candidates(source, transform, mode);
     const auto stream = static_cast<cudaStream_t>(opaque_stream);
+    if (launches) *launches = bounds.safe ? 2 : 1;
     reset_candidates<<<count, 32, 0, stream>>>(slots, masks, !bounds.safe);
     const auto error = cudaGetLastError();
 
@@ -198,8 +200,9 @@ template<bool append, class real = float>
 int launch_list_candidates(field_view source, interpolation mode, const std::uint32_t* active,
     std::uint32_t active_count, const std::uint32_t* slots, std::uint32_t count,
     const detail::cuda_tile_coordinate* keys, detail::cuda_projective_pose transform,
-    candidate_list_view list, void* opaque_stream)
+    candidate_list_view list, void* opaque_stream, unsigned* launches)
 {
+    if (launches) *launches = 0;
     if (!sampling_detail::valid_view(source) || unsigned(mode) > 2 || !list.counters || !list.ids ||
         !list.masks || !list.capacity || list.capacity > 536870912 || !active || !active_count ||
         !slots || !keys || active_count > 16777216 || count > 1048576) return int(cudaErrorInvalidValue);
@@ -208,6 +211,7 @@ int launch_list_candidates(field_view source, interpolation mode, const std::uin
 
     if (error != cudaSuccess || !count) return int(error);
     const auto bounds = prepare_candidates(source, transform, mode);
+    if (launches) *launches = 2 + bounds.safe + (!append || !bounds.safe);
     reset_candidates<<<count, 32, 0, stream>>>(slots, list.masks, !bounds.safe);
     error = cudaGetLastError();
 
@@ -228,23 +232,23 @@ int launch_list_candidates(field_view source, interpolation mode, const std::uin
 int cuda_sensor_list_candidates(field_view source, interpolation mode, const std::uint32_t* active,
     std::uint32_t active_count, const std::uint32_t* slots, std::uint32_t count,
     const detail::cuda_tile_coordinate* keys, detail::cuda_projective_pose transform,
-    candidate_list_view list, void* stream)
+    candidate_list_view list, void* stream, unsigned* launches)
 {
-    return launch_list_candidates<false>(source, mode, active, active_count, slots, count, keys, transform, list, stream);
+    return launch_list_candidates<false>(source, mode, active, active_count, slots, count, keys, transform, list, stream, launches);
 }
 int cuda_sensor_append_candidates(field_view source, interpolation mode, const std::uint32_t* active,
     std::uint32_t active_count, const std::uint32_t* slots, std::uint32_t count,
     const detail::cuda_tile_coordinate* keys, detail::cuda_projective_pose transform,
-    candidate_list_view list, void* stream)
+    candidate_list_view list, void* stream, unsigned* launches)
 {
-    return launch_list_candidates<true>(source, mode, active, active_count, slots, count, keys, transform, list, stream);
+    return launch_list_candidates<true>(source, mode, active, active_count, slots, count, keys, transform, list, stream, launches);
 }
 int cuda_sensor_list_candidates_fp64(field_view source, interpolation mode, const std::uint32_t* active,
     std::uint32_t active_count, const std::uint32_t* slots, std::uint32_t count,
     const detail::cuda_tile_coordinate* keys, detail::cuda_projective_pose transform,
-    candidate_list_view list, void* stream)
+    candidate_list_view list, void* stream, unsigned* launches)
 {
-    return launch_list_candidates<false, double>(source, mode, active, active_count, slots, count, keys, transform, list, stream);
+    return launch_list_candidates<false, double>(source, mode, active, active_count, slots, count, keys, transform, list, stream, launches);
 }
 int cuda_sensor_compact_mask(field_view source, const std::uint32_t* offsets,
     const std::uint32_t* cells, std::uint8_t* flags, void* stream)
