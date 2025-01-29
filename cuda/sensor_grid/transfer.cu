@@ -194,7 +194,7 @@ int cuda_sensor_candidates(field_view source, interpolation mode, const std::uin
         bounds, slots, count, keys, masks);
     return int(cudaGetLastError());
 }
-template<bool append>
+template<bool append, class real = float>
 int launch_list_candidates(field_view source, interpolation mode, const std::uint32_t* active,
     std::uint32_t active_count, const std::uint32_t* slots, std::uint32_t count,
     const detail::cuda_tile_coordinate* keys, detail::cuda_projective_pose transform,
@@ -213,7 +213,7 @@ int launch_list_candidates(field_view source, interpolation mode, const std::uin
 
     if (error != cudaSuccess) return int(error);
 
-    if (bounds.safe) list_mark<float, append><<<(active_count + 255) / 256, 256, 0, stream>>>(source, active,
+    if (bounds.safe) list_mark<real, append><<<(active_count + 255) / 256, 256, 0, stream>>>(source, active,
         active_count, bounds, list_boundary_guard(source, bounds), slots, count, keys, list);
     error = cudaGetLastError();
 
@@ -238,6 +238,13 @@ int cuda_sensor_append_candidates(field_view source, interpolation mode, const s
     candidate_list_view list, void* stream)
 {
     return launch_list_candidates<true>(source, mode, active, active_count, slots, count, keys, transform, list, stream);
+}
+int cuda_sensor_list_candidates_fp64(field_view source, interpolation mode, const std::uint32_t* active,
+    std::uint32_t active_count, const std::uint32_t* slots, std::uint32_t count,
+    const detail::cuda_tile_coordinate* keys, detail::cuda_projective_pose transform,
+    candidate_list_view list, void* stream)
+{
+    return launch_list_candidates<false, double>(source, mode, active, active_count, slots, count, keys, transform, list, stream);
 }
 int cuda_sensor_compact_mask(field_view source, const std::uint32_t* offsets,
     const std::uint32_t* cells, std::uint8_t* flags, void* stream)
