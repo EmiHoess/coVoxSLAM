@@ -71,7 +71,9 @@ operation_result<transfer_times> gpu_map::integrate(const gpu_grid& source, pose
     if (status && masked) status = data.check(cudaMemsetAsync(data.candidate_count, 0, 8, data.stream));
     if (status) status = data.check(cudaEventRecord(data.events[4], data.stream));
     unsigned marking_launches{};
-    if (status && listed) status = data.check((append ? cuda_sensor_append_candidates : cuda_sensor_list_candidates)(field, mode, data.active_cells, data.active_count,
+    const auto mark_list = append ? cuda_sensor_append_candidates :
+        data.options.candidates == candidate_mode::compact_fp64 ? cuda_sensor_list_candidates_fp64 : cuda_sensor_list_candidates;
+    if (status && listed) status = data.check(mark_list(field, mode, data.active_cells, data.active_count,
         data.slots, static_cast<std::uint32_t>(slots.size()), data.keys, packed, data.candidate_list, data.stream, &marking_launches));
     if (status && masked && !listed) status = data.check(cuda_sensor_candidates(field, mode, data.active_cells, data.active_count,
         data.slots, static_cast<std::uint32_t>(slots.size()), data.keys, packed, data.candidate_masks, data.stream, &marking_launches));
