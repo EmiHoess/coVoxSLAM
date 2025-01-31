@@ -153,12 +153,13 @@ int cuda_sensor_list_transfer(field_view source, interpolation mode, const std::
 {
     if (!count) return 0;
 
-    if (!sampling_detail::valid_view(source) || unsigned(mode) > 2 || !slots || !keys || !tiles ||
+    if (!sampling_detail::valid_view(source) || unsigned(mode) > 2 || !slots || !keys || !tiles || count > 1048576 ||
         !list.masks || !list.ids || !list.counters || !list.capacity || list.capacity > 536870912 ||
         !updates || !candidates || !(size > 0) || !isfinite(size) || !(maximum_weight > 0) ||
         !isfinite(maximum_weight) || !(band >= 0) || !isfinite(band)) return int(cudaErrorInvalidValue);
     const auto stream = static_cast<cudaStream_t>(opaque_stream);
-    transfer_candidate_list<<<(list.capacity + 127) / 128, 128, 0, stream>>>(source, mode, list, keys, tiles,
+    const auto extent = list.capacity < count * 512 ? list.capacity : count * 512;
+    transfer_candidate_list<<<(extent + 127) / 128, 128, 0, stream>>>(source, mode, list, keys, tiles,
         transform, size, maximum_weight, band, updates, candidates);
     const auto error = cudaGetLastError();
 
