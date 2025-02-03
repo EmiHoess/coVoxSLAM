@@ -28,11 +28,12 @@ inline constexpr cli_option_entry<sensor_mapping_option> sensor_mapping_options[
     {"--sensor-grid-candidates", sensor_mapping_option::candidates},
     {"--sensor-grid-candidate-capacity", sensor_mapping_option::candidate_capacity}
 };
-enum class candidate_choice { unknown, whole_tiles, voxel_mask, compacted_control, compact_fp32, append_fp32, compact_fp64 };
+enum class candidate_choice { unknown, whole_tiles, voxel_mask, compacted_control, compact_fp32, append_fp32, compact_fp64, append_fp64 };
 inline constexpr cli_option_entry<candidate_choice> candidate_choices[]{
     {"whole-tiles", candidate_choice::whole_tiles}, {"voxel-mask", candidate_choice::voxel_mask},
     {"compacted-control", candidate_choice::compacted_control}, {"compact-fp32", candidate_choice::compact_fp32},
-    {"append-fp32", candidate_choice::append_fp32}, {"compact-fp64", candidate_choice::compact_fp64}
+    {"append-fp32", candidate_choice::append_fp32}, {"compact-fp64", candidate_choice::compact_fp64},
+    {"append-fp64", candidate_choice::append_fp64}
 };
 enum class source_mask_choice { unknown, dense, compact };
 inline constexpr cli_option_entry<source_mask_choice> source_mask_choices[]{

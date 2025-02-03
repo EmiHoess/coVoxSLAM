@@ -24,7 +24,7 @@ operation_result<std::unique_ptr<gpu_map>> gpu_map::create(const lookup& table,
     const std::size_t bytes = candidate_bytes + std::size_t(capacity) * (sizeof(detail::cuda_tsdf_tile) + 16) + count + 8 +
         (compact.offsets.size() + compact.cells.size()) * 4;
     if (!capacity || capacity > 1048576 || device < 0 || bytes > maximum_bytes ||
-        unsigned(options.source_mask) > 1 || unsigned(options.arithmetic) > 1 || unsigned(options.candidates) > 5 ||
+        unsigned(options.source_mask) > 1 || unsigned(options.arithmetic) > 1 || unsigned(options.candidates) > 6 ||
         (listed && (!options.candidate_capacity || options.candidate_capacity > 536870912)) ||
         (masked && (options.specialized || options.arithmetic != transfer_arithmetic::fp64)))
         return std::unexpected(operation_error{"sensor TSDF exceeds storage budget"});
