@@ -5,6 +5,7 @@
 namespace covoxslam::sensor_grid
 {
 enum class source_mask_mode : std::uint32_t { dense, compact };
+enum class discovery_mode : std::uint32_t { cpu, gpu_host };
 enum class candidate_mode : std::uint32_t { whole_tiles, voxel_mask, compacted_control, compact_fp32, append_fp32, compact_fp64, append_fp64, coarse_mask, whole_tile_control };
 constexpr bool candidate_uses_mask(candidate_mode mode) noexcept
 {
@@ -25,6 +26,7 @@ struct transfer_options
     bool specialized{};
     candidate_mode candidates{candidate_mode::whole_tiles};
     std::uint32_t candidate_capacity{1048576};
+    discovery_mode discovery{discovery_mode::cpu};
 };
 struct compact_mask_layout
 {
