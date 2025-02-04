@@ -146,6 +146,8 @@ inline int run_submap_cli(int argc, char** argv)
                 case candidate_choice::append_fp32: sensor_transfer.candidates = sensor_grid::candidate_mode::append_fp32; break;
                 case candidate_choice::compact_fp64: sensor_transfer.candidates = sensor_grid::candidate_mode::compact_fp64; break;
                 case candidate_choice::append_fp64: sensor_transfer.candidates = sensor_grid::candidate_mode::append_fp64; break;
+                case candidate_choice::coarse_mask: sensor_transfer.candidates = sensor_grid::candidate_mode::coarse_mask; break;
+                case candidate_choice::whole_tile_control: sensor_transfer.candidates = sensor_grid::candidate_mode::whole_tile_control; break;
                 default: return report_error("invalid sensor candidate method");
                 }
                 sensor_options_set = true;
@@ -251,7 +253,7 @@ inline int run_submap_cli(int argc, char** argv)
         }
          if (root.empty()) return report_error("--submaps requires --dataset directory");
         if (sensor_options_set && !sensor_selected) return report_error("sensor options require cuda-sensor-grid");
-        if (sensor_selected && sensor_transfer.candidates != sensor_grid::candidate_mode::whole_tiles &&
+        if (sensor_selected && sensor_grid::candidate_uses_mask(sensor_transfer.candidates) &&
             (unsigned(sensor_mode) > 2 || sensor_transfer.specialized || sensor_transfer.arithmetic != sensor_grid::transfer_arithmetic::fp64))
             return report_error("candidate masks require reference fp64 point sampling");
         if (sensor_selected && sensor_transfer.arithmetic == sensor_grid::transfer_arithmetic::fp32 && unsigned(sensor_mode) > 2)
@@ -337,6 +339,8 @@ inline int run_submap_cli(int argc, char** argv)
         if (sensor_selected && sensor_transfer.candidates == sensor_grid::candidate_mode::append_fp32) backend_label += "-append-fp32";
         if (sensor_selected && sensor_transfer.candidates == sensor_grid::candidate_mode::compact_fp64) backend_label += "-compact-fp64";
         if (sensor_selected && sensor_transfer.candidates == sensor_grid::candidate_mode::append_fp64) backend_label += "-append-fp64";
+        if (sensor_selected && sensor_transfer.candidates == sensor_grid::candidate_mode::coarse_mask) backend_label += "-coarse-mask";
+        if (sensor_selected && sensor_transfer.candidates == sensor_grid::candidate_mode::whole_tile_control) backend_label += "-whole-tile-control";
         auto exporter = open_map_export(output, input, mapping_options, backend_label.c_str(),
             sensor_selected ? sensor_sampling_name(sensor_mode) : resident ? resident_fusion_name(resident->fusion_order(), resident->reduction_mode(), resident->uses_step_tasks(), resident->warp_configuration().mode, resident->free_space_configuration().enabled, resident->segment_length() != 0, resident->uses_compact(), resident->uses_compact_batched(), resident->uses_fp32()) : "unspecified");
         const auto publish = [&](const submap& completed) { if (exporter) exporter->write(completed); };
