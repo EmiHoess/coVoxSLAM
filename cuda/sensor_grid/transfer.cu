@@ -5,6 +5,7 @@
 #include "specialized.cuh"
 #include "candidates.cuh"
 #include "candidate_list.cuh"
+#include "coarse_mask.cuh"
 #include "../projective/geometry.cuh"
 
 namespace covoxslam::sensor_grid
@@ -47,7 +48,7 @@ __global__ void mask_cells(field_view source, unsigned n, std::uint8_t* flags)
     const auto any = __syncthreads_or(observed);
     if (!local) flags[block] = any ? 1 : 0;
 }
-template <bool fp32, bool masked = false, bool overflow_fallback = false>
+template <bool fp32, bool masked = false, bool overflow_fallback = false, bool coarse = false>
 __global__ void transfer_cells(field_view source, interpolation mode, const std::uint32_t* slots,
     const detail::cuda_tile_coordinate* keys, detail::cuda_tsdf_tile* tiles,
     detail::cuda_projective_pose transform, float size, float maximum_weight, float band,
@@ -62,7 +63,8 @@ __global__ void transfer_cells(field_view source, interpolation mode, const std:
         (key.y * 8 + int(local / 8 % 8) + .5f) * size, (key.z * 8 + int(local / 64) + .5f) * size};
     const auto sensor = detail::projective_reference_point(transform, point);
     bool selected = true;
-    if constexpr (masked) selected = (masks[std::size_t(slot) * 16 + local / 32] & (1U << (local % 32))) != 0;
+    if constexpr (coarse) selected = (masks[slot] & (1U << (local % 8 / 4 + local / 8 % 8 / 4 * 2 + local / 64 / 4 * 4))) != 0;
+    else if constexpr (masked) selected = (masks[std::size_t(slot) * 16 + local / 32] & (1U << (local % 32))) != 0;
     const auto measured_sample = [&]() {
         if (!selected) return sample_value{};
         if constexpr (fp32) return sample_fp32(source, sensor.x, sensor.y, sensor.z, mode);
@@ -123,6 +125,43 @@ __global__ void transfer_cells(field_view source, interpolation mode, const std:
         if (!threadIdx.x) atomicAdd(candidate_count, static_cast<unsigned long long>(candidates));
     }
 }
+}
+int cuda_sensor_coarse_candidates(field_view source, interpolation mode, const std::uint32_t* active,
+    std::uint32_t active_count, const std::uint32_t* slots, std::uint32_t count,
+    const detail::cuda_tile_coordinate* keys, detail::cuda_projective_pose transform,
+    std::uint32_t* masks, void* opaque_stream, unsigned* launches)
+{
+    if (launches) *launches = 0;
+    if (!count) return 0;
+
+    if (!sampling_detail::valid_view(source) || unsigned(mode) > 2 || !active || !active_count ||
+        !slots || !keys || !masks || active_count > 16777216 || count > 1048576)
+        return int(cudaErrorInvalidValue);
+    const auto bounds = prepare_candidates(source, transform, mode);
+    const auto stream = static_cast<cudaStream_t>(opaque_stream);
+    if (launches) *launches = bounds.safe ? 2 : 1;
+    reset_coarse_candidates<<<count, 32, 0, stream>>>(slots, masks, !bounds.safe);
+    const auto error = cudaGetLastError();
+
+    if (error != cudaSuccess || !bounds.safe) return int(error);
+    mark_coarse_candidates<<<(active_count + 255) / 256, 256, 0, stream>>>(source, active, active_count,
+        bounds, slots, count, keys, masks);
+    return int(cudaGetLastError());
+}
+int cuda_sensor_coarse_transfer(field_view source, interpolation mode, const std::uint32_t* slots,
+    std::uint32_t count, const detail::cuda_tile_coordinate* keys, detail::cuda_tsdf_tile* tiles,
+    detail::cuda_projective_pose transform, float size, float maximum_weight, float band,
+    const std::uint32_t* masks, unsigned long long* updates, unsigned long long* candidates, void* opaque_stream)
+{
+    if (!count) return 0;
+
+    if (!sampling_detail::valid_view(source) || unsigned(mode) > 2 || !slots || !keys || !tiles ||
+        !masks || !updates || !candidates || count > 1048576 || !(size > 0) || !isfinite(size) ||
+        !(maximum_weight > 0) || !isfinite(maximum_weight) || !(band >= 0) || !isfinite(band))
+        return int(cudaErrorInvalidValue);
+    transfer_cells<false, true, false, true><<<count * 4, 128, 0, static_cast<cudaStream_t>(opaque_stream)>>>(
+        source, mode, slots, keys, tiles, transform, size, maximum_weight, band, updates, FLT_MAX, masks, candidates);
+    return int(cudaGetLastError());
 }
 int cuda_sensor_masked_transfer(field_view source, interpolation mode, const std::uint32_t* slots,
     std::uint32_t count, const detail::cuda_tile_coordinate* keys, detail::cuda_tsdf_tile* tiles,
