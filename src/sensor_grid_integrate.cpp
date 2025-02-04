@@ -9,7 +9,8 @@ operation_result<transfer_times> gpu_map::integrate(const gpu_grid& source, pose
     auto& data = *state;
     const auto field = source.device_field();
     const auto q = transform.rotation;
-    const bool masked = data.options.candidates != candidate_mode::whole_tiles;
+    const bool masked = candidate_uses_mask(data.options.candidates);
+    const bool coarse = data.options.candidates == candidate_mode::coarse_mask;
     const bool listed = candidate_uses_list(data.options.candidates);
     const bool append = data.options.candidates == candidate_mode::append_fp32;
     const double norm = double(q.x) * q.x + double(q.y) * q.y + double(q.z) * q.z + double(q.w) * q.w;
@@ -76,14 +77,18 @@ operation_result<transfer_times> gpu_map::integrate(const gpu_grid& source, pose
         data.options.candidates == candidate_mode::compact_fp64 ? cuda_sensor_list_candidates_fp64 : cuda_sensor_list_candidates;
     if (status && listed) status = data.check(mark_list(field, mode, data.active_cells, data.active_count,
         data.slots, static_cast<std::uint32_t>(slots.size()), data.keys, packed, data.candidate_list, data.stream, &marking_launches));
-    if (status && masked && !listed) status = data.check(cuda_sensor_candidates(field, mode, data.active_cells, data.active_count,
+    const auto mark_mask = coarse ? cuda_sensor_coarse_candidates : cuda_sensor_candidates;
+    if (status && masked && !listed) status = data.check(mark_mask(field, mode, data.active_cells, data.active_count,
         data.slots, static_cast<std::uint32_t>(slots.size()), data.keys, packed, data.candidate_masks, data.stream, &marking_launches));
     if (status) status = data.check(cudaEventRecord(data.events[5], data.stream));
     if (status) status = data.check(cudaEventRecord(data.events[2], data.stream));
     if (status && listed) status = data.check(cuda_sensor_list_transfer(field, mode, data.slots,
         static_cast<std::uint32_t>(slots.size()), data.keys, data.tiles, packed, data.settings.voxel_size,
         data.settings.maximum_weight, data.settings.voxel_size, data.candidate_list, data.updates, data.candidate_count, data.stream));
-    if (status && masked && !listed) status = data.check(cuda_sensor_masked_transfer(field, mode, data.slots,
+    if (status && coarse) status = data.check(cuda_sensor_coarse_transfer(field, mode, data.slots,
+        static_cast<std::uint32_t>(slots.size()), data.keys, data.tiles, packed, data.settings.voxel_size,
+        data.settings.maximum_weight, data.settings.voxel_size, data.candidate_masks, data.updates, data.candidate_count, data.stream));
+    if (status && masked && !listed && !coarse) status = data.check(cuda_sensor_masked_transfer(field, mode, data.slots,
         static_cast<std::uint32_t>(slots.size()), data.keys, data.tiles, packed, data.settings.voxel_size,
         data.settings.maximum_weight, data.settings.voxel_size, data.candidate_masks, data.updates,
         data.candidate_count, data.stream, data.options.candidates == candidate_mode::compacted_control));

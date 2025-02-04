@@ -17,14 +17,15 @@ operation_result<std::unique_ptr<gpu_map>> gpu_map::create(const lookup& table,
         if (!built) return std::unexpected(built.error());
         compact = std::move(*built);
     }
-    const bool masked = options.candidates != candidate_mode::whole_tiles;
+    const bool masked = candidate_uses_mask(options.candidates);
     const bool listed = candidate_uses_list(options.candidates);
     const std::size_t list_bytes = listed ? std::size_t(options.candidate_capacity) * 4 + sizeof(candidate_list_counters) : 0;
-    const std::size_t candidate_bytes = list_bytes + (masked ? std::size_t(capacity) * 64 + table.active_voxels.size() * 4 + 8 : 0);
+    const std::size_t candidate_bytes = list_bytes + (masked ? std::size_t(capacity) *
+        candidate_mask_words(options.candidates) * 4 + table.active_voxels.size() * 4 + 8 : 0);
     const std::size_t bytes = candidate_bytes + std::size_t(capacity) * (sizeof(detail::cuda_tsdf_tile) + 16) + count + 8 +
         (compact.offsets.size() + compact.cells.size()) * 4;
     if (!capacity || capacity > 1048576 || device < 0 || bytes > maximum_bytes ||
-        unsigned(options.source_mask) > 1 || unsigned(options.arithmetic) > 1 || unsigned(options.candidates) > 6 ||
+        unsigned(options.source_mask) > 1 || unsigned(options.arithmetic) > 1 || unsigned(options.candidates) > 8 ||
         (listed && (!options.candidate_capacity || options.candidate_capacity > 536870912)) ||
         (masked && (options.specialized || options.arithmetic != transfer_arithmetic::fp64)))
         return std::unexpected(operation_error{"sensor TSDF exceeds storage budget"});
@@ -47,7 +48,7 @@ operation_result<std::unique_ptr<gpu_map>> gpu_map::create(const lookup& table,
     if (status) status = data.allocate(data.slots, capacity);
     if (status) status = data.allocate(data.mask, count);
     if (status) status = data.allocate(data.updates, 1);
-    if (status && masked) status = data.allocate(data.candidate_masks, std::size_t(capacity) * 16);
+    if (status && masked) status = data.allocate(data.candidate_masks, std::size_t(capacity) * candidate_mask_words(options.candidates));
     if (status && masked) status = data.allocate(data.active_cells, table.active_voxels.size());
     if (status && masked) status = data.allocate(data.candidate_count, 1);
     if (status && listed) status = data.allocate(data.candidate_list.ids, options.candidate_capacity);
