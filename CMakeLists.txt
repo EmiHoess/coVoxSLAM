@@ -52,6 +52,7 @@ if(covoxslam_enable_cuda)
     target_sources(covoxslam_core PRIVATE src/sensor_grid_cuda.cpp)
     target_sources(covoxslam_core PRIVATE src/sensor_grid_map.cpp)
     target_sources(covoxslam_core PRIVATE src/sensor_grid_integrate.cpp)
+    target_sources(covoxslam_core PRIVATE src/sensor_grid_gpu_discovery.cpp)
     target_sources(covoxslam_core PRIVATE src/cuda_resident.cpp)
     target_link_libraries(covoxslam_core PUBLIC CUDA::cudart)
     set_target_properties(covoxslam_core PROPERTIES CUDA_STANDARD 20
