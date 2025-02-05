@@ -24,17 +24,23 @@ operation_result<transfer_times> gpu_map::integrate(const gpu_grid& source, pose
         !std::isfinite(transform.translation.y) || !std::isfinite(transform.translation.z))
         return std::unexpected(operation_error{"invalid sensor TSDF transfer"});
     transform.rotation = normalized(q);
+    const auto rotation = transform.rotation;
+    const detail::cuda_projective_pose packed{{transform.translation.x, transform.translation.y, transform.translation.z},
+        {rotation.x, rotation.y, rotation.z, rotation.w}};
+    const bool gpu_discovery = data.options.discovery == discovery_mode::gpu_host;
     auto status = data.check(cudaSetDevice(data.device));
     if (status) status = data.check(cudaEventRecord(data.events[0], data.stream));
     if (status) status = data.check(data.options.source_mask == source_mask_mode::compact
         ? cuda_sensor_compact_mask(field, data.mask_offsets, data.mask_cells, data.mask, data.stream)
         : cuda_sensor_mask(field, data.mask, data.stream));
     if (status) status = data.check(cudaEventRecord(data.events[1], data.stream));
-    if (status) status = data.check(cudaMemcpyAsync(data.flags.data(), data.mask, data.flags.size(), cudaMemcpyDeviceToHost, data.stream));
-    status = data.wait(status);
+    if (status && !gpu_discovery) status = data.check(cudaMemcpyAsync(data.flags.data(), data.mask, data.flags.size(), cudaMemcpyDeviceToHost, data.stream));
+    if (!gpu_discovery || !status) status = data.wait(status);
     if (!status) return std::unexpected(status.error());
     const auto start = std::chrono::steady_clock::now();
-    auto candidates = destination_tiles(data.grid, data.settings.voxel_size, data.flags, transform, data.capacity);
+    transfer_times result;
+    auto candidates = gpu_discovery ? data.discover_gpu(field, packed, result.gpu_discovery_ms) :
+        destination_tiles(data.grid, data.settings.voxel_size, data.flags, transform, data.capacity);
     if (!candidates) return std::unexpected(candidates.error());
     std::size_t additional{};
 
@@ -57,18 +63,14 @@ operation_result<transfer_times> gpu_map::integrate(const gpu_grid& source, pose
         }
         slots.push_back(found->second);
     }
-    transfer_times result;
     result.candidate_voxels = std::uint64_t(slots.size()) * 512;
-    result.kernel_launches = 1 + !slots.empty();
+    result.kernel_launches = 1 + !slots.empty() + gpu_discovery;
     if (listed && !slots.empty()) ++result.kernel_launches;
     result.discovery_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
     if (!new_keys.empty()) status = data.check(cudaMemcpyAsync(data.keys + first, new_keys.data(),
         new_keys.size() * sizeof(*data.keys), cudaMemcpyHostToDevice, data.stream));
     if (status && !slots.empty()) status = data.check(cudaMemcpyAsync(data.slots, slots.data(), slots.size() * 4, cudaMemcpyHostToDevice, data.stream));
     if (status) status = data.check(cudaMemsetAsync(data.updates, 0, 8, data.stream));
-    const auto rotation = transform.rotation;
-    const detail::cuda_projective_pose packed{{transform.translation.x, transform.translation.y, transform.translation.z},
-        {rotation.x, rotation.y, rotation.z, rotation.w}};
     if (status && masked) status = data.check(cudaMemsetAsync(data.candidate_count, 0, 8, data.stream));
     if (status) status = data.check(cudaEventRecord(data.events[4], data.stream));
     unsigned marking_launches{};

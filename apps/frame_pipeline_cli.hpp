@@ -152,6 +152,14 @@ inline int run_submap_cli(int argc, char** argv)
                 }
                 sensor_options_set = true;
                 continue;
+            case sensor_mapping_option::discovery:
+                switch (lookup_cli_option(value, discovery_choices)) {
+                case discovery_choice::cpu: sensor_transfer.discovery = sensor_grid::discovery_mode::cpu; break;
+                case discovery_choice::gpu_host: sensor_transfer.discovery = sensor_grid::discovery_mode::gpu_host; break;
+                default: return report_error("invalid sensor discovery method");
+                }
+                sensor_options_set = true;
+                continue;
             case sensor_mapping_option::candidate_capacity: {
                 std::uint32_t capacity{};
                 const auto parsed = std::from_chars(value.data(), value.data() + value.size(), capacity);
@@ -341,6 +349,7 @@ inline int run_submap_cli(int argc, char** argv)
         if (sensor_selected && sensor_transfer.candidates == sensor_grid::candidate_mode::append_fp64) backend_label += "-append-fp64";
         if (sensor_selected && sensor_transfer.candidates == sensor_grid::candidate_mode::coarse_mask) backend_label += "-coarse-mask";
         if (sensor_selected && sensor_transfer.candidates == sensor_grid::candidate_mode::whole_tile_control) backend_label += "-whole-tile-control";
+        if (sensor_selected && sensor_transfer.discovery == sensor_grid::discovery_mode::gpu_host) backend_label += "-gpu-discovery";
         auto exporter = open_map_export(output, input, mapping_options, backend_label.c_str(),
             sensor_selected ? sensor_sampling_name(sensor_mode) : resident ? resident_fusion_name(resident->fusion_order(), resident->reduction_mode(), resident->uses_step_tasks(), resident->warp_configuration().mode, resident->free_space_configuration().enabled, resident->segment_length() != 0, resident->uses_compact(), resident->uses_compact_batched(), resident->uses_fp32()) : "unspecified");
         const auto publish = [&](const submap& completed) { if (exporter) exporter->write(completed); };

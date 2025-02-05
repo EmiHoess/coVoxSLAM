@@ -15,7 +15,7 @@ inline constexpr cli_option_entry<sensor_backend_choice> sensor_backend_choices[
     {"cuda-sensor-grid", sensor_backend_choice::sensor},
     {"cuda-sensor-grid-combined", sensor_backend_choice::combined}
 };
-enum class sensor_mapping_option { unknown, backend, interpolation, gather, threshold, block_threshold, execution, source_mask, transfer_precision, transfer_kernel, candidates, candidate_capacity };
+enum class sensor_mapping_option { unknown, backend, interpolation, gather, threshold, block_threshold, execution, source_mask, transfer_precision, transfer_kernel, candidates, candidate_capacity, discovery };
 inline constexpr cli_option_entry<sensor_mapping_option> sensor_mapping_options[]{
     {"--backend", sensor_mapping_option::backend}, {"--sensor-grid-interpolation", sensor_mapping_option::interpolation},
     {"--sensor-grid-gather", sensor_mapping_option::gather},
@@ -26,7 +26,12 @@ inline constexpr cli_option_entry<sensor_mapping_option> sensor_mapping_options[
     {"--sensor-grid-transfer-precision", sensor_mapping_option::transfer_precision},
     {"--sensor-grid-transfer", sensor_mapping_option::transfer_kernel},
     {"--sensor-grid-candidates", sensor_mapping_option::candidates},
-    {"--sensor-grid-candidate-capacity", sensor_mapping_option::candidate_capacity}
+    {"--sensor-grid-candidate-capacity", sensor_mapping_option::candidate_capacity},
+    {"--sensor-grid-discovery", sensor_mapping_option::discovery}
+};
+enum class discovery_choice { unknown, cpu, gpu_host };
+inline constexpr cli_option_entry<discovery_choice> discovery_choices[]{
+    {"cpu", discovery_choice::cpu}, {"gpu-host", discovery_choice::gpu_host}
 };
 enum class candidate_choice { unknown, whole_tiles, voxel_mask, compacted_control, compact_fp32, append_fp32, compact_fp64, append_fp64, coarse_mask, whole_tile_control };
 inline constexpr cli_option_entry<candidate_choice> candidate_choices[]{
