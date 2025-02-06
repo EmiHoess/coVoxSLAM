@@ -3,7 +3,7 @@
 
 namespace covoxslam::sensor_grid
 {
-enum discovery_error : std::uint32_t { discovery_coordinate = 1, discovery_capacity = 2, discovery_hash = 4 };
+enum discovery_error : std::uint32_t { discovery_coordinate = 1, discovery_capacity = 2, discovery_hash = 4, discovery_pool = 8, discovery_ownership = 16 };
 struct discovery_state
 {
     std::uint32_t count{}, error{}, tile_count{}, new_count{};
