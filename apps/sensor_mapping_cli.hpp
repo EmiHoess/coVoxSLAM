@@ -29,9 +29,10 @@ inline constexpr cli_option_entry<sensor_mapping_option> sensor_mapping_options[
     {"--sensor-grid-candidate-capacity", sensor_mapping_option::candidate_capacity},
     {"--sensor-grid-discovery", sensor_mapping_option::discovery}
 };
-enum class discovery_choice { unknown, cpu, gpu_host };
+enum class discovery_choice { unknown, cpu, gpu_host, gpu_resident };
 inline constexpr cli_option_entry<discovery_choice> discovery_choices[]{
-    {"cpu", discovery_choice::cpu}, {"gpu-host", discovery_choice::gpu_host}
+    {"cpu", discovery_choice::cpu}, {"gpu-host", discovery_choice::gpu_host},
+    {"gpu-resident", discovery_choice::gpu_resident}
 };
 enum class candidate_choice { unknown, whole_tiles, voxel_mask, compacted_control, compact_fp32, append_fp32, compact_fp64, append_fp64, coarse_mask, whole_tile_control };
 inline constexpr cli_option_entry<candidate_choice> candidate_choices[]{

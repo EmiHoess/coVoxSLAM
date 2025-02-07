@@ -3,6 +3,7 @@
 #include "sensor_grid/map_native.h"
 #include "sensor_grid/candidate_list.h"
 #include "sensor_grid/discovery.h"
+#include "sensor_grid/resident.h"
 #include <cuda_runtime_api.h>
 #include <array>
 
@@ -24,6 +25,7 @@ struct gpu_map::implementation
     unsigned long long* candidate_count{};
     candidate_list_view candidate_list{};
     discovery_view discovery{};
+    resident_discovery_view resident{};
     transfer_options options{};
     unsigned long long* updates{};
     std::vector<std::uint8_t> flags;
@@ -31,11 +33,13 @@ struct gpu_map::implementation
     std::unordered_map<int3, std::uint32_t, int3_hash> index;
     cudaStream_t stream{};
     std::array<cudaEvent_t, 8> events{};
-    std::array<void*, 15> allocations{};
+    std::array<void*, 20> allocations{};
     std::size_t allocated{};
     bool selected{}, failed{};
     operation_result<std::vector<int3>> discover_gpu(field_view source,
         detail::cuda_projective_pose transform, float& elapsed);
+    operation_result<transfer_times> integrate_resident(field_view source,
+        detail::cuda_projective_pose transform, interpolation mode);
     operation_status check(int code)
     {
         if (!code) return {};

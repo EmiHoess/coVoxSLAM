@@ -156,6 +156,7 @@ inline int run_submap_cli(int argc, char** argv)
                 switch (lookup_cli_option(value, discovery_choices)) {
                 case discovery_choice::cpu: sensor_transfer.discovery = sensor_grid::discovery_mode::cpu; break;
                 case discovery_choice::gpu_host: sensor_transfer.discovery = sensor_grid::discovery_mode::gpu_host; break;
+                case discovery_choice::gpu_resident: sensor_transfer.discovery = sensor_grid::discovery_mode::gpu_resident; break;
                 default: return report_error("invalid sensor discovery method");
                 }
                 sensor_options_set = true;
@@ -350,6 +351,7 @@ inline int run_submap_cli(int argc, char** argv)
         if (sensor_selected && sensor_transfer.candidates == sensor_grid::candidate_mode::coarse_mask) backend_label += "-coarse-mask";
         if (sensor_selected && sensor_transfer.candidates == sensor_grid::candidate_mode::whole_tile_control) backend_label += "-whole-tile-control";
         if (sensor_selected && sensor_transfer.discovery == sensor_grid::discovery_mode::gpu_host) backend_label += "-gpu-discovery";
+        if (sensor_selected && sensor_transfer.discovery == sensor_grid::discovery_mode::gpu_resident) backend_label += "-gpu-resident";
         auto exporter = open_map_export(output, input, mapping_options, backend_label.c_str(),
             sensor_selected ? sensor_sampling_name(sensor_mode) : resident ? resident_fusion_name(resident->fusion_order(), resident->reduction_mode(), resident->uses_step_tasks(), resident->warp_configuration().mode, resident->free_space_configuration().enabled, resident->segment_length() != 0, resident->uses_compact(), resident->uses_compact_batched(), resident->uses_fp32()) : "unspecified");
         const auto publish = [&](const submap& completed) { if (exporter) exporter->write(completed); };

@@ -34,6 +34,8 @@ operation_result<transfer_times> gpu_map::integrate(const gpu_grid& source, pose
         ? cuda_sensor_compact_mask(field, data.mask_offsets, data.mask_cells, data.mask, data.stream)
         : cuda_sensor_mask(field, data.mask, data.stream));
     if (status) status = data.check(cudaEventRecord(data.events[1], data.stream));
+    if (status && data.options.discovery == discovery_mode::gpu_resident)
+        return data.integrate_resident(field, packed, mode);
     if (status && !gpu_discovery) status = data.check(cudaMemcpyAsync(data.flags.data(), data.mask, data.flags.size(), cudaMemcpyDeviceToHost, data.stream));
     if (!gpu_discovery || !status) status = data.wait(status);
     if (!status) return std::unexpected(status.error());

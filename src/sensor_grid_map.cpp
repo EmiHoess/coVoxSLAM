@@ -19,17 +19,21 @@ operation_result<std::unique_ptr<gpu_map>> gpu_map::create(const lookup& table,
     }
     const bool masked = candidate_uses_mask(options.candidates);
     const bool listed = candidate_uses_list(options.candidates);
-    const bool gpu_discovery = options.discovery == discovery_mode::gpu_host;
+    const bool gpu_discovery = options.discovery != discovery_mode::cpu;
+    const bool resident = options.discovery == discovery_mode::gpu_resident;
     const auto hash_capacity = discovery_hash_size(capacity);
     const std::size_t discovery_bytes = gpu_discovery ? (std::size_t(hash_capacity) + capacity) * 8 + sizeof(discovery_state) : 0;
+    const std::size_t resident_bytes = resident ? std::size_t(hash_capacity) * 16 +
+        std::size_t(capacity) * 20 + ((std::size_t(capacity) + 255) / 256) * 8 : 0;
     const std::size_t list_bytes = listed ? std::size_t(options.candidate_capacity) * 4 + sizeof(candidate_list_counters) : 0;
     const std::size_t candidate_bytes = list_bytes + (masked ? std::size_t(capacity) *
         candidate_mask_words(options.candidates) * 4 + table.active_voxels.size() * 4 + 8 : 0);
-    const std::size_t bytes = discovery_bytes + candidate_bytes + std::size_t(capacity) * (sizeof(detail::cuda_tsdf_tile) + 16) + count + 8 +
+    const std::size_t bytes = resident_bytes + discovery_bytes + candidate_bytes + std::size_t(capacity) * (sizeof(detail::cuda_tsdf_tile) + 16) + count + 8 +
         (compact.offsets.size() + compact.cells.size()) * 4;
     if (!capacity || capacity > 1048576 || device < 0 || bytes > maximum_bytes ||
         unsigned(options.source_mask) > 1 || unsigned(options.arithmetic) > 1 || unsigned(options.candidates) > 8 ||
-        unsigned(options.discovery) > 1 ||
+        unsigned(options.discovery) > 2 ||
+        (resident && (masked || options.specialized || options.arithmetic != transfer_arithmetic::fp64)) ||
         (listed && (!options.candidate_capacity || options.candidate_capacity > 536870912)) ||
         (masked && (options.specialized || options.arithmetic != transfer_arithmetic::fp64)))
         return std::unexpected(operation_error{"sensor TSDF exceeds storage budget"});
@@ -58,6 +62,13 @@ operation_result<std::unique_ptr<gpu_map>> gpu_map::create(const lookup& table,
     data.discovery.capacity = capacity;
     data.discovery.hash_capacity = hash_capacity;
     if (status && gpu_discovery) status = data.check(cudaMemsetAsync(data.discovery.state, 0, sizeof(discovery_state), data.stream));
+    data.resident.scan = data.discovery;
+    data.resident.keys = data.keys; data.resident.slots = data.slots;
+    if (status && resident) status = data.allocate(data.resident.hash, hash_capacity);
+    if (status && resident) status = data.allocate(data.resident.scratch_keys, capacity);
+    if (status && resident) status = data.allocate(data.resident.offsets, capacity);
+    if (status && resident) status = data.allocate(data.resident.sums, (capacity + 255) / 256);
+    if (status && resident) status = data.allocate(data.resident.missing, capacity);
     if (status && masked) status = data.allocate(data.candidate_masks, std::size_t(capacity) * candidate_mask_words(options.candidates));
     if (status && masked) status = data.allocate(data.active_cells, table.active_voxels.size());
     if (status && masked) status = data.allocate(data.candidate_count, 1);
@@ -76,7 +87,8 @@ operation_result<std::unique_ptr<gpu_map>> gpu_map::create(const lookup& table,
 
     for (auto& event : data.events)
         if (status) status = data.check(cudaEventCreate(&event));
-    if (status) status = data.check(cudaMemsetAsync(data.tiles, 0, std::size_t(capacity) * sizeof(*data.tiles), data.stream));
+    if (status) status = data.check(resident ? cuda_sensor_reset_tiles(data.resident, data.tiles, data.stream) :
+        cudaMemsetAsync(data.tiles, 0, std::size_t(capacity) * sizeof(*data.tiles), data.stream));
     status = data.wait(status);
     if (!status) return std::unexpected(status.error());
     return owner;
@@ -87,7 +99,9 @@ operation_status gpu_map::reset()
 
     if (data.failed) return std::unexpected(operation_error{"sensor TSDF is in failed state"});
     auto status = data.check(cudaSetDevice(data.device));
-    if (status) status = data.check(cudaMemsetAsync(data.tiles, 0, std::size_t(data.capacity) * sizeof(*data.tiles), data.stream));
+    if (status) status = data.check(data.options.discovery == discovery_mode::gpu_resident ?
+        cuda_sensor_reset_tiles(data.resident, data.tiles, data.stream) :
+        cudaMemsetAsync(data.tiles, 0, std::size_t(data.capacity) * sizeof(*data.tiles), data.stream));
     status = data.wait(status);
     if (!status) return status;
     data.index.clear();
