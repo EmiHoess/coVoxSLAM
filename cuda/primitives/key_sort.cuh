@@ -1,5 +1,6 @@
 #pragma once
-#include "scan.cuh"
+#include "../sparse_mapping.h"
+#include <cuda_runtime.h>
 
 namespace covoxslam::detail
 {
@@ -21,16 +22,7 @@ __global__ void key_sort_scatter(const std::uint64_t* input, std::uint64_t* outp
 inline cudaError_t scan_key_flags(const std::uint32_t* input, std::uint64_t* output,
     std::uint64_t* sums, unsigned count, cudaStream_t stream)
 {
-    const auto blocks = (count + 255) / 256;
-    scan_blocks<<<blocks, 256, 0, stream>>>(input, output, sums, count);
-    auto error = cudaGetLastError();
-    if (error) return error;
-    scan_block_sums<<<1, 1, 0, stream>>>(sums, blocks);
-    error = cudaGetLastError();
-
-    if (error) return error;
-    add_block_offsets<<<blocks, 256, 0, stream>>>(output, sums, count);
-    return cudaGetLastError();
+    return static_cast<cudaError_t>(cuda_scan_counts(input, output, sums, count, stream));
 }
 inline cudaError_t sort_tile_keys(std::uint64_t* keys, std::uint64_t* scratch,
     std::uint32_t* flags, std::uint64_t* offsets, std::uint64_t* sums, unsigned count, cudaStream_t stream)

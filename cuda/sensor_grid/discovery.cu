@@ -2,6 +2,7 @@
 #include "../ray_resident/hash.cuh"
 #include <cmath>
 #include <climits>
+#include <math_constants.h>
 
 namespace covoxslam::sensor_grid
 {
@@ -54,7 +55,7 @@ __global__ void discover_sensor_tiles(field_view source, const std::uint8_t* obs
 
     if (index >= std::size_t(n) * n * n || !observed[index]) return;
     const unsigned cell[]{unsigned(index % n) * 8, unsigned(index / n % n) * 8, unsigned(index / (n * n)) * 8};
-    float lo[]{INFINITY, INFINITY, INFINITY}, hi[]{-INFINITY, -INFINITY, -INFINITY};
+    float lo[]{CUDART_INF_F, CUDART_INF_F, CUDART_INF_F}, hi[]{-CUDART_INF_F, -CUDART_INF_F, -CUDART_INF_F};
 
     for (unsigned corner = 0; corner < 8; ++corner) {
         float p[3]{};
