@@ -6,6 +6,7 @@
 #include "candidates.cuh"
 #include "candidate_list.cuh"
 #include "coarse_mask.cuh"
+#include "resident.h"
 #include "../projective/geometry.cuh"
 
 namespace covoxslam::sensor_grid
@@ -48,13 +49,16 @@ __global__ void mask_cells(field_view source, unsigned n, std::uint8_t* flags)
     const auto any = __syncthreads_or(observed);
     if (!local) flags[block] = any ? 1 : 0;
 }
-template <bool fp32, bool masked = false, bool overflow_fallback = false, bool coarse = false>
+template <bool fp32, bool masked = false, bool overflow_fallback = false, bool coarse = false, bool resident = false>
 __global__ void transfer_cells(field_view source, interpolation mode, const std::uint32_t* slots,
     const detail::cuda_tile_coordinate* keys, detail::cuda_tsdf_tile* tiles,
     detail::cuda_projective_pose transform, float size, float maximum_weight, float band,
     unsigned long long* count, float truncation, const std::uint32_t* masks = nullptr,
-    unsigned long long* candidate_count = nullptr, const candidate_list_counters* list_state = nullptr)
+    unsigned long long* candidate_count = nullptr, const candidate_list_counters* list_state = nullptr,
+    const discovery_state* resident_state = nullptr)
 {
+    if constexpr (resident)
+        if (resident_state->error || blockIdx.x / 4 >= resident_state->count) return;
     if constexpr (overflow_fallback)
         if (!list_state->overflow || list_state->invalid) return;
     const auto slot = slots[blockIdx.x / 4], local = (blockIdx.x % 4) * 128 + threadIdx.x;
@@ -125,6 +129,18 @@ __global__ void transfer_cells(field_view source, interpolation mode, const std:
         if (!threadIdx.x) atomicAdd(candidate_count, static_cast<unsigned long long>(candidates));
     }
 }
+}
+int cuda_sensor_resident_transfer(field_view source, interpolation mode, resident_discovery_view view,
+    detail::cuda_tsdf_tile* tiles, detail::cuda_projective_pose transform, float size,
+    float maximum_weight, float band, unsigned long long* updates, void* stream)
+{
+    if (!valid_resident_discovery(view) || !sampling_detail::valid_view(source) || unsigned(mode) > 5 ||
+        !tiles || !updates || !(size > 0) || !isfinite(size) || !(maximum_weight > 0) ||
+        !isfinite(maximum_weight) || !(band >= 0) || !isfinite(band)) return int(cudaErrorInvalidValue);
+    transfer_cells<false, false, false, false, true><<<view.scan.capacity * 4, 128, 0, static_cast<cudaStream_t>(stream)>>>(
+        source, mode, view.slots, view.keys, tiles, transform, size, maximum_weight, band,
+        updates, FLT_MAX, nullptr, nullptr, nullptr, view.scan.state);
+    return int(cudaGetLastError());
 }
 int cuda_sensor_coarse_candidates(field_view source, interpolation mode, const std::uint32_t* active,
     std::uint32_t active_count, const std::uint32_t* slots, std::uint32_t count,

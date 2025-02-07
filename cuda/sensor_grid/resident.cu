@@ -68,7 +68,7 @@ __global__ void commit_resident_keys(resident_discovery_view view)
 {
     const auto i = std::size_t(blockIdx.x) * blockDim.x + threadIdx.x;
 
-    if (view.scan.state->error || i >= view.scan.state->count || !view.missing[i]) return;
+    if (atomicAdd(&view.scan.state->error, 0U) || i >= view.scan.state->count || !view.missing[i]) return;
     const auto key = view.scan.keys[i];
     const auto slot = view.scan.state->tile_count + unsigned(view.offsets[i]);
     constexpr int bias = 1 << 20;
@@ -80,6 +80,49 @@ __global__ void publish_resident_keys(discovery_state* state)
 {
     if (!state->error) state->tile_count += state->new_count;
 }
+__global__ void prepare_resident_restore(discovery_state* state, unsigned count)
+{
+    *state = {0, 0, 0, count};
+}
+__global__ void seed_resident_keys(resident_discovery_view view, unsigned count)
+{
+    const auto slot = std::size_t(blockIdx.x) * blockDim.x + threadIdx.x;
+
+    if (slot >= count) return;
+    const auto coordinate = view.keys[slot];
+    const auto key = detail::resident_key({coordinate.z, coordinate.y, coordinate.x});
+
+    if (key == UINT64_MAX) { atomicOr(&view.scan.state->error, discovery_coordinate); return; }
+    insert_resident_key(view, key, unsigned(slot));
+}
+}
+int cuda_sensor_reset_tiles(resident_discovery_view view, detail::cuda_tsdf_tile* tiles, void* opaque_stream)
+{
+    if (!valid_resident_discovery(view) || !tiles) return int(cudaErrorInvalidValue);
+    const auto stream = static_cast<cudaStream_t>(opaque_stream);
+    auto error = cudaMemsetAsync(view.scan.state, 0, sizeof(discovery_state), stream);
+    if (!error) error = cudaMemsetAsync(view.hash, 255, std::size_t(view.scan.hash_capacity) * sizeof(*view.hash), stream);
+    if (!error) error = cudaMemsetAsync(view.keys, 0, std::size_t(view.scan.capacity) * sizeof(*view.keys), stream);
+    if (!error) error = cudaMemsetAsync(tiles, 0, std::size_t(view.scan.capacity) * sizeof(*tiles), stream);
+    return int(error);
+}
+int cuda_sensor_restore_tiles(resident_discovery_view view, std::uint32_t count, void* opaque_stream)
+{
+    if (!valid_resident_discovery(view) || count > view.scan.capacity) return int(cudaErrorInvalidValue);
+    const auto stream = static_cast<cudaStream_t>(opaque_stream);
+    auto error = cudaMemsetAsync(view.hash, 255, std::size_t(view.scan.hash_capacity) * sizeof(*view.hash), stream);
+
+    if (error) return int(error);
+    prepare_resident_restore<<<1, 1, 0, stream>>>(view.scan.state, count);
+    error = cudaGetLastError();
+
+    if (error) return int(error);
+    if (count) seed_resident_keys<<<(count + 127) / 128, 128, 0, stream>>>(view, count);
+    error = cudaGetLastError();
+
+    if (error) return int(error);
+    publish_resident_keys<<<1, 1, 0, stream>>>(view.scan.state);
+    return int(cudaGetLastError());
 }
 int cuda_sensor_allocate_tiles(resident_discovery_view view, void* opaque_stream)
 {
