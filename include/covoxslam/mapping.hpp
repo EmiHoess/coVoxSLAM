@@ -1,6 +1,7 @@
 #pragma once
 
 #include <covoxslam/dataset.hpp>
+#include <covoxslam/input_timing.hpp>
 
 #include <functional>
 #include <span>
@@ -37,6 +38,7 @@ struct submap_frame
      pose4 anchor{};
     pose initial_pose{};
     std::vector<int> frame_ids;
+    input_timing timing;
 };
 
 struct pipeline_callbacks
@@ -53,6 +55,7 @@ struct pipeline_result {
      std::size_t rays_generated{};
     std::vector<submap_frame> submaps;
     bool cancelled{};
+    input_timing timing;
 }
 ;
 
@@ -159,6 +162,7 @@ struct mapping_statistics {
     double cuda_task_expansion_ms{}, cuda_task_evaluation_ms{}, cuda_task_fusion_ms{};
     double sensor_gather_ms{}, sensor_mask_ms{}, sensor_discovery_ms{}, sensor_fusion_ms{};
     double sensor_candidates_ms{};
+    double sensor_gpu_discovery_ms{}, sensor_gpu_allocation_ms{};
     std::uint64_t sensor_candidate_overflows{};
     double sensor_graph_setup_ms{}, sensor_upload_ms{}, sensor_readback_ms{};
     std::uint64_t sensor_candidate_voxels{}, sensor_kernel_launches{};

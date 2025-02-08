@@ -1,4 +1,5 @@
 #pragma once
+#include <covoxslam/input_timing.hpp>
 
 #include <covoxslam/types.hpp>
 
@@ -162,6 +163,7 @@ struct frame_load_options
 struct organized_frame
 {
     frame_descriptor descriptor;
+    input_timing timing;
     std::vector<vec3f> raw_xyz;
     std::vector<vec3f> deskewed_xyz;
      std::vector<std::uint32_t> range_mm;
