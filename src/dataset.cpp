@@ -5,6 +5,8 @@
 #include <array>
 #include <cmath>
 #include <initializer_list>
+#include <chrono>
+#include <cstring>
 #include <limits>
 #include <stdexcept>
 
@@ -269,8 +271,9 @@ namespace
 {
 std::vector<std::uint8_t> read_frame_bytes(
     const dataset& input, const std::filesystem::path& path,
-    std::size_t count, std::size_t width)
+    std::size_t count, std::size_t width, input_timing& timing)
 {
+    const auto started = std::chrono::steady_clock::now();
     if (path.empty() || width == 0 ||
         count > static_cast<std::size_t>(std::numeric_limits<std::streamsize>::max()) / width)
         throw std::runtime_error("missing frame buffer or invalid byte count");
@@ -285,7 +288,11 @@ std::vector<std::uint8_t> read_frame_bytes(
     if (!file || file.gcount() != static_cast<std::streamsize>(bytes) ||
         file.peek() != std::char_traits<char>::eof() || file.bad())
         throw std::runtime_error("frame buffer could not be read completely");
+    const auto loaded = std::chrono::steady_clock::now();
+    timing.read_ms += std::chrono::duration<double, std::milli>(loaded - started).count();
+    timing.payload_bytes += bytes;
     verify_frame_bytes(input, resolved, result);
+    timing.validation_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - loaded).count();
     return result;
 }
 
@@ -298,23 +305,30 @@ std::uint32_t decode_frame_u32(const std::uint8_t* bytes)
 }
 
 std::vector<std::uint32_t> read_frame_u32(
-    const dataset& input, const std::filesystem::path& path, std::size_t count)
+    const dataset& input, const std::filesystem::path& path, std::size_t count, input_timing& timing)
 {
-    const auto bytes = read_frame_bytes(input, path, count, 4);
+    const auto bytes = read_frame_bytes(input, path, count, 4, timing);
+    const auto started = std::chrono::steady_clock::now();
     std::vector<std::uint32_t> result(count);
-    for (std::size_t index = 0; index < count; ++index)
-        result[index] = decode_frame_u32(bytes.data() + index * 4);
+        if (!bytes.empty()) std::memcpy(result.data(), bytes.data(), bytes.size());
+    timing.decode_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
     return result;
 }
 
 std::vector<vec3f> read_frame_xyz(
-    const dataset& input, const std::filesystem::path& path, std::size_t count)
+    const dataset& input, const std::filesystem::path& path, std::size_t count, input_timing& timing)
 {
-    const auto bytes = read_frame_bytes(input, path, count, 12);
+    const auto bytes = read_frame_bytes(input, path, count, 12, timing);
+    const auto started = std::chrono::steady_clock::now();
      std::vector<vec3f> result(count);
+    constexpr bool native = sizeof(vec3f) == 12 &&
+        std::is_trivially_copyable_v<vec3f> && offsetof(vec3f, y) == 4 && offsetof(vec3f, z) == 8;
+    if constexpr (native)
+        if (!bytes.empty()) std::memcpy(result.data(), bytes.data(), bytes.size());
+
     for (std::size_t index = 0; index < count; ++index) {
         const auto* data = bytes.data() + index * 12;
-        const vec3f point{
+        const vec3f point = native ? result[index] : vec3f{
             std::bit_cast<float>(decode_frame_u32(data)),
             std::bit_cast<float>(decode_frame_u32(data + 4)),
             std::bit_cast<float>(decode_frame_u32(data + 8))};
@@ -322,6 +336,7 @@ std::vector<vec3f> read_frame_xyz(
             throw std::runtime_error("frame buffer contains a non-finite coordinate");
         result[index] = point;
     }
+    timing.decode_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
     return result;
 }
 }
@@ -440,16 +455,17 @@ organized_frame load_frame(
     if (options.deskewed_xyz && frame.descriptor.deskewed_xyz_path.empty())
         throw std::runtime_error("the frame has no deskewed XYZ buffer");
      if (options.raw_xyz)
-        frame.raw_xyz = read_frame_xyz(input, frame.descriptor.raw_xyz_path, count);
+        frame.raw_xyz = read_frame_xyz(input, frame.descriptor.raw_xyz_path, count, frame.timing);
     if (options.deskewed_xyz)
-        frame.deskewed_xyz = read_frame_xyz(input, frame.descriptor.deskewed_xyz_path, count);
+        frame.deskewed_xyz = read_frame_xyz(input, frame.descriptor.deskewed_xyz_path, count, frame.timing);
     if (options.range)
-        frame.range_mm = read_frame_u32(input, frame.descriptor.range_path, count);
+        frame.range_mm = read_frame_u32(input, frame.descriptor.range_path, count, frame.timing);
     if (options.status)
-        frame.status = read_frame_bytes(input, frame.descriptor.status_path, count, 1);
+        frame.status = read_frame_bytes(input, frame.descriptor.status_path, count, 1, frame.timing);
     if (options.time_offset_ns)
         frame.time_offset_ns = read_frame_u32(
-            input, frame.descriptor.time_offset_ns_path, frame.descriptor.columns);
+            input, frame.descriptor.time_offset_ns_path, frame.descriptor.columns, frame.timing);
+    const auto validation_started = std::chrono::steady_clock::now();
     for (std::size_t column = 0; column < frame.time_offset_ns.size(); ++column)
     {
         frame.beam_stamp_ns(column);
@@ -461,6 +477,8 @@ organized_frame load_frame(
             throw std::runtime_error("frame buffer contains an unknown status code");
     }
     validate_frame_contents(frame);
+    frame.timing.validation_ms += std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - validation_started).count();
     return frame;
 }
 }
