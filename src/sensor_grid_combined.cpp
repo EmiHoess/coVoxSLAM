@@ -50,6 +50,9 @@ operation_result<combined_times> combined_map::integrate(std::span<const float> 
     totals.gather.graph_setup_ms += gathered->graph_setup_ms;
     totals.transfer.mask_ms += transferred->mask_ms;
     totals.transfer.discovery_ms += transferred->discovery_ms;
+    totals.transfer.gpu_discovery_ms += transferred->gpu_discovery_ms;
+    totals.transfer.gpu_allocation_ms += transferred->gpu_allocation_ms;
+    totals.transfer.resident_dispatch_ms += transferred->resident_dispatch_ms;
     totals.transfer.fusion_ms += transferred->fusion_ms;
     totals.transfer.candidates_ms += transferred->candidates_ms;
     totals.transfer.updates += transferred->updates;

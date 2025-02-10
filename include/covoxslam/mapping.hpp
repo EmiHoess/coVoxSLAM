@@ -163,6 +163,7 @@ struct mapping_statistics {
     double sensor_gather_ms{}, sensor_mask_ms{}, sensor_discovery_ms{}, sensor_fusion_ms{};
     double sensor_candidates_ms{};
     double sensor_gpu_discovery_ms{}, sensor_gpu_allocation_ms{};
+    double sensor_resident_dispatch_ms{};
     std::uint64_t sensor_candidate_overflows{};
     double sensor_graph_setup_ms{}, sensor_upload_ms{}, sensor_readback_ms{};
     std::uint64_t sensor_candidate_voxels{}, sensor_kernel_launches{};

@@ -168,6 +168,9 @@ inline operation_result<pipeline_callbacks> sensor_mapping_callbacks(const senso
             completed.statistics.sensor_candidates_ms = timing.transfer.candidates_ms;
             completed.statistics.sensor_candidate_overflows = timing.transfer.candidate_overflows;
             completed.statistics.sensor_discovery_ms = timing.transfer.discovery_ms;
+            completed.statistics.sensor_gpu_discovery_ms = timing.transfer.gpu_discovery_ms;
+            completed.statistics.sensor_gpu_allocation_ms = timing.transfer.gpu_allocation_ms;
+            completed.statistics.sensor_resident_dispatch_ms = timing.transfer.resident_dispatch_ms;
             completed.statistics.sensor_fusion_ms = timing.transfer.fusion_ms;
             completed.statistics.sensor_readback_ms = timing.readback_ms;
             completed.statistics.sensor_candidate_voxels = timing.transfer.candidate_voxels;

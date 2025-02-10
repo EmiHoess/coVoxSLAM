@@ -1,6 +1,7 @@
 #include <covoxslam/mapping.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <limits>
 #include <stdexcept>
@@ -70,7 +71,10 @@ pipeline_result run_frame_pipeline(
     bool active = false;
     const auto finish = [&]
     {
+        const auto started = std::chrono::steady_clock::now();
         if (callbacks.finish) callbacks.finish(current);
+        result.timing.finalization_ms += std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - started).count();
 
         if (stop_requested()) return;
         result.submaps.push_back(std::move(current));
@@ -107,14 +111,22 @@ pipeline_result run_frame_pipeline(
             active = true;
         }
         const auto frame = load_frame(input, index);
+        auto timing = frame.timing;
+        const auto preparation_started = std::chrono::steady_clock::now();
         const auto rays = deskew_frame(frame, trajectory, current.anchor,
                                       options.ring_stride, options.column_stride);
         const auto scan_pose = local_pose(current.anchor,
             sample_pose(trajectory, descriptor.start_stamp_ns));
+        const auto integration_started = std::chrono::steady_clock::now();
+        timing.deskew_ms = std::chrono::duration<double, std::milli>(integration_started - preparation_started).count();
         if (callbacks.integrate_scan)
             callbacks.integrate_scan(current, descriptor, rays, scan_pose);
+        timing.integration_ms = std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - integration_started).count();
 
         if (stop_requested()) return result;
+        current.timing += timing;
+        result.timing += timing;
         current.frame_ids.push_back(descriptor.frame_id);
          current.end_stamp_ns = std::max(current.end_stamp_ns, frame.beam_stamp_ns(
             ((descriptor.columns - 1) / options.column_stride) * options.column_stride));
