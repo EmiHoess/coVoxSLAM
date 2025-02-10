@@ -277,6 +277,9 @@ void map_exporter::write(const submap& value)
              << ",\"sensor_candidates_ms\":" << statistics.sensor_candidates_ms
              << ",\"sensor_candidate_overflows\":" << statistics.sensor_candidate_overflows
              << ",\"sensor_discovery_ms\":" << statistics.sensor_discovery_ms
+             << ",\"sensor_gpu_discovery_ms\":" << statistics.sensor_gpu_discovery_ms
+             << ",\"sensor_gpu_allocation_ms\":" << statistics.sensor_gpu_allocation_ms
+             << ",\"sensor_resident_dispatch_ms\":" << statistics.sensor_resident_dispatch_ms
              << ",\"sensor_fusion_ms\":" << statistics.sensor_fusion_ms
              << ",\"sensor_readback_ms\":" << statistics.sensor_readback_ms
              << ",\"sensor_candidate_voxels\":" << statistics.sensor_candidate_voxels
@@ -307,6 +310,14 @@ void map_exporter::write(const submap& value)
              << ",\"cuda_ray_segment_length_m\":" << statistics.cuda_ray_segment_length_m
              << ",\"cuda_ray_segment_slots\":" << statistics.cuda_ray_segment_slots
              << ",\"integration_ms\":" << statistics.integration_ms
+             << ",\"payload_bytes\":" << frame.timing.payload_bytes
+             << ",\"payload_read_ms\":" << frame.timing.read_ms
+             << ",\"payload_validation_ms\":" << frame.timing.validation_ms
+             << ",\"payload_decode_ms\":" << frame.timing.decode_ms
+             << ",\"deskew_ms\":" << frame.timing.deskew_ms
+             << ",\"mapping_callback_ms\":" << frame.timing.integration_ms
+             << ",\"buffer_to_map_ms\":" << frame.timing.buffer_to_map_ms()
+             << ",\"buffer_to_map_with_readback_ms\":" << frame.timing.buffer_to_map_ms() + statistics.sensor_readback_ms
              << ",\"esdf_ms\":" << statistics.esdf_ms << "}\n";
     poses.flush();
     metadata.flush();

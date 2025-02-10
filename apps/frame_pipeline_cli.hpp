@@ -384,6 +384,12 @@ inline int run_submap_cli(int argc, char** argv)
         }
         std::cout << result.frames_loaded << " frames, " << result.submaps.size()
                    << " submaps, " << result.rays_generated << " rays\n";
+        const auto& timing = result.timing;
+        std::cout << "payload bytes " << timing.payload_bytes << ", read ms " << timing.read_ms
+            << ", validation ms " << timing.validation_ms << ", decode ms " << timing.decode_ms
+            << ", deskew ms " << timing.deskew_ms << ", integration ms " << timing.integration_ms
+            << ", buffer to map ms " << timing.buffer_to_map_ms()
+            << ", finalization ms " << timing.finalization_ms << '\n';
         return 0;
 }
 
