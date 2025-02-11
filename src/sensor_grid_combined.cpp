@@ -1,8 +1,27 @@
 #include <covoxslam/sensor_grid_combined.hpp>
+#include <covoxslam/sensor_grid_precision.h>
 #include <chrono>
 
 namespace covoxslam::sensor_grid
 {
+operation_result<mapping_preset> combined_nearest_preset()
+{
+    if constexpr (accumulation_bits != 32)
+        return std::unexpected(operation_error{"combined nearest requires an FP32 sensor accumulation build"});
+    mapping_preset result;
+    result.mapping.voxel_size = .2f;
+     result.mapping.truncation_distance = .6f;
+    result.mapping.maximum_ray_length_m = 16.f;
+    result.mapping.maximum_weight = 10000.f;
+    result.gather = {gather_backend::hybrid_combined, 16, 1024, execution_mode::stream};
+    result.transfer.discovery = discovery_mode::gpu_resident;
+    result.transfer.arithmetic = transfer_arithmetic::fp64;
+    result.transfer.candidates = candidate_mode::whole_tiles;
+    result.transfer.source_mask = source_mask_mode::dense;
+    result.sampling = interpolation::nearest;
+    result.ring_stride = result.column_stride = 1;
+    return result;
+}
 operation_result<std::unique_ptr<combined_map>> combined_map::create(const lookup& table,
     std::uint32_t capacity, int device, std::size_t maximum_bytes, gather_options options, transfer_options transfer)
 {
