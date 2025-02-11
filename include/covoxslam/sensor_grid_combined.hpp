@@ -3,6 +3,16 @@
 
 namespace covoxslam::sensor_grid
 {
+struct mapping_preset
+{
+    mapping_config mapping;
+    gather_options gather;
+    transfer_options transfer;
+    interpolation sampling{interpolation::trilinear};
+    std::size_t ring_stride{1}, column_stride{1};
+};
+operation_result<mapping_preset> combined_nearest_preset();
+bool matches_combined_nearest(const mapping_preset& options) noexcept;
 struct combined_times
 {
     update_times gather{};
