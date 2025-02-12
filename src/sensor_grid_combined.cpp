@@ -4,6 +4,20 @@
 
 namespace covoxslam::sensor_grid
 {
+bool matches_combined_nearest(const mapping_preset& options) noexcept
+{
+    return accumulation_bits == 32 && options.sampling == interpolation::nearest &&
+        options.ring_stride == 1 && options.column_stride == 1 &&
+        options.mapping.voxel_size == .2f && options.mapping.truncation_distance == .6f &&
+        options.mapping.maximum_ray_length_m == 16.f && options.mapping.maximum_weight == 10000.f &&
+        options.gather.backend == gather_backend::hybrid_combined &&
+        options.gather.short_list_max == 16 && options.gather.block_list_min == 1024 &&
+        options.gather.execution == execution_mode::stream &&
+        options.transfer.discovery == discovery_mode::gpu_resident &&
+        options.transfer.arithmetic == transfer_arithmetic::fp64 &&
+        options.transfer.candidates == candidate_mode::whole_tiles &&
+        options.transfer.source_mask == source_mask_mode::dense && !options.transfer.specialized;
+}
 operation_result<mapping_preset> combined_nearest_preset()
 {
     if constexpr (accumulation_bits != 32)
