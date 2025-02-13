@@ -19,6 +19,7 @@ struct json_value
     std::string scalar;
      std::vector<json_value> items;
     std::map<std::string, json_value, std::less<>> members;
+    bool metadata_defined{}, metadata_sealed{};
 
     const json_value& at(std::string_view key) const;
     const std::string& string() const;

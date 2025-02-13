@@ -1,7 +1,6 @@
 #pragma once
 #include "json_reader.hpp"
 #include <covoxslam/result.hpp>
-#include <set>
 
 namespace covoxslam::detail
 {
@@ -9,8 +8,6 @@ class toml_cursor
 {
     std::string_view input;
     std::size_t position{};
-    std::set<const json_value*> explicit_tables;
-    std::set<const json_value*> sealed_tables;
     operation_error error(std::string_view message) const;
     void space(bool multiline = false);
     char peek() const noexcept;
