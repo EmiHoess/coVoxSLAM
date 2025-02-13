@@ -9,6 +9,7 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 add_library(covoxslam_core STATIC src/types.cpp src/json_reader.cpp src/dataset.cpp)
+target_sources(covoxslam_core PRIVATE src/dataset_metadata.cpp)
 target_sources(covoxslam_core PRIVATE src/pipeline.cpp)
 target_sources(covoxslam_core PRIVATE src/mapping.cpp)
 target_sources(covoxslam_core PRIVATE src/export.cpp)
