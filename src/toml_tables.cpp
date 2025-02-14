@@ -42,6 +42,12 @@ operation_status toml_cursor::assign(json_value& parent, const std::vector<std::
     if (!destination) return std::unexpected(destination.error());
     if ((*destination)->metadata_sealed || !(*destination)->members.emplace(path.back(), std::move(item)).second)
         return std::unexpected(error("duplicate key or sealed table"));
+    auto* node = &parent;
+    for (const auto& key : prefix) {
+        node = &node->members.find(key)->second;
+        if (node->kind == json_kind::array) node = &node->items.back();
+        node->metadata_defined = true;
+    }
     return {};
 }
 operation_result<json_value> toml_cursor::value(unsigned depth)
@@ -95,6 +101,28 @@ operation_result<json_value> toml_cursor::parse()
 {
     if (input.size() > 16 * 1024 * 1024 || input.find('\0') != std::string_view::npos)
         return std::unexpected(error("invalid metadata size or null byte"));
+    for (std::size_t offset = 0; offset < input.size();) {
+        const auto leading = static_cast<unsigned char>(input[offset++]);
+        if (leading < 128) {
+            if (leading == '\r' && (offset == input.size() || input[offset] != '\n'))
+                return std::unexpected(error("carriage return requires newline"));
+            continue;
+        }
+        const unsigned count = leading >= 0xf0 && leading <= 0xf4 ? 3 :
+            leading >= 0xe0 && leading <= 0xef ? 2 : leading >= 0xc2 && leading <= 0xdf ? 1 : 0;
+        if (!count || count > input.size() - offset) return std::unexpected(error("invalid UTF8 sequence"));
+        std::uint32_t code = leading & ((1u << (6 - count)) - 1);
+
+        for (unsigned index = 0; index < count; ++index) {
+            const auto next = static_cast<unsigned char>(input[offset++]);
+            if ((next & 0xc0) != 0x80) return std::unexpected(error("invalid UTF8 continuation"));
+            code = (code << 6) | (next & 63);
+        }
+        if (code > 0x10ffff || (code >= 0xd800 && code <= 0xdfff) ||
+            code < (count == 1 ? 0x80u : count == 2 ? 0x800u : 0x10000u))
+            return std::unexpected(error("invalid UTF8 scalar"));
+    }
+    if (input.starts_with("\xef\xbb\xbf")) position = 3;
     json_value result;
     result.kind = json_kind::object;
     auto* current = &result;

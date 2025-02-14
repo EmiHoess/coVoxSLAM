@@ -106,6 +106,31 @@ operation_result<json_value> toml_cursor::atom()
     result.kind = json_kind::number;
     if (token.starts_with('+')) token.remove_prefix(1);
     if (token.empty()) return std::unexpected(error("expected decimal value"));
+    auto magnitude = token;
+    if (magnitude.starts_with('-')) magnitude.remove_prefix(1);
+    const auto decimal_end = magnitude.find_first_of(".eE");
+    const auto whole = magnitude.substr(0, decimal_end);
+    if (whole.empty() || (whole.size() > 1 && whole.front() == '0') ||
+        whole.find_first_not_of("0123456789") != std::string_view::npos)
+        return std::unexpected(error("invalid decimal integer part"));
+    if (decimal_end != std::string_view::npos) {
+        auto remaining = magnitude.substr(decimal_end);
+        if (remaining.front() == '.') {
+            remaining.remove_prefix(1);
+            const auto exponent = remaining.find_first_of("eE");
+            const auto fraction = remaining.substr(0, exponent);
+
+            if (fraction.empty() || fraction.find_first_not_of("0123456789") != std::string_view::npos)
+                return std::unexpected(error("invalid fraction"));
+            remaining = exponent == std::string_view::npos ? std::string_view{} : remaining.substr(exponent);
+        }
+        if (!remaining.empty()) {
+            remaining.remove_prefix(1);
+            if (remaining.starts_with('+') || remaining.starts_with('-')) remaining.remove_prefix(1);
+            if (remaining.empty() || remaining.find_first_not_of("0123456789") != std::string_view::npos)
+                return std::unexpected(error("invalid exponent"));
+        }
+    }
     if (token.find_first_of(".eE") == std::string_view::npos) {
         std::int64_t number{};
         const auto parsed = std::from_chars(token.data(), token.data() + token.size(), number);
