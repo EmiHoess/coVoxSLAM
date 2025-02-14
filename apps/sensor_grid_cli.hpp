@@ -101,7 +101,9 @@ inline int run_sensor_grid_cli(int argc, char** argv)
         return error("prepared gathering requires the CUDA backend");
     if (!sensor_grid::valid_gather_policy(policy) || device < 0)
         return error("conflicting ray cap or invalid device");
-    const auto input = load_dataset(path);
+    const auto loaded = load_dataset(path);
+    if (!loaded) return error(loaded.error().message);
+    const auto& input = *loaded;
     if (frames > input.frames.size()) return error("requested sensor frame count exceeds dataset");
     const auto directions = sensor_grid::calibrated_directions(input.sensor);
     if (!directions) return error(directions.error().message);

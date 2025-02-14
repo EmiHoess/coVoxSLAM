@@ -1,5 +1,6 @@
 #pragma once
 #include <covoxslam/input_timing.hpp>
+#include <covoxslam/result.hpp>
 
 #include <covoxslam/types.hpp>
 
@@ -123,6 +124,7 @@ struct payload_cache_descriptor
 
 struct dataset {
     std::filesystem::path root;
+    std::filesystem::path manifest_path;
     std::string schema_version;
     std::string name;
     std::string type;
@@ -175,12 +177,12 @@ struct organized_frame
     bool valid_return(std::size_t ring, std::size_t column) const;
 };
 
-frame_descriptor read_frame_descriptor(
+operation_result<frame_descriptor> read_frame_descriptor(
     const std::filesystem::path& root, const std::filesystem::path& metadata_path);
 organized_frame load_frame(
     const dataset& input, std::size_t frame_index, frame_load_options options = {});
 
-dataset load_dataset(const std::filesystem::path& root, dataset_load_options options = {});
+operation_result<dataset> load_dataset(const std::filesystem::path& root, dataset_load_options options = {});
 pose sample_pose(std::span<const pose_sample> trajectory, std::uint64_t stamp_ns);
 std::span<const pose_sample> pose_stream(const dataset& input, pose_source source);
 

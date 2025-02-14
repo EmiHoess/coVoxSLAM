@@ -318,7 +318,9 @@ inline int run_submap_cli(int argc, char** argv)
             return report_error("segment length requires a segmented backend");
         if (resident_options.selected && (cuda_options.ray_capacity_set || cuda_options.contribution_capacity_set))
             return report_error("use --resident-rays and --resident-contributions with resident mapping");
-        const auto input = load_dataset(root, input_options);
+        const auto loaded = load_dataset(root, input_options);
+        if (!loaded) return report_error(loaded.error().message);
+        const auto& input = *loaded;
         const auto finalize = cuda_esdf_finalizer(mapping_options, cuda_options.mapper.device, esdf_options);
         auto mapper_options = mapping_options;
         if (finalize) mapper_options.esdf_generator = esdf_backend::none;

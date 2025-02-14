@@ -188,7 +188,9 @@ int main(int argc, char** argv)
         if (dataset_path.empty()) return report_error("--dataset is required");
         if (sampling_selected && !frame_selected)
             return report_error("frame sampling options require --frame");
-         const auto dataset = covoxslam::load_dataset(dataset_path, input_options);
+         const auto loaded = covoxslam::load_dataset(dataset_path, input_options);
+        if (!loaded) return report_error(loaded.error().message);
+        const auto& dataset = *loaded;
         std::cout << "dataset " << dataset.name << '\n'
                   << "frames " << dataset.frames.size() << '\n'
                   << "sensor shape " << dataset.sensor.rings << ' ' << dataset.sensor.columns << '\n';

@@ -1,5 +1,6 @@
 #include <covoxslam/dataset.hpp>
 #include "json_reader.hpp"
+#include "dataset_metadata.hpp"
 
 #include <algorithm>
 #include <array>
@@ -83,26 +84,28 @@ std::size_t frame_beam_count(const frame_descriptor& frame)
 }
 }
 
-frame_descriptor read_frame_descriptor(
+operation_result<frame_descriptor> read_frame_descriptor(
     const std::filesystem::path& root, const std::filesystem::path& metadata_path)
 {
     frame_descriptor frame;
     frame.metadata_path = detail::dataset_path(root, metadata_path.lexically_relative(root));
     frame.metadata_content_hash = hash_file(frame.metadata_path).content_hash;
-    const auto value = detail::read_json(frame.metadata_path);
+    const auto parsed = detail::read_metadata(frame.metadata_path);
+    if (!parsed) return std::unexpected(parsed.error());
+    const auto& value = *parsed;
     if (value.at("schema_version").string() != "covox.spinning_lidar.v2")
-        throw std::runtime_error("unsupported frame schema");
+        return std::unexpected(operation_error{"unsupported frame schema"});
     if (value.at("document_type").string() != "spinning_lidar_frame")
-        throw std::runtime_error("unexpected frame document type");
+        return std::unexpected(operation_error{"unexpected frame document type"});
     const auto id = value.at("frame_id").unsigned_integer();
     if (id > static_cast<std::uint64_t>(std::numeric_limits<int>::max()))
-        throw std::runtime_error("frame identifier exceeds the integer range");
+        return std::unexpected(operation_error{"frame identifier exceeds the integer range"});
      frame.frame_id = static_cast<int>(id);
     if (value.members.contains("submap_id")) {
         const double id_value = value.at("submap_id").number();
         if (id_value < -1 || id_value > std::numeric_limits<int>::max() ||
             std::trunc(id_value) != id_value)
-            throw std::runtime_error("invalid submap identifier");
+            return std::unexpected(operation_error{"invalid submap identifier"});
         frame.submap_id = static_cast<int>(id_value);
     }
     frame.start_stamp_ns = value.at("header_stamp_ns").unsigned_integer();
@@ -118,7 +121,7 @@ frame_descriptor read_frame_descriptor(
     if (frame.hit_count > count || frame.dropout_count > count - frame.hit_count ||
         frame.invalid_count != count - frame.hit_count - frame.dropout_count ||
         frame.outlier_count > frame.hit_count)
-        throw std::runtime_error("inconsistent frame counters");
+        return std::unexpected(operation_error{"inconsistent frame counters"});
     frame.ground_truth_start = detail::read_pose(value.at("pose_world_lidar_start"));
     frame.ground_truth_end = detail::read_pose(value.at("pose_world_lidar_end"));
     frame.odometry_start = value.members.contains("odometry_pose_world_lidar_start")
@@ -157,63 +160,81 @@ void verify_frame_bytes(const dataset& input, const std::filesystem::path& path,
                         std::span<const std::uint8_t> bytes);
 }
 
-dataset load_dataset(const std::filesystem::path& root, dataset_load_options options)
+operation_result<dataset> load_dataset(const std::filesystem::path& root, dataset_load_options options)
 {
     using namespace detail;
     dataset result;
-    result.root = std::filesystem::canonical(root);
-    const auto manifest_hash = hash_file(dataset_path(result.root, "dataset.json")).content_hash;
-    const auto metadata = read_json(dataset_path(result.root, "dataset.json"));
+    std::error_code path_error;
+    auto selected = std::filesystem::canonical(root, path_error);
+    if (path_error) return std::unexpected(operation_error{"cannot resolve dataset path"});
+    const auto directory = std::filesystem::is_directory(selected, path_error);
+    if (path_error) return std::unexpected(operation_error{"cannot inspect dataset path"});
+    result.root = directory ? selected : selected.parent_path();
+    if (directory) {
+        const bool json_exists = std::filesystem::exists(selected / "dataset.json", path_error);
+        if (path_error) return std::unexpected(operation_error{"cannot select dataset manifest"});
+        selected /= json_exists ? "dataset.json" : "dataset.toml";
+    }
+    result.manifest_path = selected;
+    auto parsed = read_metadata(selected);
+    if (!parsed) return std::unexpected(parsed.error());
+    const auto& metadata = *parsed;
+    const auto manifest_hash = hash_file(selected).content_hash;
+    const auto encoding = selected.extension() == ".toml" ? "toml" : "json";
+    if (metadata.members.contains("metadata_format") && metadata.at("metadata_format").string() != encoding)
+        return std::unexpected(operation_error{"metadata format disagrees with extension"});
     result.schema_version = metadata.at("schema_version").string();
     if (result.schema_version != "covox.spinning_lidar.v2" ||
         metadata.at("document_type").string() != "spinning_lidar_dataset")
-        throw std::runtime_error("unsupported dataset schema");
+        return std::unexpected(operation_error{"unsupported dataset schema"});
     result.name = metadata.at("name").string();
      result.type = metadata.at("type").string();
     const auto& units = metadata.at("units");
     if (units.at("distance").string() != "meters" || units.at("angle").string() != "radians" ||
         units.at("timestamp").string() != "nanoseconds" || units.at("range").string() != "millimeters")
-        throw std::runtime_error("unsupported dataset units");
+        return std::unexpected(operation_error{"unsupported dataset units"});
     const auto sensor_path = dataset_path(result.root, metadata.at("sensor_file").string());
     const auto sensor_hash = hash_file(sensor_path).content_hash;
-    const auto calibration = read_json(sensor_path);
+    const auto parsed_calibration = read_metadata(sensor_path);
+    if (!parsed_calibration) return std::unexpected(parsed_calibration.error());
+    const auto& calibration = *parsed_calibration;
     if (calibration.at("schema_version").string() != result.schema_version ||
         calibration.at("document_type").string() != "spinning_lidar_sensor")
-        throw std::runtime_error("unsupported sensor schema");
+        return std::unexpected(operation_error{"unsupported sensor schema"});
     const auto& convention = metadata.at("frame_convention");
     if (convention.at("handedness").string() != "right_handed" ||
         convention.at("quaternion_order").string() != "xyzw" ||
         convention.at("transform_notation").string() != "T_parent_child_maps_child_to_parent")
-        throw std::runtime_error("unsupported coordinate convention");
+        return std::unexpected(operation_error{"unsupported coordinate convention"});
     const auto& timing = metadata.at("timestamp_convention");
     if (timing.at("origin").string() != "dataset_relative" ||
         timing.at("scan_header").string() != "first_column" ||
         timing.at("beam_offsets").string() != "relative_to_scan_header")
-        throw std::runtime_error("unsupported timestamp convention");
+        return std::unexpected(operation_error{"unsupported timestamp convention"});
     auto& sensor = result.sensor;
     sensor.model = calibration.at("sensor_model").string();
     sensor.acquisition_model = calibration.at("acquisition_model").string();
     sensor.rings = calibration.at("rings").unsigned_integer();
     sensor.columns = calibration.at("columns").unsigned_integer();
     if (!sensor.rings || !sensor.columns || sensor.rings > 16777216 / sensor.columns)
-        throw std::runtime_error("invalid sensor dimensions");
+        return std::unexpected(operation_error{"invalid sensor dimensions"});
     if (calibration.at("beam_count").unsigned_integer() != sensor.rings * sensor.columns)
-        throw std::runtime_error("sensor beam count mismatch");
+        return std::unexpected(operation_error{"sensor beam count mismatch"});
      sensor.scan_rate_hz = calibration.at("scan_rate_hz").number();
     sensor.scan_period_ns = calibration.at("scan_period_ns").unsigned_integer();
     sensor.azimuth_start_rad = calibration.at("azimuth_start_rad").number();
     sensor.azimuth_coverage_rad = calibration.at("azimuth_coverage_rad").number();
     const auto direction = calibration.at("rotation_direction").string();
     if (direction != "clockwise" && direction != "counter_clockwise")
-        throw std::runtime_error("unsupported sensor rotation direction");
+        return std::unexpected(operation_error{"unsupported sensor rotation direction"});
     sensor.counter_clockwise = direction == "counter_clockwise";
     const auto& angles = calibration.at("vertical_angles_rad");
     if (angles.kind != json_kind::array || angles.items.size() != sensor.rings)
-        throw std::runtime_error("invalid vertical angle table");
+        return std::unexpected(operation_error{"invalid vertical angle table"});
     for (const auto& angle : angles.items)
     {
         const auto radians = angle.number();
-         if (std::abs(radians) > 1.5707963267948966) throw std::runtime_error("invalid beam elevation");
+         if (std::abs(radians) > 1.5707963267948966) return std::unexpected(operation_error{"invalid beam elevation"});
         sensor.vertical_angles_rad.push_back(static_cast<float>(radians));
     }
     const auto minimum = calibration.at("min_range_m").number();
@@ -221,17 +242,17 @@ dataset load_dataset(const std::filesystem::path& root, dataset_load_options opt
     if (minimum < 0 || maximum <= minimum || maximum > std::numeric_limits<float>::max() ||
         sensor.scan_rate_hz <= 0 || !sensor.scan_period_ns || sensor.azimuth_coverage_rad <= 0 ||
         sensor.azimuth_coverage_rad > 6.283185307179587)
-        throw std::runtime_error("invalid sensor ranges or timing");
+        return std::unexpected(operation_error{"invalid sensor ranges or timing"});
     sensor.min_range_m = static_cast<float>(minimum);
     sensor.max_range_m = static_cast<float>(maximum);
     sensor.body_from_lidar = read_pose(calibration.at("T_parent_child"));
     const std::filesystem::path pattern(metadata.at("frame_metadata_pattern").string());
-     const auto directory = dataset_path(result.root, pattern.parent_path());
+     const auto frame_directory = dataset_path(result.root, pattern.parent_path());
     const auto filename = pattern.filename().string();
     const auto wildcard = filename.find('*');
     if (wildcard == std::string::npos || filename.find('*', wildcard + 1) != std::string::npos)
-        throw std::runtime_error("expected one frame metadata wildcard");
-    for (const auto& entry : std::filesystem::directory_iterator(directory))
+        return std::unexpected(operation_error{"expected one frame metadata wildcard"});
+    for (const auto& entry : std::filesystem::directory_iterator(frame_directory))
     {
         const auto name = entry.path().filename().string();
         if (entry.is_regular_file() && name.starts_with(filename.substr(0, wildcard)) &&
@@ -239,23 +260,24 @@ dataset load_dataset(const std::filesystem::path& root, dataset_load_options opt
         {
             auto frame = read_frame_descriptor(result.root,
                 dataset_path(result.root, pattern.parent_path() / entry.path().filename()));
-            if (frame.rows != sensor.rings || frame.columns != sensor.columns)
-                throw std::runtime_error("frame dimensions differ from the sensor calibration");
-            result.frames.push_back(std::move(frame));
+            if (!frame) return std::unexpected(frame.error());
+            if (frame->rows != sensor.rings || frame->columns != sensor.columns)
+                return std::unexpected(operation_error{"frame dimensions differ from the sensor calibration"});
+            result.frames.push_back(std::move(*frame));
         }
     }
      if (result.frames.size() != metadata.at("num_frames").unsigned_integer())
-        throw std::runtime_error("frame metadata count mismatch");
+        return std::unexpected(operation_error{"frame metadata count mismatch"});
     std::sort(result.frames.begin(), result.frames.end(), [](const auto& left, const auto& right) {
         return left.frame_id < right.frame_id;
     });
     for (std::size_t index = 1; index < result.frames.size(); ++index)
         if (result.frames[index - 1].frame_id == result.frames[index].frame_id)
-            throw std::runtime_error("duplicate frame identifier");
+            return std::unexpected(operation_error{"duplicate frame identifier"});
     load_dataset_inputs(result, metadata, options);
-    if (manifest_hash != hash_file(dataset_path(result.root, "dataset.json")).content_hash ||
+    if (manifest_hash != hash_file(selected).content_hash ||
         sensor_hash != hash_file(sensor_path).content_hash)
-        throw std::runtime_error("recording metadata changed while inputs were loaded");
+        return std::unexpected(operation_error{"recording metadata changed while inputs were loaded"});
     if (options.update_cache && result.input_source == dataset_input_source::full_scan)
         write_input_cache(result, input_structure_hash(result, metadata));
     return result;
@@ -763,7 +785,7 @@ std::size_t frame_beam_count(const frame_descriptor& frame);
 
 std::uint64_t input_structure_hash(const dataset& input, const detail::json_value& metadata)
 {
-    std::vector<std::filesystem::path> paths{input.root / "dataset.json"};
+    std::vector<std::filesystem::path> paths{input.manifest_path};
     for (const auto key : {"sensor_file", "world_file", "timeline_file"})
     {
         if (metadata.members.contains(key))
