@@ -4,4 +4,13 @@ set(covoxslam_ceronoceres_path "../ceronoceres" CACHE STRING "Relative external 
 if(covoxslam_enable_pgo)
     cmake_path(ABSOLUTE_PATH covoxslam_ceronoceres_path BASE_DIRECTORY "${PROJECT_SOURCE_DIR}"
         NORMALIZE OUTPUT_VARIABLE covoxslam_solver_source)
+    set(CERONOCERES_ENABLE_CERES OFF CACHE BOOL "Disable unselected solver" FORCE)
+    set(CERONOCERES_ENABLE_CUDA ${covoxslam_enable_cuda} CACHE BOOL "Use native CUDA solver" FORCE)
+    set(CERONOCERES_BUILD_TESTS OFF CACHE BOOL "Disable dependency tests" FORCE)
+    set(CERONOCERES_BUILD_BENCHMARKS OFF CACHE BOOL "Disable dependency benchmarks" FORCE)
+    add_subdirectory("${covoxslam_solver_source}" "${PROJECT_BINARY_DIR}/external/ceronoceres")
+    target_link_libraries(covoxslam_core PUBLIC ceronoceres::ceronoceres)
+    target_compile_definitions(covoxslam_core PUBLIC covoxslam_has_pgo=1)
+    target_sources(covoxslam_core PRIVATE src/pgo/problem.cpp)
 endif()
+target_sources(covoxslam_core PRIVATE src/pgo/options.cpp)
