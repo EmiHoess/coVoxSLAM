@@ -22,6 +22,7 @@ struct graph_node
      bool constant{};
 };
 bool available(backend solver) noexcept;
+operation_status validate_options(const options& value);
 }
 
 #if defined(covoxslam_has_pgo)
@@ -36,5 +37,7 @@ struct graph_snapshot
 operation_result<graph_snapshot> make_graph(std::span<const graph_node> nodes);
 operation_status validate_graph(const graph_snapshot& graph);
 operation_result<ceronoceres::PreparedProblem> prepare_graph(graph_snapshot graph);
+operation_result<std::optional<graph_snapshot>> make_graph_if_enabled(
+    std::span<const graph_node> nodes, const options& options);
 }
 #endif

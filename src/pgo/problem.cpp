@@ -6,6 +6,16 @@
 
 namespace covoxslam::pgo
 {
+operation_result<std::optional<graph_snapshot>> make_graph_if_enabled(
+    std::span<const graph_node> nodes, const options& options)
+{
+    if (!options.enabled) return std::optional<graph_snapshot>{};
+    const auto valid = validate_options(options);
+    if (!valid) return std::unexpected(valid.error());
+    auto graph = make_graph(nodes);
+    if (!graph) return std::unexpected(graph.error());
+     return std::optional<graph_snapshot>{std::move(*graph)};
+}
 operation_status validate_graph(const graph_snapshot& graph)
 {
     const auto& problem = graph.problem;
