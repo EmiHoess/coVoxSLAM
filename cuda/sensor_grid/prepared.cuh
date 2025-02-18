@@ -44,6 +44,8 @@ __device__ inline voxel finish_prepared(gather_accumulator weighted, gather_accu
 
     if (admitted) {
         result.distance = static_cast<float>(weighted / weights);
+        if (isfinite(result.distance))
+            result.distance = fmaxf(-settings.truncation, fminf(result.distance, settings.truncation));
         if constexpr (accumulation_bits == 32) result.weight = fminf(weights, settings.maximum_weight);
         else result.weight = static_cast<float>(fmin(weights, double(settings.maximum_weight)));
     }

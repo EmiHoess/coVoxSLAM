@@ -54,6 +54,8 @@ covoxslam_sensor_callable inline voxel gather_row(lookup_view table, const float
     if (result.contributions)
     {
         result.distance = static_cast<float>(weighted / weights);
+        if (result.distance >= -FLT_MAX && result.distance <= FLT_MAX)
+            result.distance = fmaxf(-c.truncation, fminf(result.distance, c.truncation));
         if constexpr (sizeof(accumulator_type) == sizeof(float)) result.weight = fminf(weights, c.maximum_weight);
         else result.weight = static_cast<float>(fmin(weights, double(c.maximum_weight)));
     }
