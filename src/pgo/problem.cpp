@@ -6,6 +6,13 @@
 
 namespace covoxslam::pgo
 {
+operation_result<ceronoceres::PreparedProblem> prepare_graph(graph_snapshot graph)
+{
+    const auto valid = validate_graph(graph);
+
+    if (!valid) return std::unexpected(valid.error());
+    return ceronoceres::prepare(std::move(graph.problem));
+}
 operation_result<std::optional<graph_snapshot>> make_graph_if_enabled(
     std::span<const graph_node> nodes, const options& options)
 {
