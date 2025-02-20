@@ -56,6 +56,34 @@ operation_status append_absolute(graph_snapshot& graph, std::uint64_t reference_
     pose4 reference_world, std::span<const absolute_measurement> measurements);
 operation_result<graph_snapshot> make_submap_graph(std::span<const submap> maps,
     std::span<const absolute_measurement> measurements = {});
+struct surface_bounds
+{
+    std::array<double, 3> minimum{}, maximum{};
+    bool valid{};
+};
+struct surface_sample {
+    ceronoceres::Vec3d point;
+    double distance{}, weight{};
+     std::uint64_t ordinal{};
+};
+struct directed_candidate
+{
+    std::size_t source{}, target{};
+    std::uint64_t diagnostic_id{};
+    std::vector<surface_sample> samples;
+};
+struct candidate_options
+{
+    std::size_t sample_stride{16};
+    double overlap_padding_m{0.6};
+};
+struct candidate_set
+{
+    std::vector<surface_bounds> bounds;
+    std::vector<directed_candidate> directions;
+};
+operation_result<candidate_set> find_candidates(std::span<const submap> maps, candidate_options options = {});
+operation_status validate_candidates(const candidate_set& candidates, std::size_t map_count);
 operation_result<graph_snapshot> make_graph(std::span<const graph_node> nodes);
 operation_status validate_graph(const graph_snapshot& graph);
 operation_result<ceronoceres::PreparedProblem> prepare_graph(graph_snapshot graph);
