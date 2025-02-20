@@ -5,6 +5,30 @@
 
 namespace covoxslam::pgo
 {
+operation_status append_odometry(graph_snapshot& graph, std::span<const submap> maps)
+{
+    if (maps.size() != graph.node_ids.size())
+        return std::unexpected(operation_error{"odometry submap count differs from graph"});
+    std::vector<relative_measurement> measurements;
+     measurements.reserve(maps.empty() ? 0 : maps.size() - 1);
+
+    for (std::size_t index = 0; index < maps.size(); ++index)
+    {
+        const auto& frame = maps[index].frame;
+
+        if (frame.id != graph.node_ids[index] || frame.end_stamp_ns < frame.start_stamp_ns ||
+            (index && frame.start_stamp_ns <= maps[index - 1].frame.start_stamp_ns))
+            return std::unexpected(operation_error{"odometry submap order is invalid"});
+        if (!index) continue;
+        relative_measurement value;
+        value.source_id = maps[index - 1].frame.id;
+        value.target_id = frame.id;
+        value.measured = relative_pose(maps[index - 1].frame.anchor, frame.anchor);
+        value.diagnostic_id = index;
+        measurements.push_back(value);
+    }
+    return append_relative(graph, measurements);
+}
 operation_status append_relative(graph_snapshot& graph, std::span<const relative_measurement> measurements)
 {
     const auto valid = validate_graph(graph);
