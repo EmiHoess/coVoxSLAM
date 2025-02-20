@@ -54,6 +54,8 @@ struct absolute_measurement
 };
 operation_status append_absolute(graph_snapshot& graph, std::uint64_t reference_id,
     pose4 reference_world, std::span<const absolute_measurement> measurements);
+operation_result<graph_snapshot> make_submap_graph(std::span<const submap> maps,
+    std::span<const absolute_measurement> measurements = {});
 operation_result<graph_snapshot> make_graph(std::span<const graph_node> nodes);
 operation_status validate_graph(const graph_snapshot& graph);
 operation_result<ceronoceres::PreparedProblem> prepare_graph(graph_snapshot graph);

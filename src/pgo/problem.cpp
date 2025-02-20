@@ -6,6 +6,22 @@
 
 namespace covoxslam::pgo
 {
+operation_result<graph_snapshot> make_submap_graph(std::span<const submap> maps,
+    std::span<const absolute_measurement> measurements)
+{
+    std::vector<graph_node> nodes;
+    nodes.reserve(maps.size());
+
+    for (const auto& map : maps) nodes.push_back({map.frame.id, map.frame.anchor, false});
+    auto graph = make_graph(nodes);
+    if (!graph) return graph;
+    const auto odometry = append_odometry(*graph, maps);
+    if (!odometry) return std::unexpected(odometry.error());
+    const auto absolute = append_absolute(*graph, maps.front().frame.id, maps.front().frame.anchor, measurements);
+
+    if (!absolute) return std::unexpected(absolute.error());
+    return graph;
+}
 operation_result<ceronoceres::PreparedProblem> prepare_graph(graph_snapshot graph)
 {
     const auto valid = validate_graph(graph);
