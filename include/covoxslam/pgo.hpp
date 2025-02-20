@@ -44,6 +44,16 @@ struct relative_measurement
 };
 operation_status append_relative(graph_snapshot& graph, std::span<const relative_measurement> measurements);
 operation_status append_odometry(graph_snapshot& graph, std::span<const submap> maps);
+struct absolute_measurement
+{
+    std::uint64_t node_id{};
+    std::optional<pose4> world_pose;
+    ceronoceres::Matrix4 sqrt_information{ceronoceres::identity_matrix4()};
+    ceronoceres::Loss loss{ceronoceres::LossKind::Huber, 1.0};
+     std::uint64_t diagnostic_id{};
+};
+operation_status append_absolute(graph_snapshot& graph, std::uint64_t reference_id,
+    pose4 reference_world, std::span<const absolute_measurement> measurements);
 operation_result<graph_snapshot> make_graph(std::span<const graph_node> nodes);
 operation_status validate_graph(const graph_snapshot& graph);
 operation_result<ceronoceres::PreparedProblem> prepare_graph(graph_snapshot graph);
