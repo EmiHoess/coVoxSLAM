@@ -9,6 +9,9 @@ operation_status append_absolute(graph_snapshot& graph, std::uint64_t reference_
 {
     const auto valid = validate_graph(graph);
     if (!valid) return valid;
+
+    if (std::none_of(measurements.begin(), measurements.end(),
+        [](const absolute_measurement& value) { return value.world_pose.has_value(); })) return {};
     const auto reference = std::find(graph.node_ids.begin(), graph.node_ids.end(), reference_id);
 
     if (reference == graph.node_ids.end() || !graph.problem.nodes[reference - graph.node_ids.begin()].constant ||
