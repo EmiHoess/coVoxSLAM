@@ -1,6 +1,7 @@
 #include <covoxslam/pgo.hpp>
 #include <algorithm>
 #include <cmath>
+#include <set>
 
 namespace covoxslam::pgo
 {
@@ -24,6 +25,39 @@ bool overlaps(const surface_bounds& left, const surface_bounds& right, double pa
             right.minimum[axis] - left.maximum[axis] > padding) return false;
     return true;
 }
+bool has_field(const submap& map)
+{
+    for (const auto& entry : map.esdf)
+        for (const auto& voxel : entry.second.voxels)
+            if ((voxel.flags & observed_flag) && std::isfinite(voxel.signed_distance_m)) return true;
+    return false;
+}
+}
+operation_status validate_candidates(const candidate_set& candidates, std::size_t map_count)
+{
+    if (candidates.bounds.size() != map_count)
+        return std::unexpected(operation_error{"candidate bounds differ from submap count"});
+    std::set<std::pair<std::size_t, std::size_t>> pairs;
+    std::set<std::uint64_t> identifiers;
+
+    for (const auto& direction : candidates.directions) {
+
+        if (direction.source >= map_count || direction.target >= map_count || direction.source == direction.target ||
+            direction.samples.empty() || !pairs.emplace(direction.source, direction.target).second ||
+            !identifiers.insert(direction.diagnostic_id).second)
+            return std::unexpected(operation_error{"duplicate or unsupported registration direction"});
+        std::optional<std::uint64_t> previous;
+
+        for (const auto& sample : direction.samples) {
+
+            if (!std::isfinite(sample.point.x) || !std::isfinite(sample.point.y) || !std::isfinite(sample.point.z) ||
+                !std::isfinite(sample.distance) || !std::isfinite(sample.weight) || sample.weight <= 0 ||
+                (previous && sample.ordinal <= *previous))
+                return std::unexpected(operation_error{"invalid registration sample sequence"});
+            previous = sample.ordinal;
+        }
+    }
+    return {};
 }
 operation_result<candidate_set> find_candidates(std::span<const submap> maps, candidate_options options)
 {
@@ -76,16 +110,20 @@ operation_result<candidate_set> find_candidates(std::span<const submap> maps, ca
         }
     }
     std::uint64_t diagnostic = 1;
+    std::vector<bool> supported;
+    for (const auto& map : maps) supported.push_back(has_field(map));
 
     for (std::size_t left = 0; left < maps.size(); ++left) {
 
         for (std::size_t right = left + 1; right < maps.size(); ++right)
         {
             if (!overlaps(result.bounds[left], result.bounds[right], options.overlap_padding_m)) continue;
-            if (!samples[left].empty()) result.directions.push_back({left, right, diagnostic++, samples[left]});
-            if (!samples[right].empty()) result.directions.push_back({right, left, diagnostic++, samples[right]});
+            if (!samples[left].empty() && supported[right]) result.directions.push_back({left, right, diagnostic++, samples[left]});
+            if (!samples[right].empty() && supported[left]) result.directions.push_back({right, left, diagnostic++, samples[right]});
         }
     }
+    const auto valid = validate_candidates(result, maps.size());
+    if (!valid) return std::unexpected(valid.error());
     return result;
 }
 }
