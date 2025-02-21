@@ -59,6 +59,23 @@ operation_status validate_candidates(const candidate_set& candidates, std::size_
     }
     return {};
 }
+operation_result<candidate_statistics> summarize_candidates(const candidate_set& candidates)
+{
+    const auto valid = validate_candidates(candidates, candidates.bounds.size());
+    if (!valid) return std::unexpected(valid.error());
+    candidate_statistics result;
+    std::set<std::pair<std::size_t, std::size_t>> pairs;
+
+    for (const auto& bounds : candidates.bounds) result.surface_maps += bounds.valid;
+
+    for (const auto& direction : candidates.directions) {
+        pairs.emplace(std::min(direction.source, direction.target), std::max(direction.source, direction.target));
+        result.samples += direction.samples.size();
+    }
+    result.overlap_pairs = pairs.size();
+    result.directed_groups = candidates.directions.size();
+     return result;
+}
 operation_result<candidate_set> find_candidates(std::span<const submap> maps, candidate_options options)
 {
     if (!options.sample_stride || !std::isfinite(options.overlap_padding_m) || options.overlap_padding_m < 0)

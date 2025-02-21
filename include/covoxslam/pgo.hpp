@@ -84,6 +84,11 @@ struct candidate_set
 };
 operation_result<candidate_set> find_candidates(std::span<const submap> maps, candidate_options options = {});
 operation_status validate_candidates(const candidate_set& candidates, std::size_t map_count);
+struct candidate_statistics
+{
+    std::size_t surface_maps{}, overlap_pairs{}, directed_groups{}, samples{};
+};
+operation_result<candidate_statistics> summarize_candidates(const candidate_set& candidates);
 operation_result<graph_snapshot> make_graph(std::span<const graph_node> nodes);
 operation_status validate_graph(const graph_snapshot& graph);
 operation_result<ceronoceres::PreparedProblem> prepare_graph(graph_snapshot graph);
