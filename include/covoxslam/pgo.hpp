@@ -89,6 +89,19 @@ struct candidate_statistics
     std::size_t surface_maps{}, overlap_pairs{}, directed_groups{}, samples{};
 };
 operation_result<candidate_statistics> summarize_candidates(const candidate_set& candidates);
+struct registration_options
+{
+    ceronoceres::Loss loss{ceronoceres::LossKind::Huber, 0.20};
+    double minimum_weight{1.0e-6};
+    double maximum_weight{10000.0};
+    double minimum_gradient{1.0e-6};
+    double maximum_residual_m{1.2};
+    bool nearest_fallback{};
+};
+operation_status append_registration(graph_snapshot& graph, std::span<const submap> maps,
+    const candidate_set& candidates, registration_options options = {});
+operation_result<ceronoceres::CostBreakdown> evaluate_graph(
+    const ceronoceres::PreparedProblem& problem, std::span<const pose4> poses);
 operation_result<graph_snapshot> make_graph(std::span<const graph_node> nodes);
 operation_status validate_graph(const graph_snapshot& graph);
 operation_result<ceronoceres::PreparedProblem> prepare_graph(graph_snapshot graph);
