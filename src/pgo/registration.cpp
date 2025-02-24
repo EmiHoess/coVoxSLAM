@@ -11,11 +11,14 @@ operation_status append_registration(graph_snapshot& graph, std::span<const subm
     const auto valid_candidates = validate_candidates(candidates, maps.size());
 
     if (!valid_candidates) return valid_candidates;
+    if (options.nearest_fallback)
+        return std::unexpected(operation_error{"pose graph registration requires interpolated field support"});
     if (maps.size() != graph.node_ids.size() || !graph.problem.volumes.empty() ||
         !graph.problem.registration_groups.empty())
         return std::unexpected(operation_error{"registration fields already assigned or submap count differs"});
     auto staging = graph;
     auto& problem = staging.problem;
+    problem.registration.evaluator = ceronoceres::RegistrationModel{}.evaluator;
     problem.registration.loss = options.loss;
     problem.registration.minimum_tsdf_weight = options.minimum_weight;
     problem.registration.maximum_confidence_weight = options.maximum_weight;
@@ -64,6 +67,8 @@ operation_status append_registration(graph_snapshot& graph, std::span<const subm
     }
 
     for (const auto& direction : candidates.directions) {
+        if (!problem.volumes[direction.source].has_tsdf || !problem.volumes[direction.target].has_esdf)
+            return std::unexpected(operation_error{"registration direction has no supporting field"});
         ceronoceres::RegistrationGroup group;
         group.node_i = direction.source; group.node_j = direction.target;
         group.volume_i = direction.source; group.volume_j = direction.target;
