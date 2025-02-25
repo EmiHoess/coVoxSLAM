@@ -102,6 +102,18 @@ operation_status append_registration(graph_snapshot& graph, std::span<const subm
     const candidate_set& candidates, registration_options options = {});
 operation_result<ceronoceres::CostBreakdown> evaluate_graph(
     const ceronoceres::PreparedProblem& problem, std::span<const pose4> poses);
+struct equation_statistics
+{
+    std::size_t active_nodes{}, scalar_dimension{}, sparse_blocks{};
+    double maximum_absolute_gradient{};
+    ceronoceres::CostBreakdown cost;
+    ceronoceres::RegistrationStatistics registration;
+};
+operation_result<ceronoceres::LinearizationSnapshot> linearize_graph(
+    const ceronoceres::PreparedProblem& problem, std::span<const pose4> poses);
+operation_status validate_linearization(const ceronoceres::LinearizationSnapshot& snapshot, std::size_t active_nodes);
+operation_result<equation_statistics> summarize_linearization(
+    const ceronoceres::LinearizationSnapshot& snapshot, std::size_t active_nodes);
 operation_result<graph_snapshot> make_graph(std::span<const graph_node> nodes);
 operation_status validate_graph(const graph_snapshot& graph);
 operation_result<ceronoceres::PreparedProblem> prepare_graph(graph_snapshot graph);
