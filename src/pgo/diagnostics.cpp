@@ -31,6 +31,22 @@ operation_status validate_linearization(const ceronoceres::LinearizationSnapshot
         return std::unexpected(operation_error{"external normal equations omit a diagonal block"});
     return {};
 }
+operation_result<equation_statistics> summarize_linearization(
+    const ceronoceres::LinearizationSnapshot& snapshot, std::size_t active_nodes)
+{
+    const auto valid = validate_linearization(snapshot, active_nodes);
+    if (!valid) return std::unexpected(valid.error());
+    equation_statistics result;
+    result.active_nodes = active_nodes;
+    result.scalar_dimension = snapshot.gradient.size();
+    result.sparse_blocks = snapshot.sparse_blocks.size();
+    result.cost = snapshot.cost;
+    result.registration = snapshot.registration;
+
+    for (const auto value : snapshot.gradient)
+        result.maximum_absolute_gradient = std::max(result.maximum_absolute_gradient, std::abs(value));
+    return result;
+}
 operation_result<ceronoceres::LinearizationSnapshot> linearize_graph(
     const ceronoceres::PreparedProblem& problem, std::span<const pose4> poses)
 {
