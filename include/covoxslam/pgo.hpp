@@ -114,6 +114,21 @@ operation_result<ceronoceres::LinearizationSnapshot> linearize_graph(
 operation_status validate_linearization(const ceronoceres::LinearizationSnapshot& snapshot, std::size_t active_nodes);
 operation_result<equation_statistics> summarize_linearization(
     const ceronoceres::LinearizationSnapshot& snapshot, std::size_t active_nodes);
+operation_status validate_lm(const ceronoceres::NativeLmOptions& value);
+operation_result<ceronoceres::SolveOptions> cpu_solve_options(
+    const options& options, const ceronoceres::NativeLmOptions& lm = {});
+operation_result<ceronoceres::SolveResult> solve_cpu(const ceronoceres::PreparedProblem& problem,
+    const options& options, const ceronoceres::NativeLmOptions& lm = {});
+operation_status validate_solve_result(const ceronoceres::SolveResult& result,
+    std::size_t nodes, ceronoceres::Backend expected_backend);
+struct solve_statistics
+{
+    ceronoceres::Termination termination{ceronoceres::Termination::BackendFailure};
+    bool usable{}, converged{};
+    std::size_t accepted_steps{}, rejected_steps{}, linear_iterations{};
+    ceronoceres::CostBreakdown initial_cost, final_cost;
+};
+operation_result<solve_statistics> summarize_solve(const ceronoceres::SolveResult& result);
 operation_result<graph_snapshot> make_graph(std::span<const graph_node> nodes);
 operation_status validate_graph(const graph_snapshot& graph);
 operation_result<ceronoceres::PreparedProblem> prepare_graph(graph_snapshot graph);
