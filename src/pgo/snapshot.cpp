@@ -1,6 +1,7 @@
 #include <covoxslam/pgo_snapshot.hpp>
 #include <algorithm>
 #include <tuple>
+#include <limits>
 
 namespace covoxslam::pgo
 {
@@ -17,6 +18,36 @@ operation_result<snapshot_extents> measure_snapshot(const graph_snapshot& graph)
     result.samples = problem.registration_samples.size();
     result.tsdf_tiles = problem.tsdf_tiles.size();
     result.esdf_tiles = problem.esdf_tiles.size();
+    const std::pair<std::size_t, std::size_t> arrays[]{
+        {problem.nodes.size(), sizeof(ceronoceres::Node)},
+        {graph.node_ids.size(), sizeof(std::uint64_t)},
+        {problem.relative_factors.size(), sizeof(ceronoceres::RelativeFactor)},
+        {problem.absolute_factors.size(), sizeof(ceronoceres::AbsoluteFactor)},
+        {problem.registration_groups.size(), sizeof(ceronoceres::RegistrationGroup)},
+        {problem.registration_samples.size(), sizeof(ceronoceres::RegistrationSample)},
+        {problem.volumes.size(), sizeof(ceronoceres::FieldVolume)},
+        {problem.tsdf_tiles.size(), sizeof(ceronoceres::TsdfTile)},
+        {problem.esdf_tiles.size(), sizeof(ceronoceres::EsdfTile)}};
+
+    for (const auto& [count, size] : arrays)
+    {
+        if (count > std::size_t(std::numeric_limits<std::int32_t>::max()) ||
+            count > (std::numeric_limits<std::uint64_t>::max() - result.record_bytes) / size)
+            return std::unexpected(operation_error{"graph snapshot exceeds index or byte bounds"});
+        result.record_bytes += count * size;
+    }
+    const auto tile_extent_valid = [](const auto& tiles) {
+        constexpr auto lower = std::numeric_limits<std::int32_t>::min() / tile_edge;
+        constexpr auto upper = (std::numeric_limits<std::int32_t>::max() - tile_edge) / tile_edge;
+
+        for (const auto& tile : tiles)
+            if (tile.x < lower || tile.y < lower || tile.z < lower ||
+                tile.x > upper || tile.y > upper || tile.z > upper) return false;
+        return true;
+    };
+
+    if (!tile_extent_valid(problem.tsdf_tiles) || !tile_extent_valid(problem.esdf_tiles))
+        return std::unexpected(operation_error{"graph tile coordinates exceed voxel index bounds"});
     return result;
 }
 operation_result<solve_snapshot> freeze_graph(graph_snapshot graph)
