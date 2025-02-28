@@ -5,6 +5,32 @@
 
 namespace covoxslam::pgo
 {
+operation_result<ceronoceres::SolveOptions> cuda_solve_options(
+    const options& options, const ceronoceres::NativeLmOptions& lm)
+{
+    const auto valid = validate_options(options);
+    if (!valid) return std::unexpected(valid.error());
+    const auto valid_lm = validate_lm(lm);
+    if (!valid_lm) return std::unexpected(valid_lm.error());
+
+    if (!options.enabled || options.solver != backend::cuda_cold || !options.memory_budget_bytes)
+        return std::unexpected(operation_error{"cold CUDA solve requires enabled settings and a memory budget"});
+    ceronoceres::SolveOptions result;
+    result.backend = ceronoceres::Backend::NativeCudaCold;
+    result.common = {options.maximum_iterations, options.maximum_seconds};
+    ceronoceres::NativeCudaColdOptions native;
+    native.lm = lm;
+    native.device_index = options.device;
+    native.memory_budget_bytes = options.memory_budget_bytes;
+    result.backend_options = native;
+    return result;
+}
+operation_result<ceronoceres::SolverTelemetry> cuda_telemetry(const ceronoceres::SolveResult& result)
+{
+    const auto valid = validate_solve_result(result, result.poses.size(), ceronoceres::Backend::NativeCudaCold);
+    if (!valid) return std::unexpected(valid.error());
+    return result.telemetry;
+}
 operation_result<snapshot_extents> measure_snapshot(const graph_snapshot& graph)
 {
     const auto valid = validate_graph(graph);
