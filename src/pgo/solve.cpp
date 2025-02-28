@@ -33,6 +33,30 @@ operation_result<std::vector<pose4>> solution_poses(const ceronoceres::SolveResu
     for (const auto& p : result.poses) poses.push_back({p.x, p.y, p.z, ceronoceres::wrap_yaw(p.yaw)});
     return poses;
 }
+operation_result<solve_statistics> summarize_solve(const ceronoceres::SolveResult& result)
+{
+    const auto valid = validate_solve_result(result, result.poses.size(), result.backend);
+    if (!valid) return std::unexpected(valid.error());
+    solve_statistics report;
+    report.termination = result.termination;
+    report.usable = result.solution_usable;
+    report.initial_cost = result.initial_cost;
+    report.final_cost = result.final_cost;
+    switch (result.termination) {
+    case ceronoceres::Termination::ConvergedCost:
+    case ceronoceres::Termination::ConvergedGradient:
+    case ceronoceres::Termination::ConvergedUpdate: report.converged = true; break;
+    default: break;
+    }
+
+    for (const auto& iteration : result.iterations)
+    {
+        report.accepted_steps += iteration.accepted;
+        report.rejected_steps += !iteration.accepted;
+        report.linear_iterations += iteration.linear_iterations;
+    }
+    return report;
+}
 operation_status validate_lm(const ceronoceres::NativeLmOptions& value)
 {
     const double positive[]{value.initial_damping, value.minimum_damping, value.maximum_damping,
