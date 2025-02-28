@@ -3,6 +3,36 @@
 
 namespace covoxslam::pgo
 {
+operation_status validate_solve_result(const ceronoceres::SolveResult& result,
+    std::size_t nodes, ceronoceres::Backend expected_backend)
+{
+    if (result.backend != expected_backend ||
+        unsigned(result.termination) > unsigned(ceronoceres::Termination::BackendFailure))
+        return std::unexpected(operation_error{"unexpected native solver result identity"});
+
+    if (result.solution_usable && (result.poses.size() != nodes || !detail::valid_cost(result.initial_cost) ||
+        !detail::valid_cost(result.final_cost) || result.final_cost.total() >
+            result.initial_cost.total() + 1.0e-10 * std::max(1.0, result.initial_cost.total())))
+        return std::unexpected(operation_error{"invalid native solver pose count or objective"});
+
+    for (const auto& p : result.poses)
+        if (!std::isfinite(p.x) || !std::isfinite(p.y) || !std::isfinite(p.z) || !std::isfinite(p.yaw))
+            return std::unexpected(operation_error{"native solver returned a nonfinite pose"});
+    return {};
+}
+operation_result<std::vector<pose4>> solution_poses(const ceronoceres::SolveResult& result, std::size_t nodes)
+{
+    const auto valid = validate_solve_result(result, nodes, result.backend);
+    if (!valid) return std::unexpected(valid.error());
+
+    if (!result.solution_usable)
+        return std::unexpected(operation_error{"native solver did not return a usable solution"});
+    std::vector<pose4> poses;
+     poses.reserve(nodes);
+
+    for (const auto& p : result.poses) poses.push_back({p.x, p.y, p.z, ceronoceres::wrap_yaw(p.yaw)});
+    return poses;
+}
 operation_status validate_lm(const ceronoceres::NativeLmOptions& value)
 {
     const double positive[]{value.initial_damping, value.minimum_damping, value.maximum_damping,
@@ -40,6 +70,9 @@ operation_result<ceronoceres::SolveResult> solve_cpu(const ceronoceres::Prepared
     if (!configured) return std::unexpected(configured.error());
 
     if (problem.empty()) return std::unexpected(operation_error{"cannot solve an empty prepared graph"});
-    return ceronoceres::solve(problem, *configured);
+    auto result = ceronoceres::solve(problem, *configured);
+    const auto valid = validate_solve_result(result, problem.node_count(), configured->backend);
+    if (!valid) return std::unexpected(valid.error());
+    return result;
 }
 }
