@@ -130,6 +130,20 @@ struct solve_statistics
     ceronoceres::CostBreakdown initial_cost, final_cost;
 };
 operation_result<solve_statistics> summarize_solve(const ceronoceres::SolveResult& result);
+struct residual_report
+{
+    ceronoceres::Backend solver{ceronoceres::Backend::NativeCpu};
+    ceronoceres::CostBreakdown initial, final;
+    ceronoceres::RegistrationStatistics registration;
+    bool usable{};
+};
+operation_result<residual_report> report_residuals(const ceronoceres::SolveResult& result);
+struct residual_comparison
+{
+    ceronoceres::CostBreakdown final_difference;
+    bool same_admission{};
+};
+operation_result<residual_comparison> compare_residuals(const residual_report& cpu, const residual_report& cuda);
 operation_result<graph_snapshot> make_graph(std::span<const graph_node> nodes);
 operation_status validate_graph(const graph_snapshot& graph);
 operation_result<ceronoceres::PreparedProblem> prepare_graph(graph_snapshot graph);
