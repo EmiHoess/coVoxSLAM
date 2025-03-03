@@ -4,6 +4,17 @@
 
 namespace covoxslam::pgo
 {
+operation_result<residual_report> report_residuals(const ceronoceres::SolveResult& result)
+{
+    const auto valid = validate_solve_result(result, result.poses.size(), result.backend);
+    if (!valid) return std::unexpected(valid.error());
+
+    if ((result.backend != ceronoceres::Backend::NativeCpu && result.backend != ceronoceres::Backend::NativeCudaCold) ||
+        !detail::valid_cost(result.initial_cost) || !detail::valid_cost(result.final_cost))
+        return std::unexpected(operation_error{"invalid native residual report"});
+    return residual_report{result.backend, result.initial_cost, result.final_cost,
+        result.registration, result.solution_usable};
+}
 operation_status validate_linearization(const ceronoceres::LinearizationSnapshot& value, std::size_t active_nodes)
 {
     if (active_nodes > 1048576 || value.gradient.size() != active_nodes * 4 ||
