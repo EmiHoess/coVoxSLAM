@@ -4,6 +4,18 @@
 
 namespace covoxslam::pgo
 {
+operation_result<residual_comparison> compare_residuals(const residual_report& cpu, const residual_report& cuda)
+{
+    if (cpu.solver != ceronoceres::Backend::NativeCpu || cuda.solver != ceronoceres::Backend::NativeCudaCold ||
+        !detail::valid_cost(cpu.final) || !detail::valid_cost(cuda.final))
+        return std::unexpected(operation_error{"residual comparison requires CPU and CUDA native reports"});
+    residual_comparison result;
+    result.final_difference = {cuda.final.relative - cpu.final.relative, cuda.final.absolute - cpu.final.absolute,
+        cuda.final.registration - cpu.final.registration};
+    result.same_admission = cpu.registration.accepted_rows == cuda.registration.accepted_rows &&
+        cpu.registration.rejections == cuda.registration.rejections;
+    return result;
+}
 operation_result<residual_report> report_residuals(const ceronoceres::SolveResult& result)
 {
     const auto valid = validate_solve_result(result, result.poses.size(), result.backend);
