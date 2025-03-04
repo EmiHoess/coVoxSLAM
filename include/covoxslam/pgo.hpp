@@ -2,6 +2,7 @@
 #include <covoxslam/mapping.hpp>
 #include <covoxslam/result.hpp>
 #include <span>
+#include <iosfwd>
 
 namespace covoxslam::pgo
 {
@@ -144,6 +145,7 @@ struct residual_comparison
     bool same_admission{};
 };
 operation_result<residual_comparison> compare_residuals(const residual_report& cpu, const residual_report& cuda);
+operation_status write_solver_report(std::ostream& output, const ceronoceres::SolveResult& result);
 operation_result<graph_snapshot> make_graph(std::span<const graph_node> nodes);
 operation_status validate_graph(const graph_snapshot& graph);
 operation_result<ceronoceres::PreparedProblem> prepare_graph(graph_snapshot graph);
