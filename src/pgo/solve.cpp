@@ -3,6 +3,16 @@
 
 namespace covoxslam::pgo
 {
+operation_result<ceronoceres::NativeLmOptions> configure_linear(
+    linear_options linear, ceronoceres::NativeLmOptions lm)
+{
+    lm.pcg_maximum_iterations = linear.maximum_iterations;
+    lm.pcg_tolerance = linear.tolerance;
+    const auto valid = validate_lm(lm);
+
+    if (!valid) return std::unexpected(valid.error());
+    return lm;
+}
 operation_status validate_solve_result(const ceronoceres::SolveResult& result,
     std::size_t nodes, ceronoceres::Backend expected_backend)
 {
