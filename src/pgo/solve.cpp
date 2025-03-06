@@ -19,6 +19,23 @@ operation_status validate_solve_result(const ceronoceres::SolveResult& result,
     if (result.backend != expected_backend ||
         unsigned(result.termination) > unsigned(ceronoceres::Termination::BackendFailure))
         return std::unexpected(operation_error{"unexpected native solver result identity"});
+    bool eligible{};
+    switch (result.termination) {
+    case ceronoceres::Termination::ConvergedCost:
+    case ceronoceres::Termination::ConvergedGradient:
+    case ceronoceres::Termination::ConvergedUpdate:
+    case ceronoceres::Termination::MaximumIterations: eligible = true; break;
+    case ceronoceres::Termination::NoFreeNodes:
+    case ceronoceres::Termination::MaximumTime:
+    case ceronoceres::Termination::RejectionLimit:
+    case ceronoceres::Termination::SingularGraph:
+    case ceronoceres::Termination::InvalidProblem:
+    case ceronoceres::Termination::BackendUnavailable:
+    case ceronoceres::Termination::BackendFailure: break;
+    }
+
+    if (result.solution_usable && !eligible)
+        return std::unexpected(operation_error{"native solver failure cannot publish poses"});
 
     if (result.solution_usable && (result.poses.size() != nodes || !detail::valid_cost(result.initial_cost) ||
         !detail::valid_cost(result.final_cost) || result.final_cost.total() >
