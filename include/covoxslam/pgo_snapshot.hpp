@@ -30,5 +30,10 @@ operation_result<solve_snapshot> freeze_graph(graph_snapshot graph);
 operation_result<ceronoceres::SolveOptions> cuda_solve_options(
     const options& options, const ceronoceres::NativeLmOptions& lm = {});
 operation_result<ceronoceres::SolverTelemetry> cuda_telemetry(const ceronoceres::SolveResult& result);
+operation_result<ceronoceres::SolveResult> solve_cuda(const solve_snapshot& snapshot,
+    const options& options, const ceronoceres::NativeLmOptions& lm = {});
+operation_result<ceronoceres::SolveResult> solve_native(const solve_snapshot& snapshot,
+    const options& options, const ceronoceres::NativeLmOptions& lm = {});
+operation_status validate_snapshot_result(const solve_snapshot& snapshot, const ceronoceres::SolveResult& result);
 }
 #endif
