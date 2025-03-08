@@ -58,7 +58,12 @@ operation_result<ceronoceres::SolveResult> solve_cuda(const solve_snapshot& snap
 {
     const auto configured = cuda_solve_options(options, lm);
     if (!configured) return std::unexpected(configured.error());
-    auto result = ceronoceres::solve(snapshot.prepared(), *configured);
+    auto checked = ceronoceres::solve_cuda_checked(snapshot.prepared(), configured->common,
+        std::get<ceronoceres::NativeCudaColdOptions>(configured->backend_options));
+
+    if (const auto* error = std::get_if<ceronoceres::cuda_solve_error>(&checked))
+        return std::unexpected(operation_error{error->message});
+    auto result = std::move(std::get<ceronoceres::SolveResult>(checked));
     const auto valid = validate_snapshot_result(snapshot, result);
 
     if (!valid) return std::unexpected(valid.error());
