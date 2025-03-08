@@ -3,6 +3,27 @@
 
 namespace covoxslam::pgo
 {
+operation_result<std::optional<optimization_result>> optimize_submaps(std::span<const submap> maps,
+    const optimization_options& options, std::span<const absolute_measurement> measurements)
+{
+    if (!options.execution.enabled) return std::optional<optimization_result>{};
+    const auto configured = validate_options(options.execution);
+    if (!configured) return std::unexpected(configured.error());
+    auto graph = make_submap_graph(maps, measurements);
+    if (!graph) return std::unexpected(graph.error());
+    auto candidates = find_candidates(maps, options.candidates);
+    if (!candidates) return std::unexpected(candidates.error());
+    const auto counts = summarize_candidates(*candidates);
+    if (!counts) return std::unexpected(counts.error());
+    const auto registration = append_registration(*graph, maps, *candidates, options.registration);
+    if (!registration) return std::unexpected(registration.error());
+    auto snapshot = freeze_graph(std::move(*graph));
+    if (!snapshot) return std::unexpected(snapshot.error());
+    auto solution = solve_native(*snapshot, options.execution, options.lm);
+
+    if (!solution) return std::unexpected(solution.error());
+    return std::optional<optimization_result>{{std::move(*snapshot), std::move(*solution), *counts}};
+}
 operation_status validate_snapshot_result(const solve_snapshot& snapshot, const ceronoceres::SolveResult& result)
 {
     const auto valid = validate_solve_result(result, snapshot.extents().nodes, result.backend);

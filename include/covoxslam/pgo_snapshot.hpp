@@ -35,5 +35,20 @@ operation_result<ceronoceres::SolveResult> solve_cuda(const solve_snapshot& snap
 operation_result<ceronoceres::SolveResult> solve_native(const solve_snapshot& snapshot,
     const options& options, const ceronoceres::NativeLmOptions& lm = {});
 operation_status validate_snapshot_result(const solve_snapshot& snapshot, const ceronoceres::SolveResult& result);
+struct optimization_options
+{
+    options execution;
+    candidate_options candidates;
+    registration_options registration;
+    ceronoceres::NativeLmOptions lm;
+};
+struct optimization_result
+{
+    solve_snapshot snapshot;
+    ceronoceres::SolveResult solution;
+    candidate_statistics candidates;
+};
+operation_result<std::optional<optimization_result>> optimize_submaps(std::span<const submap> maps,
+    const optimization_options& options, std::span<const absolute_measurement> measurements = {});
 }
 #endif
