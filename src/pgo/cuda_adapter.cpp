@@ -9,6 +9,7 @@ operation_result<std::optional<optimization_result>> optimize_submaps(std::span<
     if (!options.execution.enabled) return std::optional<optimization_result>{};
     const auto configured = validate_options(options.execution);
     if (!configured) return std::unexpected(configured.error());
+    const auto input_hash = publication_hash(maps);
     auto graph = make_submap_graph(maps, measurements);
     if (!graph) return std::unexpected(graph.error());
     auto candidates = find_candidates(maps, options.candidates);
@@ -22,7 +23,7 @@ operation_result<std::optional<optimization_result>> optimize_submaps(std::span<
     auto solution = solve_native(*snapshot, options.execution, options.lm);
 
     if (!solution) return std::unexpected(solution.error());
-    return std::optional<optimization_result>{{std::move(*snapshot), std::move(*solution), *counts}};
+    return std::optional<optimization_result>{{std::move(*snapshot), std::move(*solution), *counts, input_hash}};
 }
 operation_status validate_snapshot_result(const solve_snapshot& snapshot, const ceronoceres::SolveResult& result)
 {
