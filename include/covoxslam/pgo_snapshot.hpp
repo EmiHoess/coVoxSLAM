@@ -47,7 +47,9 @@ struct optimization_result
     solve_snapshot snapshot;
     ceronoceres::SolveResult solution;
     candidate_statistics candidates;
+    std::uint64_t map_hash{};
 };
+std::uint64_t publication_hash(std::span<const submap> maps);
 operation_result<std::optional<optimization_result>> optimize_submaps(std::span<const submap> maps,
     const optimization_options& options, std::span<const absolute_measurement> measurements = {});
 }
