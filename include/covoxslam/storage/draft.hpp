@@ -36,6 +36,19 @@ template<schema s, layout l> class draft
             return std::unexpected(operation_error{"collection capacity exceeds addressable storage"});
         return {};
     }
+    template<std::size_t... i> void copy_live(storage_type& destination, std::index_sequence<i...>) const
+    {
+        for (std::size_t tile = 0; tile < size_; ++tile)
+            for (std::size_t voxel = 0; voxel < voxels_per_tile; ++voxel)
+                ((storage_field<s, l, i>(destination, tile, voxel) =
+                    storage_field<s, l, i>(std::as_const(*storage_), tile, voxel)), ...);
+    }
+    template<std::size_t... i> void zero_range(std::size_t first, std::size_t last, std::index_sequence<i...>) noexcept
+    {
+        for (std::size_t tile = first; tile < last; ++tile)
+            for (std::size_t voxel = 0; voxel < voxels_per_tile; ++voxel)
+                ((storage_field<s, l, i>(*storage_, tile, voxel) = field_type<s, i>{}), ...);
+    }
 public:
     draft() = default;
     draft(const draft&) = delete;
@@ -57,6 +70,37 @@ public:
     std::size_t size() const noexcept { return size_; }
     std::size_t capacity() const noexcept { return capacity_; }
     std::uint64_t generation() const noexcept { return generation_; }
+    operation_status reserve(std::size_t count)
+    {
+        if (count <= capacity_) return {};
+        auto valid = check_capacity(count);
+        if (!valid) return valid;
+
+        if (generation_ == std::numeric_limits<std::uint64_t>::max())
+            return std::unexpected(operation_error{"collection generation exhausted"});
+        auto replacement = std::make_unique<storage_type>();
+        initialize_fields(*replacement, count, std::make_index_sequence<field_count<s>>{});
+        copy_live(*replacement, std::make_index_sequence<field_count<s>>{});
+        storage_ = std::move(replacement);
+        capacity_ = count;
+        ++generation_;
+        return {};
+    }
+    operation_status resize(std::size_t count)
+    {
+        if (count == size_) return {};
+        const auto increments = std::uint64_t(1 + (count > capacity_));
+        if (generation_ > std::numeric_limits<std::uint64_t>::max() - increments)
+            return std::unexpected(operation_error{"collection generation exhausted"});
+        auto allocated = reserve(count);
+        if (!allocated) return allocated;
+
+        if (count > size_) zero_range(size_, count, std::make_index_sequence<field_count<s>>{});
+        size_ = count;
+         ++generation_;
+        return {};
+    }
+    operation_status clear() { return resize(0); }
     template<std::size_t field> decltype(auto) scalar(std::size_t tile, std::size_t voxel) noexcept
     {
         return storage_field<s, l, field>(*storage_, tile, voxel);
