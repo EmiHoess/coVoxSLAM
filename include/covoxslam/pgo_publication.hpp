@@ -10,6 +10,7 @@ struct publication_limits
     double maximum_translation_m{20.0};
      double maximum_yaw_rad{1.5707963267948966};
     double maximum_registration_growth{0.1};
+    double minimum_registration_retention{0.5};
 };
 class publication_update
 {

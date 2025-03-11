@@ -25,6 +25,12 @@ std::uint64_t publication_hash(std::span<const submap> maps)
         for (int id : map.frame.frame_ids) scalar(id);
         scalar(map.config.voxel_size); scalar(map.config.truncation_distance);
         scalar(map.config.esdf_generator); scalar(map.config.esdf_minimum_weight);
+        scalar(map.config.extraction_distance); scalar(map.config.maximum_weight);
+        scalar(map.config.minimum_ray_length_m); scalar(map.config.maximum_ray_length_m);
+        scalar(map.config.maximum_tiles); scalar(map.config.esdf_site_band_m); scalar(map.config.esdf_maximum_distance_m);
+        const auto& initial = map.frame.initial_pose;
+        scalar(initial.translation.x); scalar(initial.translation.y); scalar(initial.translation.z);
+        scalar(initial.rotation.x); scalar(initial.rotation.y); scalar(initial.rotation.z); scalar(initial.rotation.w);
         const auto tiles_hash = [&](const auto& tiles, const auto& voxel_hash) {
             std::vector<int3> keys;
             keys.reserve(tiles.size());
@@ -63,6 +69,9 @@ operation_result<publication_update> prepare_publication(std::span<const submap>
     for (double bound : bounds)
         if (!std::isfinite(bound) || bound < 0)
             return std::unexpected(operation_error{"invalid pose publication limits"});
+    if (!std::isfinite(limits.minimum_registration_retention) || limits.minimum_registration_retention < 0 ||
+        limits.minimum_registration_retention > 1)
+        return std::unexpected(operation_error{"invalid registration retention limit"});
 
     for (std::size_t i = 0; i < maps.size(); ++i) {
         const auto& node = result.snapshot.graph().problem.nodes[i];
@@ -77,9 +86,28 @@ operation_result<publication_update> prepare_publication(std::span<const submap>
             std::abs(ceronoceres::wrap_yaw(proposed.yaw - initial.yaw)) > limits.maximum_yaw_rad)
             return std::unexpected(operation_error{"pose update exceeds publication limits"});
     }
-    const auto& before = result.solution.initial_cost;
-    const auto& after = result.solution.final_cost;
-    if (after.registration > before.registration * (1 + limits.maximum_registration_growth) + 1e-10)
+    std::vector<pose4> initial_poses;
+    initial_poses.reserve(maps.size());
+
+    for (const auto& map : maps) initial_poses.push_back(map.frame.anchor);
+    const auto before = linearize_graph(result.snapshot.prepared(), initial_poses);
+    const auto after = linearize_graph(result.snapshot.prepared(), *poses);
+
+    if (!before) return std::unexpected(before.error());
+    if (!after) return std::unexpected(after.error());
+    const auto agrees = [](const auto& reported, const auto& measured) {
+        const auto close = [](double a, double b) { return std::abs(a - b) <= 1e-5 * std::max({1.0, std::abs(a), std::abs(b)}); };
+        return close(reported.relative, measured.relative) && close(reported.absolute, measured.absolute) &&
+            close(reported.registration, measured.registration);
+    };
+    if (!agrees(result.solution.initial_cost, before->cost) || !agrees(result.solution.final_cost, after->cost))
+        return std::unexpected(operation_error{"solver cost does not match frozen graph evaluation"});
+    if (after->cost.total() > before->cost.total() + 1e-5 * std::max(1.0, before->cost.total()))
+        return std::unexpected(operation_error{"verified objective increased"});
+    if (double(after->registration.accepted_rows) <
+        double(before->registration.accepted_rows) * limits.minimum_registration_retention)
+        return std::unexpected(operation_error{"registration support decreased beyond publication limit"});
+    if (after->cost.registration > before->cost.registration * (1 + limits.maximum_registration_growth) + 1e-10)
         return std::unexpected(operation_error{"registration cost worsened beyond publication limit"});
     return publication_update{result.map_hash, std::move(*poses)};
 }
