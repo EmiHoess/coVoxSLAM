@@ -340,7 +340,9 @@ void map_exporter::finish()
         << json_escape(manifest.dataset_fingerprint) << "\",\"mapping_backend\":\""
          << json_escape(manifest.mapping_backend) << "\",\"fusion_order\":\"" << json_escape(manifest.fusion_order)
         << "\",\"esdf_backend\":\""
-        << json_escape(manifest.esdf_backend) << "\",\"pgo_backend\":\"none\",\"problem_hash\":\"\",\"submap_count\":"
+        << json_escape(manifest.esdf_backend) << "\",\"pgo_backend\":\"" << json_escape(manifest.pgo_backend)
+        << "\",\"problem_hash\":\"" << json_escape(manifest.problem_hash)
+        << "\",\"pgo_publication\":\"" << json_escape(manifest.publication) << "\",\"submap_count\":"
         << count;
     write_mapping_parameters(run, *initial_config);
     run << "}\n";

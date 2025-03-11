@@ -15,6 +15,7 @@ struct export_manifest {
     std::string mapping_backend{"cpu-ray"};
      std::string esdf_backend{"cpu-blocks-batch"};
     std::string fusion_order{"unspecified"};
+    std::string pgo_backend{"none"}, problem_hash, publication{"none"};
 };
 
 class map_exporter
