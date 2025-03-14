@@ -16,6 +16,8 @@ template<schema s, layout l> class draft
     std::unique_ptr<storage_type> storage_;
     std::size_t size_{}, capacity_{};
      std::uint64_t generation_{1};
+    std::shared_ptr<std::uint64_t> epoch_{std::make_shared<std::uint64_t>(generation_)};
+    void advance_generation() noexcept { *epoch_ = ++generation_; }
     template<std::size_t... i> static void initialize_fields(storage_type& storage,
         std::size_t count, std::index_sequence<i...>)
     {
@@ -55,12 +57,21 @@ public:
     {
         using owner_type = std::conditional_t<constant, const draft, draft>;
         owner_type* owner_{};
+        std::weak_ptr<std::uint64_t> epoch_;
+        std::uint64_t generation_{};
+        std::size_t size_{}, capacity_{};
         friend class draft;
-        explicit host_accessor(owner_type& owner) noexcept : owner_(&owner) {}
+        explicit host_accessor(owner_type& owner) noexcept : owner_(&owner), epoch_(owner.epoch_),
+            generation_(owner.generation()), size_(owner.size()), capacity_(owner.capacity()) {}
     public:
         static constexpr bool read_only = constant;
-        std::size_t size() const noexcept { return owner_->size(); }
-        std::size_t capacity() const noexcept { return owner_->capacity(); }
+        std::size_t size() const noexcept { return size_; }
+        std::size_t capacity() const noexcept { return capacity_; }
+        bool valid() const noexcept
+        {
+            const auto epoch = epoch_.lock();
+            return epoch && *epoch == generation_;
+        }
         template<std::size_t field> decltype(auto) scalar(std::size_t tile, std::size_t voxel) const noexcept
         {
             return owner_->template scalar<field>(tile, voxel);
@@ -82,7 +93,7 @@ public:
         initialize_fields(*replacement, count, std::make_index_sequence<field_count<s>>{});
         storage_ = std::move(replacement);
         size_ = capacity_ = count;
-        ++generation_;
+        advance_generation();
         return {};
     }
     std::size_t size() const noexcept { return size_; }
@@ -101,7 +112,7 @@ public:
         copy_live(*replacement, std::make_index_sequence<field_count<s>>{});
         storage_ = std::move(replacement);
         capacity_ = count;
-        ++generation_;
+        advance_generation();
         return {};
     }
     operation_status resize(std::size_t count)
@@ -115,7 +126,7 @@ public:
 
         if (count > size_) zero_range(size_, count, std::make_index_sequence<field_count<s>>{});
         size_ = count;
-         ++generation_;
+         advance_generation();
         return {};
     }
     operation_status clear() { return resize(0); }
@@ -128,4 +139,21 @@ public:
         return storage_field<s, l, field>(std::as_const(*storage_), tile, voxel);
     }
 };
+template<schema s, class accessor>
+operation_result<tile_view<s, accessor>> checked_at(const map_view<s, accessor>& view, std::size_t tile)
+{
+    if (!view.valid()) return std::unexpected(operation_error{"storage view is stale"});
+    if (tile >= view.size()) return std::unexpected(operation_error{"tile index is outside collection"});
+    return view[tile];
+}
+template<schema s, class accessor>
+operation_result<voxel_reference<s, accessor::read_only>> checked_at(
+    const map_view<s, accessor>& view, std::size_t tile, std::size_t voxel)
+{
+    auto selected = checked_at(view, tile);
+
+    if (!selected) return std::unexpected(selected.error());
+    if (voxel >= voxels_per_tile) return std::unexpected(operation_error{"voxel index is outside tile"});
+    return selected->voxels[voxel];
+}
 }

@@ -53,7 +53,6 @@ template<schema s, class accessor> struct voxel_array_view
     covoxslam_storage_hd constexpr std::size_t size() const noexcept { return voxels_per_tile; }
     covoxslam_storage_hd auto operator[](std::size_t voxel) const noexcept
     {
-        assert(voxel < voxels_per_tile);
         return bind_voxel<s>(access, tile, voxel);
     }
 };
@@ -66,9 +65,9 @@ public:
     covoxslam_storage_hd std::size_t size() const noexcept { return access_.size(); }
     covoxslam_storage_hd std::size_t capacity() const noexcept { return access_.capacity(); }
     covoxslam_storage_hd bool empty() const noexcept { return size() == 0; }
+    covoxslam_storage_hd bool valid() const noexcept { return access_.valid(); }
     covoxslam_storage_hd auto operator[](std::size_t tile) const noexcept
     {
-        assert(tile < size());
         return tile_view<s, accessor>{{access_, tile}};
     }
 };
