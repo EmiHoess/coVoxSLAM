@@ -1,5 +1,6 @@
 #pragma once
 #include <covoxslam/storage/urd_storage.hpp>
+#include <covoxslam/storage/views.hpp>
 #include <covoxslam/result.hpp>
 #include <algorithm>
 #include <cassert>
@@ -50,6 +51,23 @@ template<schema s, layout l> class draft
                 ((storage_field<s, l, i>(*storage_, tile, voxel) = field_type<s, i>{}), ...);
     }
 public:
+    template<bool constant> class host_accessor
+    {
+        using owner_type = std::conditional_t<constant, const draft, draft>;
+        owner_type* owner_{};
+        friend class draft;
+        explicit host_accessor(owner_type& owner) noexcept : owner_(&owner) {}
+    public:
+        static constexpr bool read_only = constant;
+        std::size_t size() const noexcept { return owner_->size(); }
+        std::size_t capacity() const noexcept { return owner_->capacity(); }
+        template<std::size_t field> decltype(auto) scalar(std::size_t tile, std::size_t voxel) const noexcept
+        {
+            return owner_->template scalar<field>(tile, voxel);
+        }
+    };
+    auto view() noexcept { return map_view<s, host_accessor<false>>{host_accessor<false>{*this}}; }
+    auto view() const noexcept { return map_view<s, host_accessor<true>>{host_accessor<true>{*this}}; }
     draft() = default;
     draft(const draft&) = delete;
     draft& operator=(const draft&) = delete;
