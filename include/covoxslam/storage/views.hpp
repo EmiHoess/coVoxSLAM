@@ -57,6 +57,19 @@ template<schema s, class accessor> struct voxel_array_view
     }
 };
 template<schema s, class accessor> struct tile_view { voxel_array_view<s, accessor> voxels; };
+template<class accessor> struct readonly_accessor
+{
+    accessor source;
+    static constexpr bool read_only = true;
+    covoxslam_storage_hd std::size_t size() const noexcept { return source.size(); }
+    covoxslam_storage_hd std::size_t capacity() const noexcept { return source.capacity(); }
+    covoxslam_storage_hd bool valid() const noexcept { return source.valid(); }
+    template<std::size_t field>
+    covoxslam_storage_hd const auto& scalar(std::size_t tile, std::size_t voxel) const noexcept
+    {
+        return source.template scalar<field>(tile, voxel);
+    }
+};
 template<schema s, class accessor> class map_view
 {
     accessor access_;
@@ -66,9 +79,49 @@ public:
     covoxslam_storage_hd std::size_t capacity() const noexcept { return access_.capacity(); }
     covoxslam_storage_hd bool empty() const noexcept { return size() == 0; }
     covoxslam_storage_hd bool valid() const noexcept { return access_.valid(); }
+    covoxslam_storage_hd auto as_const() const noexcept
+    {
+        return map_view<s, readonly_accessor<accessor>>{readonly_accessor<accessor>{access_}};
+    }
     covoxslam_storage_hd auto operator[](std::size_t tile) const noexcept
     {
         return tile_view<s, accessor>{{access_, tile}};
     }
 };
+template<schema s, bool constant>
+covoxslam_storage_hd value<s> gather_record(const voxel_reference<s, constant>& record) noexcept
+{
+    if constexpr (s == schema::tsdf)
+        return {record.distance, record.weight, record.sample_count, record.flags};
+    else if constexpr (s == schema::esdf)
+        return {record.signed_distance_m, record.parent_dx, record.parent_dy, record.parent_dz, record.flags};
+    else if constexpr (s == schema::blocks_esdf)
+        return {record.distance_m, record.parent_dx, record.parent_dy, record.parent_dz, record.flags};
+    else return {record.squared_distance_voxels, record.parent_x, record.parent_y, record.parent_z, record.flags};
+}
+template<schema s>
+covoxslam_storage_hd void scatter_record(voxel_reference<s, false> target, value<s> source) noexcept
+{
+    if constexpr (s == schema::tsdf)
+    {
+        target.distance = source.distance;
+        target.weight = source.weight;
+        target.sample_count = source.sample_count;
+    }
+    else if constexpr (s == schema::projective_esdf) {
+        target.squared_distance_voxels = source.squared_distance_voxels;
+        target.parent_x = source.parent_x;
+        target.parent_y = source.parent_y;
+        target.parent_z = source.parent_z;
+    }
+    else
+    {
+        if constexpr (s == schema::esdf) target.signed_distance_m = source.signed_distance_m;
+        else target.distance_m = source.distance_m;
+        target.parent_dx = source.parent_dx;
+        target.parent_dy = source.parent_dy;
+        target.parent_dz = source.parent_dz;
+    }
+     target.flags = source.flags;
+}
 }
