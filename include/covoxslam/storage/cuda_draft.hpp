@@ -32,6 +32,17 @@ template<schema s, layout l> class cuda_draft
 {
     using traits = storage_traits<s, l>;
     std::unique_ptr<device_allocation> state_;
+    operation_status require_device() const
+    {
+        if (!state_) return std::unexpected(operation_error{"CUDA collection is uninitialized"});
+        int current{-1};
+        auto queried = cuda_storage_status(cudaGetDevice(&current));
+
+        if (!queried) return queried;
+        if (current != state_->descriptor.device)
+            return std::unexpected(operation_error{"CUDA collection requires its allocation device"});
+        return {};
+    }
 public:
     cuda_draft() = default;
     cuda_draft(const cuda_draft&) = delete;
@@ -43,6 +54,34 @@ public:
     template<layout host_layout> operation_status download(draft<s, host_layout>& destination) const;
     cudaStream_t stream() const noexcept { return state_ ? state_->stream : nullptr; }
     std::size_t size() const noexcept { return state_ ? state_->descriptor.size_tiles : 0; }
+    operation_result<device_descriptor> descriptor() const
+    {
+        auto checked = require_device();
+
+        if (!checked) return std::unexpected(checked.error());
+        if (!state_->ready) return std::unexpected(operation_error{"CUDA collection payload is unavailable"});
+        return state_->descriptor;
+    }
+    bool is_current(const device_descriptor& candidate) const
+    {
+        auto current = descriptor();
+        if (!current || candidate.generation != current->generation || candidate.device != current->device ||
+            candidate.record_schema != s || candidate.storage_layout != l || candidate.size_tiles != size() ||
+            candidate.capacity_tiles != current->capacity_tiles || candidate.tile_stride != traits::tile_stride ||
+            candidate.voxel_stride != traits::voxel_stride) return false;
+
+        for (std::size_t i = 0; i < field_count<s>; ++i)
+            if (candidate.fields[i] != current->fields[i]) return false;
+        return true;
+    }
+    operation_status complete()
+    {
+        auto checked = require_device();
+        if (!checked) return checked;
+        checked = cuda_storage_status(cudaStreamSynchronize(state_->stream));
+        if (!checked) state_->ready = false;
+        return checked;
+    }
 };
 template<schema s, layout l>
 operation_status cuda_draft<s, l>::initialize(std::size_t count)
@@ -87,19 +126,28 @@ operation_status cuda_draft<s, l>::initialize(std::size_t count)
 }
 template<schema s, layout l> operation_result<device_map_view<s>> cuda_draft<s, l>::view()
 {
+    auto checked = require_device();
+    if (!checked) return std::unexpected(checked.error());
     if (!state_ || !state_->ready) return std::unexpected(operation_error{"CUDA collection is not ready"});
     return device_map_view<s>{device_accessor<s>{state_->descriptor}};
 }
 template<schema s, layout l> operation_result<device_map_view<s, true>> cuda_draft<s, l>::view() const
 {
+    auto checked = require_device();
+    if (!checked) return std::unexpected(checked.error());
     if (!state_ || !state_->ready) return std::unexpected(operation_error{"CUDA collection is not ready"});
     return device_map_view<s, true>{device_accessor<s, true>{state_->descriptor}};
 }
 template<schema s, layout l> template<layout host_layout>
 operation_status cuda_draft<s, l>::upload(const draft<s, host_layout>& source)
 {
+    auto checked = require_device();
+    if (!checked) return checked;
     if (!state_ || source.size() != size())
         return std::unexpected(operation_error{"CUDA upload collection size mismatch"});
+    if (state_->descriptor.generation == std::numeric_limits<std::uint64_t>::max())
+        return std::unexpected(operation_error{"CUDA collection generation exhausted"});
+    ++state_->descriptor.generation;
     state_->ready = false;
     cudaError_t submitted = cudaSuccess;
 
@@ -123,6 +171,8 @@ operation_status cuda_draft<s, l>::upload(const draft<s, host_layout>& source)
 template<schema s, layout l> template<layout host_layout>
 operation_status cuda_draft<s, l>::download(draft<s, host_layout>& destination) const
 {
+    auto checked = require_device();
+    if (!checked) return checked;
     if (!state_ || !state_->ready || destination.size() != size())
         return std::unexpected(operation_error{"CUDA download collection size mismatch or unavailable payload"});
     cudaError_t submitted = cudaSuccess;

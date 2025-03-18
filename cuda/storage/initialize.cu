@@ -1,6 +1,7 @@
 #include <covoxslam/storage/device_view.hpp>
 #include <cuda_runtime.h>
 #include <new>
+#include <algorithm>
 
 namespace covoxslam::storage
 {
