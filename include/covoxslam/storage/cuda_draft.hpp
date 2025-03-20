@@ -2,6 +2,7 @@
 #include <covoxslam/storage/draft.hpp>
 #include <covoxslam/storage/device_view.hpp>
 #include <cuda_runtime_api.h>
+#include <span>
 
 namespace covoxslam::storage
 {
@@ -54,6 +55,23 @@ public:
     template<layout host_layout> operation_status download(draft<s, host_layout>& destination) const;
     cudaStream_t stream() const noexcept { return state_ ? state_->stream : nullptr; }
     std::size_t size() const noexcept { return state_ ? state_->descriptor.size_tiles : 0; }
+    operation_status upload_direct(std::span<const aos_tile<s>> source) requires (l == layout::pooled_aos)
+    {
+        auto checked = require_device();
+        if (!checked) return checked;
+        if (source.size() != size() || state_->descriptor.generation == std::numeric_limits<std::uint64_t>::max())
+            return std::unexpected(operation_error{"CUDA direct upload size or generation is invalid"});
+        state_->ready = false;
+        ++state_->descriptor.generation;
+        const auto submitted = source.empty() ? cudaSuccess : cudaMemcpyAsync(state_->allocations[0], source.data(),
+            source.size_bytes(), cudaMemcpyHostToDevice, state_->stream);
+        const auto completed = cudaStreamSynchronize(state_->stream);
+
+        if (submitted != cudaSuccess) return cuda_storage_status(submitted);
+        if (completed != cudaSuccess) return cuda_storage_status(completed);
+        state_->ready = true;
+        return {};
+    }
     operation_result<device_descriptor> descriptor() const
     {
         auto checked = require_device();
