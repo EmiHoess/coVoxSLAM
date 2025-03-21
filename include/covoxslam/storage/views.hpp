@@ -79,6 +79,7 @@ public:
     covoxslam_storage_hd std::size_t capacity() const noexcept { return access_.capacity(); }
     covoxslam_storage_hd bool empty() const noexcept { return size() == 0; }
     covoxslam_storage_hd bool valid() const noexcept { return access_.valid(); }
+    const accessor& native_accessor() const noexcept { return access_; }
     covoxslam_storage_hd auto as_const() const noexcept
     {
         return map_view<s, readonly_accessor<accessor>>{readonly_accessor<accessor>{access_}};

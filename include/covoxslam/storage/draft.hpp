@@ -6,6 +6,7 @@
 #include <cassert>
 #include <limits>
 #include <memory>
+#include <span>
 
 namespace covoxslam::storage
 {
@@ -65,6 +66,20 @@ public:
             generation_(owner.generation()), size_(owner.size()), capacity_(owner.capacity()) {}
     public:
         static constexpr bool read_only = constant;
+        static constexpr layout storage_layout = l;
+        const void* owner_identity() const noexcept { return owner_; }
+        auto record_segment(std::size_t first) const noexcept requires (l == layout::pooled_aos)
+        {
+            using record_type = std::conditional_t<constant, const value<s>, value<s>>;
+            const auto local = first % voxels_per_tile;
+            return std::span<record_type>(&(*owner_->storage_)[first / voxels_per_tile].voxels[local], voxels_per_tile - local);
+        }
+        template<std::size_t field> auto field_segment(std::size_t first) const noexcept requires (l != layout::pooled_aos)
+        {
+            using scalar_type = std::conditional_t<constant, const field_type<s, field>, field_type<s, field>>;
+            const auto count = l == layout::pool_soa ? size_ * voxels_per_tile - first : voxels_per_tile - first % voxels_per_tile;
+            return std::span<scalar_type>(&owner_->template scalar<field>(first / voxels_per_tile, first % voxels_per_tile), count);
+        }
         std::size_t size() const noexcept { return size_; }
         std::size_t capacity() const noexcept { return capacity_; }
         bool valid() const noexcept
