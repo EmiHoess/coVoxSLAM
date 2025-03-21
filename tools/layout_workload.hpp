@@ -81,7 +81,7 @@ template<schema s> operation_result<std::vector<aos_tile<s>>> load_tiles(
                     if (!std::isfinite(v.distance) || !std::isfinite(v.weight) || v.weight < 0 || (v.flags & ~3U))
                         return std::unexpected(operation_error{"invalid frozen TSDF value"});
                 }
-                else if (!std::isfinite(v.signed_distance_m) || (v.flags & ~5U))
+                else if (!std::isfinite(v.signed_distance_m) || (v.flags & ~7U))
                     return std::unexpected(operation_error{"invalid frozen ESDF value"});
             }
         }
