@@ -12,7 +12,7 @@ namespace covoxslam::metrics
 {
 using namespace storage;
 using clock = std::chrono::steady_clock;
-struct measurement_options { int warmup{3}, repeats{7}; };
+struct measurement_options { int warmup{3}, repeats{7}; bool range_copy{}; };
 struct measurement
 {
     std::vector<double> samples_ms;

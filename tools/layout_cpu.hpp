@@ -1,5 +1,6 @@
 #pragma once
 #include "layout_workload.hpp"
+#include <covoxslam/storage/ranges.hpp>
 
 namespace covoxslam::metrics
 {
@@ -11,9 +12,20 @@ operation_result<measurement> measure_cpu(view_type view, std::span<const aos_ti
         return std::unexpected(operation_error{"invalid layout measurement counts"});
     using output_type = std::conditional_t<copy, value<s>, float>;
     std::vector<output_type> output(source.size() * 512), reference(output.size());
-    const auto run = [&] {
-        if constexpr (copy) record_copy<s>(view, output);
+    const auto run = [&]() -> operation_status {
+        if constexpr (copy) {
+            if (options.range_copy) {
+                if constexpr (requires { view.native_accessor(); })
+                    return copy_records(view, 0, output.size(), std::span<value<s>>(output));
+                else {
+                    for (std::size_t tile = 0; tile < view.size(); ++tile)
+                        std::memcpy(output.data() + tile * 512, view[tile].voxels.data(), sizeof(aos_tile<s>));
+                }
+            }
+            else record_copy<s>(view, output);
+        }
         else field_query<s>(view, output);
+        return {};
     };
     if constexpr (copy) record_copy<s>(source, reference);
     else field_query<s>(source, reference);
@@ -21,12 +33,16 @@ operation_result<measurement> measure_cpu(view_type view, std::span<const aos_ti
     result.bytes = output.size() * sizeof(output_type);
     result.samples_ms.reserve(options.repeats);
 
-    for (int i = 0; i < options.warmup; ++i) run();
+    for (int i = 0; i < options.warmup; ++i) {
+        auto checked = run();
+        if (!checked) return std::unexpected(checked.error());
+    }
 
     for (int i = 0; i < options.repeats; ++i) {
         const auto start = clock::now();
-        run();
+        auto checked = run();
         result.samples_ms.push_back(elapsed(start));
+        if (!checked) return std::unexpected(checked.error());
         result.output_hash = hash_values<output_type>(output);
     }
 
