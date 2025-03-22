@@ -1,6 +1,7 @@
 #pragma once
 #include <covoxslam/storage/schema.hpp>
 #include <cassert>
+#include <span>
 
 #if defined(__CUDACC__)
 #define covoxslam_storage_hd __host__ __device__
@@ -64,6 +65,21 @@ template<class accessor> struct readonly_accessor
     covoxslam_storage_hd std::size_t size() const noexcept { return source.size(); }
     covoxslam_storage_hd std::size_t capacity() const noexcept { return source.capacity(); }
     covoxslam_storage_hd bool valid() const noexcept { return source.valid(); }
+    const void* owner_identity() const noexcept requires requires { source.owner_identity(); }
+    {
+        return source.owner_identity();
+    }
+    auto record_segment(std::size_t first) const noexcept requires requires { source.record_segment(first); }
+    {
+        const auto segment = source.record_segment(first);
+        return std::span<const typename decltype(segment)::element_type>(segment);
+    }
+    template<std::size_t field> auto field_segment(std::size_t first) const noexcept
+        requires requires { source.template field_segment<field>(first); }
+    {
+        const auto segment = source.template field_segment<field>(first);
+        return std::span<const typename decltype(segment)::element_type>(segment);
+    }
     template<std::size_t field>
     covoxslam_storage_hd const auto& scalar(std::size_t tile, std::size_t voxel) const noexcept
     {

@@ -79,4 +79,50 @@ template<schema s, class accessor> operation_status copy_records(const map_view<
     }
     return {};
 }
+template<schema s, std::size_t field, class source_accessor, class destination_accessor>
+void copy_field_range(const map_view<s, source_accessor>& source, std::size_t source_first,
+    const map_view<s, destination_accessor>& destination, std::size_t destination_first, std::size_t count)
+{
+    std::size_t copied{};
+    while (copied < count)
+    {
+        if constexpr (requires { source.native_accessor().template field_segment<field>(source_first);
+                                 destination.native_accessor().template field_segment<field>(destination_first); }) {
+            const auto input = source.native_accessor().template field_segment<field>(source_first + copied);
+            auto output = destination.native_accessor().template field_segment<field>(destination_first + copied);
+            const auto length = std::min({input.size(), output.size(), count - copied});
+            std::memcpy(output.data(), input.data(), length * sizeof(field_type<s, field>));
+            copied += length;
+        }
+        else {
+            const auto a = source_first + copied, b = destination_first + copied;
+            auto input = source[a / 512].voxels[a % 512], output = destination[b / 512].voxels[b % 512];
+            auto&& value = std::get<field>(scalar_fields<s>(input));
+            auto&& target = std::get<field>(scalar_fields<s>(output));
+            std::memcpy(&target, &value, sizeof(field_type<s, field>));
+            ++copied;
+        }
+    }
+}
+template<schema s, class source_accessor, class destination_accessor>
+operation_status copy_fields(const map_view<s, source_accessor>& source, std::size_t source_first,
+    const map_view<s, destination_accessor>& destination, std::size_t destination_first, std::size_t count,
+    std::uint32_t selected_fields = (1U << field_count<s>) - 1) requires (!destination_accessor::read_only)
+{
+    auto checked = validate_range(source, {source_first, count});
+    if (!checked) return checked;
+    checked = validate_range(destination, {destination_first, count});
+    if (!checked) return checked;
+    if (selected_fields >> field_count<s>) return std::unexpected(operation_error{"unsupported field selection"});
+    if (count == 0 || selected_fields == 0) return {};
+    if (source.native_accessor().owner_identity() == destination.native_accessor().owner_identity()) {
+        if (source_first == destination_first) return {};
+        if (source_first < destination_first ? destination_first - source_first < count : source_first - destination_first < count)
+            return std::unexpected(operation_error{"field ranges overlap"});
+    }
+    [&]<std::size_t... field>(std::index_sequence<field...>) {
+        ((selected_fields & (1U << field) ? copy_field_range<s, field>(source, source_first, destination, destination_first, count) : void()), ...);
+    }(std::make_index_sequence<field_count<s>>{});
+    return {};
+}
 }
