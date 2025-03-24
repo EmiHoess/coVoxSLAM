@@ -25,8 +25,8 @@ inline bool byte_ranges_overlap(const void* first, std::size_t first_bytes, cons
     const auto a = reinterpret_cast<std::uintptr_t>(first), b = reinterpret_cast<std::uintptr_t>(second);
     return a <= b ? b - a < first_bytes : a - b < second_bytes;
 }
-template<schema s, class accessor> bool overlaps_output(const map_view<s, accessor>& source,
-    voxel_range range, std::span<value<s>> output)
+template<schema s, class accessor> bool overlaps_bytes(const map_view<s, accessor>& source,
+    voxel_range range, const void* output, std::size_t output_bytes)
 {
     while (range.count)
     {
@@ -37,7 +37,7 @@ template<schema s, class accessor> bool overlaps_output(const map_view<s, access
         const bool overlap = [&]<std::size_t... field>(std::index_sequence<field...>) {
             const auto check = [&](const auto& begin, const auto& end) {
                 const auto bytes = reinterpret_cast<std::uintptr_t>(&end) - reinterpret_cast<std::uintptr_t>(&begin) + sizeof(begin);
-                return byte_ranges_overlap(&begin, bytes, output.data(), output.size_bytes());
+                return byte_ranges_overlap(&begin, bytes, output, output_bytes);
             };
             return (check(std::get<field>(begins), std::get<field>(ends)) || ...);
         }(std::make_index_sequence<field_count<s>>{});
@@ -60,7 +60,7 @@ template<schema s, class accessor> operation_status copy_records(const map_view<
         const auto segment = source.native_accessor().record_segment(first);
         if (count <= segment.size() && segment.data() == destination.data()) return {};
     }
-    if (overlaps_output(source, {first, count}, destination.first(count)))
+    if (overlaps_bytes(source, {first, count}, destination.data(), count * sizeof(value<s>)))
         return std::unexpected(operation_error{"record ranges overlap"});
     if constexpr (requires { source.native_accessor().record_segment(first); })
     {
