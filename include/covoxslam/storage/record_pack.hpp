@@ -58,7 +58,7 @@ template<schema s, class accessor> operation_status pack_records(const map_view<
                 for (std::size_t i = 0; i < batch; ++i) {
                     auto fields = scalar_fields<s>(destination[copied + offset + i]);
                     [&]<std::size_t... field>(std::index_sequence<field...>) {
-                        ((std::get<field>(fields) = std::get<field>(segments)[offset + i]), ...);
+                        (copy_scalar_bits(std::get<field>(fields), std::get<field>(segments)[offset + i]), ...);
                     }(std::make_index_sequence<field_count<s>>{});
                 }
                 offset += batch;
@@ -103,7 +103,7 @@ template<schema s, class accessor> operation_status unpack_records(std::span<con
                 for (std::size_t i = 0; i < batch; ++i) {
                     const auto fields = scalar_fields<s>(source[copied + offset + i]);
                     [&]<std::size_t... field>(std::index_sequence<field...>) {
-                        ((std::get<field>(segments)[offset + i] = std::get<field>(fields)), ...);
+                        (copy_scalar_bits(std::get<field>(segments)[offset + i], std::get<field>(fields)), ...);
                     }(std::make_index_sequence<field_count<s>>{});
                 }
                 offset += batch;

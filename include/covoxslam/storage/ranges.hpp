@@ -5,6 +5,10 @@
 namespace covoxslam::storage
 {
 struct voxel_range { std::size_t first{}, count{}; };
+template<class t> void copy_scalar_bits(t& destination, const t& source) noexcept
+{
+    std::memcpy(&destination, &source, sizeof(t));
+}
 template<schema s, class accessor> operation_status validate_range(const map_view<s, accessor>& source, voxel_range range)
 {
     if (!source.valid()) return std::unexpected(operation_error{"range source view is stale"});
@@ -74,8 +78,14 @@ template<schema s, class accessor> operation_status copy_records(const map_view<
         }
     }
     else {
-        for (std::size_t i = 0; i < count; ++i)
-            destination[i] = gather_record(source[(first + i) / 512].voxels[(first + i) % 512]);
+        for (std::size_t i = 0; i < count; ++i) {
+            auto input = source[(first + i) / 512].voxels[(first + i) % 512];
+            const auto fields = scalar_fields<s>(input);
+            auto output = scalar_fields<s>(destination[i]);
+            [&]<std::size_t... field>(std::index_sequence<field...>) {
+                (copy_scalar_bits(std::get<field>(output), std::get<field>(fields)), ...);
+            }(std::make_index_sequence<field_count<s>>{});
+        }
     }
     return {};
 }
@@ -99,7 +109,7 @@ void copy_field_range(const map_view<s, source_accessor>& source, std::size_t so
             auto input = source[a / 512].voxels[a % 512], output = destination[b / 512].voxels[b % 512];
             auto&& value = std::get<field>(scalar_fields<s>(input));
             auto&& target = std::get<field>(scalar_fields<s>(output));
-            std::memcpy(&target, &value, sizeof(field_type<s, field>));
+            copy_scalar_bits(target, value);
             ++copied;
         }
     }
