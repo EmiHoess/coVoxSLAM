@@ -25,6 +25,12 @@ constexpr cli_option_entry<option> choices[]{
     {"--packing-batch", option::batch}, {"--packing-policy", option::packing}
 };
 static_assert(valid_cli_options(choices));
+enum class copy_choice { unknown, scalar, range, packed, unpacked };
+constexpr cli_option_entry<copy_choice> copy_choices[]{
+    {"scalar", copy_choice::scalar}, {"range", copy_choice::range},
+    {"packed", copy_choice::packed}, {"unpacked", copy_choice::unpacked}
+};
+static_assert(valid_cli_options(copy_choices));
 operation_result<arguments> parse_arguments(int argc, char** argv)
 {
     arguments result;
@@ -48,11 +54,13 @@ operation_result<arguments> parse_arguments(int argc, char** argv)
         case option::repeats: result.sampling.repeats = number; break;
         case option::rounds: result.rounds = number; break;
         case option::copy:
-            if (value == "scalar") result.sampling.method = copy_method::scalar;
-            else if (value == "range") result.sampling.method = copy_method::range;
-            else if (value == "packed") result.sampling.method = copy_method::packed;
-            else if (value == "unpacked") result.sampling.method = copy_method::unpacked;
-            else return std::unexpected(operation_error{"copy must be scalar, range, packed or unpacked"});
+            switch (lookup_cli_option(value, copy_choices)) {
+            case copy_choice::scalar: result.sampling.method = copy_method::scalar; break;
+            case copy_choice::range: result.sampling.method = copy_method::range; break;
+            case copy_choice::packed: result.sampling.method = copy_method::packed; break;
+            case copy_choice::unpacked: result.sampling.method = copy_method::unpacked; break;
+            default: return std::unexpected(operation_error{"copy must be scalar, range, packed or unpacked"});
+            }
             break;
         case option::batch: result.sampling.batch_records = std::size_t(number); break;
         case option::packing:
