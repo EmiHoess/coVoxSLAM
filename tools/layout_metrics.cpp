@@ -17,11 +17,12 @@ struct arguments
     int rounds{4};
     bool esdf{}, cpu{true}, cuda{};
 };
-enum class option { unknown, input, output, last, warmup, repeats, rounds, field, device, copy };
+enum class option { unknown, input, output, last, warmup, repeats, rounds, field, device, copy, batch, packing };
 constexpr cli_option_entry<option> choices[]{
     {"--input", option::input}, {"--output", option::output}, {"--last-submap", option::last},
     {"--warmup", option::warmup}, {"--repeats", option::repeats}, {"--rounds", option::rounds},
-    {"--field", option::field}, {"--device", option::device}, {"--copy", option::copy}
+    {"--field", option::field}, {"--device", option::device}, {"--copy", option::copy},
+    {"--packing-batch", option::batch}, {"--packing-policy", option::packing}
 };
 static_assert(valid_cli_options(choices));
 operation_result<arguments> parse_arguments(int argc, char** argv)
@@ -33,10 +34,10 @@ operation_result<arguments> parse_arguments(int argc, char** argv)
         const std::string_view value = argv[index + 1];
         const auto selected = lookup_cli_option(argv[index], choices);
         int number{};
-        if (selected == option::last || selected == option::warmup || selected == option::repeats || selected == option::rounds) {
+        if (selected == option::last || selected == option::warmup || selected == option::repeats || selected == option::rounds || selected == option::batch) {
             const auto converted = std::from_chars(value.data(), value.data() + value.size(), number);
-            if (converted.ec != std::errc{} || converted.ptr != value.data() + value.size() || number < 0 || number > 1000)
-                return std::unexpected(operation_error{"metrics count must be between 0 and 1000"});
+            if (converted.ec != std::errc{} || converted.ptr != value.data() + value.size() || number < 0 || number > (selected == option::batch ? 4096 : 1000))
+                return std::unexpected(operation_error{"metrics count is outside supported limits"});
         }
         switch (selected)
         {
@@ -47,8 +48,16 @@ operation_result<arguments> parse_arguments(int argc, char** argv)
         case option::repeats: result.sampling.repeats = number; break;
         case option::rounds: result.rounds = number; break;
         case option::copy:
-            if (value != "scalar" && value != "range") return std::unexpected(operation_error{"copy must be scalar or range"});
-            result.sampling.range_copy = value == "range"; break;
+            if (value == "scalar") result.sampling.method = copy_method::scalar;
+            else if (value == "range") result.sampling.method = copy_method::range;
+            else if (value == "packed") result.sampling.method = copy_method::packed;
+            else if (value == "unpacked") result.sampling.method = copy_method::unpacked;
+            else return std::unexpected(operation_error{"copy must be scalar, range, packed or unpacked"});
+            break;
+        case option::batch: result.sampling.batch_records = std::size_t(number); break;
+        case option::packing:
+            if (value != "portable" && value != "fixed") return std::unexpected(operation_error{"packing policy must be portable or fixed"});
+            result.sampling.fixed_batch = value == "fixed"; break;
         case option::field:
             if (value != "tsdf" && value != "esdf") return std::unexpected(operation_error{"field must be tsdf or esdf"});
             result.esdf = value == "esdf"; break;
@@ -60,7 +69,9 @@ operation_result<arguments> parse_arguments(int argc, char** argv)
     }
     if (result.input.empty() || result.rounds == 0 || result.sampling.repeats == 0)
         return std::unexpected(operation_error{"input and positive rounds and repeats are required"});
-    if (result.sampling.range_copy && result.cuda)
+    auto packing = select_packing_batch(result.sampling, [](auto value) { return validate_packing(value); });
+    if (!packing) return std::unexpected(packing.error());
+    if (result.sampling.method != copy_method::scalar && result.cuda)
         return std::unexpected(operation_error{"range copy measurements require the CPU device"});
 #if !defined(covoxslam_has_cuda)
     if (result.cuda) return std::unexpected(operation_error{"CUDA metrics were not built"});
@@ -106,7 +117,8 @@ template<schema s> operation_status run(const arguments& settings, std::ostream&
                     auto result = copy ? measure_selected<s, true>(source, settings, selected, direct, gpu)
                                        : measure_selected<s, false>(source, settings, selected, direct, gpu);
                     if (!result) return std::unexpected(result.error());
-                    const auto workload = !copy ? "field_query" : settings.sampling.range_copy ?
+                    const auto workload = !copy ? "field_query" : settings.sampling.method == copy_method::unpacked ? "aos_to_layout_unpack" :
+                        settings.sampling.method == copy_method::packed ? "layout_to_aos_pack" : settings.sampling.method == copy_method::range ?
                         (choice < 2 ? "aos_range_copy" : "layout_range_to_aos_conversion") :
                         (choice < 2 ? "aos_record_copy" : "layout_to_aos_conversion");
 

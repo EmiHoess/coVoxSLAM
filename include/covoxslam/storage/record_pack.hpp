@@ -4,6 +4,10 @@
 namespace covoxslam::storage
 {
 struct packing_options { std::size_t batch_records{32}; };
+template<std::size_t count> constexpr packing_options fixed_packing()
+{
+    return {count};
+}
 inline operation_status validate_packing(const packing_options& options)
 {
     if (!options.batch_records || options.batch_records > 4096)

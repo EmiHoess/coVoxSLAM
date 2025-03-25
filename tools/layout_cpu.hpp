@@ -1,9 +1,23 @@
 #pragma once
 #include "layout_workload.hpp"
 #include <covoxslam/storage/ranges.hpp>
+#include <covoxslam/storage/record_pack.hpp>
 
 namespace covoxslam::metrics
 {
+template<class function> operation_status select_packing_batch(const measurement_options& options, function&& action)
+{
+    if (!options.fixed_batch) return action(packing_options{options.batch_records});
+    switch (options.batch_records) {
+    case 1: return action(fixed_packing<1>());
+    case 8: return action(fixed_packing<8>());
+    case 16: return action(fixed_packing<16>());
+    case 32: return action(fixed_packing<32>());
+    case 64: return action(fixed_packing<64>());
+    case 128: return action(fixed_packing<128>());
+    default: return std::unexpected(operation_error{"fixed packing batch must be 1, 8, 16, 32, 64 or 128"});
+    }
+}
 template<schema s, bool copy, class view_type>
 operation_result<measurement> measure_cpu(view_type view, std::span<const aos_tile<s>> source,
     const measurement_options& options)
@@ -14,9 +28,14 @@ operation_result<measurement> measure_cpu(view_type view, std::span<const aos_ti
     std::vector<output_type> output(source.size() * 512), reference(output.size());
     const auto run = [&]() -> operation_status {
         if constexpr (copy) {
-            if (options.range_copy) {
-                if constexpr (requires { view.native_accessor(); })
+            if (options.method != copy_method::scalar) {
+                if constexpr (requires { view.native_accessor(); }) {
+                    if (options.method == copy_method::packed)
+                        return select_packing_batch(options, [&](auto packing) {
+                            return pack_records(view, 0, output.size(), std::span<value<s>>(output), packing);
+                        });
                     return copy_records(view, 0, output.size(), std::span<value<s>>(output));
+                }
                 else {
                     for (std::size_t tile = 0; tile < view.size(); ++tile)
                         std::memcpy(output.data() + tile * 512, view[tile].voxels.data(), sizeof(aos_tile<s>));
@@ -69,6 +88,36 @@ template<schema s, layout l, bool copy> operation_result<measurement> measure_ho
     auto filled = fill_draft(owner, source);
     if (!filled) return std::unexpected(filled.error());
     const auto setup = elapsed(start);
+    if constexpr (copy) {
+        if (options.method == copy_method::unpacked) {
+            std::vector<value<s>> input(source.size() * 512), output(input.size());
+            record_copy<s>(source, input);
+            measurement result;
+            result.setup_ms = setup;
+            result.bytes = input.size() * sizeof(value<s>);
+            result.samples_ms.reserve(options.repeats);
+            const auto run = [&] {
+                return select_packing_batch(options, [&](auto packing) {
+                    return unpack_records(std::span<const value<s>>(input), owner.view(), 0, packing);
+                });
+            };
+
+            for (int i = 0; i < options.warmup + options.repeats; ++i)
+            {
+                const auto begin = clock::now();
+                auto checked = run();
+                const auto milliseconds = elapsed(begin);
+                if (!checked) return std::unexpected(checked.error());
+                record_copy<s>(std::as_const(owner).view(), output);
+                result.output_hash = hash_values<value<s>>(output);
+                if (i >= options.warmup) result.samples_ms.push_back(milliseconds);
+            }
+
+            for (std::size_t i = 0; i < input.size(); ++i)
+                result.mismatch_count += std::memcmp(&input[i], &output[i], sizeof(value<s>)) != 0;
+            return result;
+        }
+    }
     auto measured = measure_cpu<s, copy>(std::as_const(owner).view(), source, options);
     if (measured) measured->setup_ms = setup;
     return measured;
