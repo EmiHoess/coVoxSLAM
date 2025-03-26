@@ -106,7 +106,8 @@ void copy_field_range(const map_view<s, source_accessor>& source, std::size_t so
         }
         else {
             const auto a = source_first + copied, b = destination_first + copied;
-            auto input = source[a / 512].voxels[a % 512], output = destination[b / 512].voxels[b % 512];
+            auto input = source[a / 512].voxels[a % 512];
+            auto output = destination[b / 512].voxels[b % 512];
             auto&& value = std::get<field>(scalar_fields<s>(input));
             auto&& target = std::get<field>(scalar_fields<s>(output));
             copy_scalar_bits(target, value);
