@@ -106,7 +106,8 @@ template<schema s, std::size_t field, class accessor> operation_status gather_fi
 {
     auto checked = validate_range(source, {0, 0});
     if (!checked) return checked;
-    if (indices.size() > output.size()) return std::unexpected(operation_error{"indexed field output is too small"});
+    if (indices.size() > output.size() || indices.size() > std::size_t(std::numeric_limits<std::ptrdiff_t>::max()) / sizeof(std::size_t))
+        return std::unexpected(operation_error{"indexed field output extent is invalid"});
     const auto bytes = indices.size() * sizeof(field_type<s, field>);
     if (byte_ranges_overlap(indices.data(), indices.size_bytes(), output.data(), bytes) ||
         overlaps_bytes(source, {0, source.size() * 512}, output.data(), bytes))
@@ -120,6 +121,57 @@ template<schema s, std::size_t field, class accessor> operation_status gather_fi
     for (std::size_t i = 0; i < indices.size(); ++i) {
         auto v = source[indices[i] / 512].voxels[indices[i] % 512];
         copy_scalar_bits(output[i], std::get<field>(scalar_fields<s>(v)));
+    }
+    return {};
+}
+template<schema s, std::size_t field, class accessor> operation_status assign_field_indices(
+    const map_view<s, accessor>& destination, std::span<const std::size_t> indices,
+    std::span<const field_type<s, field>> input) requires (!accessor::read_only)
+{
+    auto checked = validate_range(destination, {0, 0});
+    if (!checked) return checked;
+    if (indices.size() > input.size() || indices.size() > std::size_t(std::numeric_limits<std::ptrdiff_t>::max()) / sizeof(std::size_t))
+        return std::unexpected(operation_error{"indexed field input extent is invalid"});
+    const voxel_range extent{0, destination.size() * voxels_per_tile};
+
+    if (overlaps_bytes(destination, extent, input.data(), indices.size() * sizeof(field_type<s, field>)) ||
+        overlaps_bytes(destination, extent, indices.data(), indices.size_bytes()))
+        return std::unexpected(operation_error{"indexed field update aliases its inputs"});
+
+    for (auto index : indices) {
+        checked = validate_range(destination, {index, 1});
+        if (!checked) return checked;
+    }
+
+    for (std::size_t i = 0; i < indices.size(); ++i)
+    {
+        auto v = destination[indices[i] / 512].voxels[indices[i] % 512];
+        copy_scalar_bits(std::get<field>(scalar_fields<s>(v)), input[i]);
+    }
+    return {};
+}
+template<schema s, std::size_t field, class accessor, class function>
+operation_status update_field(const map_view<s, accessor>& destination, voxel_range range, function&& update)
+    requires (!accessor::read_only)
+{
+    auto checked = validate_range(destination, range);
+    if (!checked) return checked;
+    std::size_t copied{};
+    while (copied < range.count) {
+        const auto first = range.first + copied;
+        if constexpr (requires { destination.native_accessor().template field_segment<field>(first); }) {
+            auto segment = destination.native_accessor().template field_segment<field>(first);
+            const auto length = std::min(segment.size(), range.count - copied);
+
+            for (std::size_t i = 0; i < length; ++i) segment[i] = update(segment[i]);
+            copied += length;
+        }
+        else {
+            auto v = destination[first / 512].voxels[first % 512];
+            auto& scalar = std::get<field>(scalar_fields<s>(v));
+            scalar = update(scalar);
+            ++copied;
+        }
     }
     return {};
 }
