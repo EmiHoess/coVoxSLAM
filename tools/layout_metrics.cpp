@@ -13,16 +13,18 @@ struct arguments
 {
     std::filesystem::path input, output;
     std::size_t last_submap{};
+    std::size_t limit_tiles{};
     measurement_options sampling;
     int rounds{4};
     bool esdf{}, cpu{true}, cuda{};
 };
-enum class option { unknown, input, output, last, warmup, repeats, rounds, field, device, copy, batch, packing };
+enum class option { unknown, input, output, last, warmup, repeats, rounds, field, device, copy, batch, packing, query, stride, limit };
 constexpr cli_option_entry<option> choices[]{
     {"--input", option::input}, {"--output", option::output}, {"--last-submap", option::last},
     {"--warmup", option::warmup}, {"--repeats", option::repeats}, {"--rounds", option::rounds},
     {"--field", option::field}, {"--device", option::device}, {"--copy", option::copy},
-    {"--packing-batch", option::batch}, {"--packing-policy", option::packing}
+    {"--packing-batch", option::batch}, {"--packing-policy", option::packing},
+    {"--query", option::query}, {"--query-stride", option::stride}, {"--limit-tiles", option::limit}
 };
 static_assert(valid_cli_options(choices));
 enum class copy_choice { unknown, scalar, range, packed, unpacked };
@@ -31,6 +33,12 @@ constexpr cli_option_entry<copy_choice> copy_choices[]{
     {"packed", copy_choice::packed}, {"unpacked", copy_choice::unpacked}
 };
 static_assert(valid_cli_options(copy_choices));
+enum class query_choice { unknown, scalar, tile, contiguous, indexed };
+constexpr cli_option_entry<query_choice> query_choices[]{
+    {"scalar", query_choice::scalar}, {"tile", query_choice::tile},
+    {"contiguous", query_choice::contiguous}, {"indexed", query_choice::indexed}
+};
+static_assert(valid_cli_options(query_choices));
 operation_result<arguments> parse_arguments(int argc, char** argv)
 {
     arguments result;
@@ -40,9 +48,10 @@ operation_result<arguments> parse_arguments(int argc, char** argv)
         const std::string_view value = argv[index + 1];
         const auto selected = lookup_cli_option(argv[index], choices);
         int number{};
-        if (selected == option::last || selected == option::warmup || selected == option::repeats || selected == option::rounds || selected == option::batch) {
+        if (selected == option::last || selected == option::warmup || selected == option::repeats || selected == option::rounds || selected == option::batch || selected == option::stride || selected == option::limit) {
             const auto converted = std::from_chars(value.data(), value.data() + value.size(), number);
-            if (converted.ec != std::errc{} || converted.ptr != value.data() + value.size() || number < 0 || number > (selected == option::batch ? 4096 : 1000))
+            if (converted.ec != std::errc{} || converted.ptr != value.data() + value.size() || number < 0 ||
+                number > (selected == option::batch ? 4096 : selected == option::limit || selected == option::stride ? 100000 : 1000))
                 return std::unexpected(operation_error{"metrics count is outside supported limits"});
         }
         switch (selected)
@@ -53,6 +62,17 @@ operation_result<arguments> parse_arguments(int argc, char** argv)
         case option::warmup: result.sampling.warmup = number; break;
         case option::repeats: result.sampling.repeats = number; break;
         case option::rounds: result.rounds = number; break;
+        case option::stride: result.sampling.query_stride = std::size_t(number); break;
+        case option::limit: result.limit_tiles = std::size_t(number); break;
+        case option::query:
+            switch (lookup_cli_option(value, query_choices)) {
+            case query_choice::scalar: result.sampling.query = query_method::scalar; break;
+            case query_choice::tile: result.sampling.query = query_method::tile; break;
+            case query_choice::contiguous: result.sampling.query = query_method::contiguous; break;
+            case query_choice::indexed: result.sampling.query = query_method::indexed; break;
+            default: return std::unexpected(operation_error{"query must be scalar, tile, contiguous or indexed"});
+            }
+            break;
         case option::copy:
             switch (lookup_cli_option(value, copy_choices)) {
             case copy_choice::scalar: result.sampling.method = copy_method::scalar; break;
@@ -75,12 +95,14 @@ operation_result<arguments> parse_arguments(int argc, char** argv)
         default: return std::unexpected(operation_error{"unknown metrics option"});
         }
     }
-    if (result.input.empty() || result.rounds == 0 || result.sampling.repeats == 0)
+    if (result.input.empty() || result.rounds == 0 || result.sampling.repeats == 0 || result.sampling.query_stride == 0)
         return std::unexpected(operation_error{"input and positive rounds and repeats are required"});
     auto packing = select_packing_batch(result.sampling, [](auto value) { return validate_packing(value); });
     if (!packing) return std::unexpected(packing.error());
     if (result.sampling.method != copy_method::scalar && result.cuda)
         return std::unexpected(operation_error{"range copy measurements require the CPU device"});
+    if (result.sampling.query != query_method::scalar && result.cuda)
+        return std::unexpected(operation_error{"field stream measurements require the CPU device"});
 #if !defined(covoxslam_has_cuda)
     if (result.cuda) return std::unexpected(operation_error{"CUDA metrics were not built"});
 #endif
@@ -106,10 +128,10 @@ template<schema s> operation_status run(const arguments& settings, std::ostream&
 {
     auto loaded = load_tiles<s>(settings.input, settings.last_submap);
     if (!loaded) return std::unexpected(loaded.error());
-    const std::span<const aos_tile<s>> source(*loaded);
+    const std::span<const aos_tile<s>> source(loaded->data(), settings.limit_tiles ? std::min(settings.limit_tiles, loaded->size()) : loaded->size());
     const auto input_hash = hash_values<aos_tile<s>>(source);
     output << std::setprecision(17);
-    output << "round,device,layout,workload,sample_ms,setup_ms,upload_ms,download_mean_ms,bytes,copy_calls,mismatches,input_hash,output_hash\n";
+    output << "round,device,layout,workload,sample_ms,setup_ms,upload_ms,download_mean_ms,bytes,copy_calls,mismatches,input_hash,output_hash,tiles,packing_batch,fixed_batch,query_method,query_stride\n";
 
     for (int round = 0; round < settings.rounds; ++round)
         for (int order = 0; order < 4; ++order)
@@ -125,7 +147,7 @@ template<schema s> operation_status run(const arguments& settings, std::ostream&
                     auto result = copy ? measure_selected<s, true>(source, settings, selected, direct, gpu)
                                        : measure_selected<s, false>(source, settings, selected, direct, gpu);
                     if (!result) return std::unexpected(result.error());
-                    const auto workload = !copy ? "field_query" : settings.sampling.method == copy_method::unpacked ? "aos_to_layout_unpack" :
+                    const auto workload = !copy ? (settings.sampling.query == query_method::indexed ? "indexed_distance_query" : "field_query") : settings.sampling.method == copy_method::unpacked ? "aos_to_layout_unpack" :
                         settings.sampling.method == copy_method::packed ? "layout_to_aos_pack" : settings.sampling.method == copy_method::range ?
                         (choice < 2 ? "aos_range_copy" : "layout_range_to_aos_conversion") :
                         (choice < 2 ? "aos_record_copy" : "layout_to_aos_conversion");
@@ -133,7 +155,9 @@ template<schema s> operation_status run(const arguments& settings, std::ostream&
                     for (double sample : result->samples_ms)
                         output << round << ',' << (gpu ? "cuda" : "cpu") << ',' << (direct ? "direct-aos" : layout_name(selected)) << ','
                             << workload << ',' << sample << ',' << result->setup_ms << ',' << result->upload_ms << ',' << result->download_ms << ','
-                            << result->bytes << ',' << result->copy_calls << ',' << result->mismatch_count << ',' << input_hash << ',' << result->output_hash << '\n';
+                            << result->bytes << ',' << result->copy_calls << ',' << result->mismatch_count << ',' << input_hash << ',' << result->output_hash << ','
+                            << source.size() << ',' << settings.sampling.batch_records << ',' << settings.sampling.fixed_batch << ','
+                            << int(settings.sampling.query) << ',' << settings.sampling.query_stride << '\n';
                     if (!output) return std::unexpected(operation_error{"metrics output failed"});
                     if (result->mismatch_count) return std::unexpected(operation_error{"layout workload output mismatch"});
                 }

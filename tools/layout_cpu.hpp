@@ -2,6 +2,7 @@
 #include "layout_workload.hpp"
 #include <covoxslam/storage/ranges.hpp>
 #include <covoxslam/storage/record_pack.hpp>
+#include <covoxslam/storage/field_streams.hpp>
 
 namespace covoxslam::metrics
 {
@@ -25,7 +26,14 @@ operation_result<measurement> measure_cpu(view_type view, std::span<const aos_ti
     if (options.warmup < 0 || options.repeats <= 0 || options.repeats > 1000 || options.warmup > 1000)
         return std::unexpected(operation_error{"invalid layout measurement counts"});
     using output_type = std::conditional_t<copy, value<s>, float>;
-    std::vector<output_type> output(source.size() * 512), reference(output.size());
+    const auto count = source.size() * 512;
+    std::vector<std::size_t> indices;
+    if (!copy && options.query == query_method::indexed) {
+        if (!options.query_stride) return std::unexpected(operation_error{"query stride must be positive"});
+
+        for (std::size_t i = 0; i < count; i += options.query_stride) indices.push_back(i);
+    }
+    std::vector<output_type> output(!copy && options.query == query_method::indexed ? indices.size() : count), reference(output.size());
     const auto run = [&]() -> operation_status {
         if constexpr (copy) {
             if (options.method != copy_method::scalar) {
@@ -43,11 +51,31 @@ operation_result<measurement> measure_cpu(view_type view, std::span<const aos_ti
             }
             else record_copy<s>(view, output);
         }
-        else field_query<s>(view, output);
+        else {
+            if constexpr (requires { view.native_accessor(); }) {
+                switch (options.query) {
+                case query_method::tile: return selective_query(view, {0, count}, output, stream_order::tile);
+                case query_method::contiguous: return selective_query(view, {0, count}, output, stream_order::contiguous);
+                case query_method::indexed: return gather_field_indices<s, 0>(view, indices, output);
+                default: break;
+                }
+            }
+            if (options.query == query_method::indexed) {
+                for (std::size_t i = 0; i < indices.size(); ++i)
+                    output[i] = std::get<0>(scalar_fields<s>(view[indices[i] / 512].voxels[indices[i] % 512]));
+            }
+            else field_query<s>(view, output);
+        }
         return {};
     };
     if constexpr (copy) record_copy<s>(source, reference);
-    else field_query<s>(source, reference);
+    else {
+        if (options.query == query_method::indexed) {
+            for (std::size_t i = 0; i < indices.size(); ++i)
+                reference[i] = std::get<0>(scalar_fields<s>(source[indices[i] / 512].voxels[indices[i] % 512]));
+        }
+        else field_query<s>(source, reference);
+    }
     measurement result;
     result.bytes = output.size() * sizeof(output_type);
     result.samples_ms.reserve(options.repeats);
@@ -93,7 +121,7 @@ template<schema s, layout l, bool copy> operation_result<measurement> measure_ho
             std::vector<value<s>> input(source.size() * 512), output(input.size());
             record_copy<s>(source, input);
             measurement result;
-            result.setup_ms = setup;
+            result.setup_ms = elapsed(start);
             result.bytes = input.size() * sizeof(value<s>);
             result.samples_ms.reserve(options.repeats);
             const auto run = [&] {

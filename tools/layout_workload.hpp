@@ -13,12 +13,15 @@ namespace covoxslam::metrics
 using namespace storage;
 using clock = std::chrono::steady_clock;
 enum class copy_method { scalar, range, packed, unpacked };
+enum class query_method { scalar, tile, contiguous, indexed };
 struct measurement_options
 {
     int warmup{3}, repeats{7};
     copy_method method{copy_method::scalar};
     std::size_t batch_records{32};
     bool fixed_batch{};
+    query_method query{query_method::scalar};
+    std::size_t query_stride{1};
 };
 struct measurement
 {
