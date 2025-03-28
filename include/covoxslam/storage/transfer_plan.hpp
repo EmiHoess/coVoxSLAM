@@ -134,10 +134,45 @@ inline operation_result<transfer_plan> plan_transfer(const transfer_endpoint& so
                     return std::unexpected(operation_error{"transfer payloads overlap"});
             }
     }
-    result.fallback = method == transfer_method::bulk_same_layout;
+    const bool matching = source.storage_layout == destination.storage_layout;
+    const bool bulk = method == transfer_method::bulk_same_layout && matching;
+    result.fallback = method == transfer_method::bulk_same_layout && !matching;
     std::size_t copied{};
     while (copied < count) {
         const auto a = source_first + copied, b = destination_first + copied;
+        if (bulk && source.storage_layout == layout::pooled_aos && fields == (1U << field_count) - 1 &&
+            source.tile_stride == field_count * 2048 && destination.tile_stride == source.tile_stride) {
+            const auto bytes = (count - copied) * field_count * 4;
+            checked = append_transfer(result, {transfer_address(source, 0, a), transfer_address(destination, 0, b),
+                bytes, bytes, bytes, 1}, maximum_pitch);
+            if (!checked) return std::unexpected(checked.error());
+            copied = count;
+            continue;
+        }
+        if (bulk && source.storage_layout == layout::pool_soa && source.tile_stride == 2048 && destination.tile_stride == 2048) {
+            const auto bytes = (count - copied) * 4;
+
+            for (std::size_t f = 0; f < field_count; ++f) {
+                if (!(fields & (1U << f))) continue;
+                checked = append_transfer(result, {transfer_address(source, f, a), transfer_address(destination, f, b),
+                    bytes, bytes, bytes, 1}, maximum_pitch);
+                if (!checked) return std::unexpected(checked.error());
+            }
+            copied = count;
+            continue;
+        }
+        if (bulk && source.storage_layout == layout::tile_aosoa && a % 512 == 0 && b % 512 == 0 && count - copied >= 512) {
+            const auto tiles = (count - copied) / 512;
+
+            for (std::size_t f = 0; f < field_count; ++f) {
+                if (!(fields & (1U << f))) continue;
+                checked = append_transfer(result, {transfer_address(source, f, a), transfer_address(destination, f, b),
+                    source.tile_stride, destination.tile_stride, 2048, tiles}, maximum_pitch);
+                if (!checked) return std::unexpected(checked.error());
+            }
+            copied += tiles * 512;
+            continue;
+        }
         const auto length = std::min({count - copied, 512 - a % 512, 512 - b % 512});
 
         for (std::size_t field = 0; field < field_count; ++field) {
