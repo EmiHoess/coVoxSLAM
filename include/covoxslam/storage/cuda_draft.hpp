@@ -1,6 +1,7 @@
 #pragma once
 #include <covoxslam/storage/draft.hpp>
 #include <covoxslam/storage/device_view.hpp>
+#include <covoxslam/storage/cuda_transfers.hpp>
 #include <cuda_runtime_api.h>
 #include <span>
 
@@ -53,6 +54,61 @@ public:
     operation_result<device_map_view<s, true>> view() const;
     template<layout host_layout> operation_status upload(const draft<s, host_layout>& source);
     template<layout host_layout> operation_status download(draft<s, host_layout>& destination) const;
+    template<layout host_layout> operation_status upload_range(const draft<s, host_layout>& source,
+        std::size_t first, std::size_t destination_first, std::size_t count, std::uint32_t fields,
+        transfer_method method, transfer_measurement& measurement)
+    {
+        auto checked = require_device();
+        if (!checked) return checked;
+        if (!state_->ready || state_->descriptor.generation == std::numeric_limits<std::uint64_t>::max())
+            return std::unexpected(operation_error{"CUDA destination is unavailable or generation exhausted"});
+        measurement = {};
+        auto planned = plan_cuda_transfer(transfer_storage(source), first, transfer_storage(state_->descriptor),
+            destination_first, count, fields, method, measurement);
+        if (!planned) return std::unexpected(planned.error());
+        state_->ready = false;
+        ++state_->descriptor.generation;
+        checked = execute_cuda_transfer(*planned, cudaMemcpyHostToDevice, state_->stream, measurement);
+        state_->ready = bool(checked);
+        return checked;
+    }
+    template<layout host_layout> operation_status download_range(draft<s, host_layout>& destination,
+        std::size_t first, std::size_t destination_first, std::size_t count, std::uint32_t fields,
+        transfer_method method, transfer_measurement& measurement) const
+    {
+        auto current = descriptor();
+        if (!current) return std::unexpected(current.error());
+        measurement = {};
+        auto planned = plan_cuda_transfer(transfer_storage(*current), first, transfer_storage(destination),
+            destination_first, count, fields, method, measurement);
+        if (!planned) return std::unexpected(planned.error());
+        auto checked = execute_cuda_transfer(*planned, cudaMemcpyDeviceToHost, state_->stream, measurement);
+        if (!checked) state_->ready = false;
+        return checked;
+    }
+    template<layout source_layout> operation_status copy_from(const cuda_draft<s, source_layout>& source,
+        std::size_t first, std::size_t destination_first, std::size_t count, std::uint32_t fields,
+        transfer_method method, transfer_measurement& measurement)
+    {
+        auto checked = require_device();
+        if (!checked) return checked;
+        if (!state_->ready || state_->descriptor.generation == std::numeric_limits<std::uint64_t>::max())
+            return std::unexpected(operation_error{"CUDA destination is unavailable or generation exhausted"});
+        auto input = source.descriptor();
+        if (!input) return std::unexpected(input.error());
+        measurement = {};
+        auto planned = plan_cuda_transfer(transfer_storage(*input), first, transfer_storage(state_->descriptor),
+            destination_first, count, fields, method, measurement);
+        if (!planned) return std::unexpected(planned.error());
+        checked = cuda_storage_status(cudaStreamSynchronize(source.stream()));
+        ++measurement.waits;
+        if (!checked) return checked;
+        state_->ready = false;
+        ++state_->descriptor.generation;
+        checked = execute_cuda_transfer(*planned, cudaMemcpyDeviceToDevice, state_->stream, measurement);
+        state_->ready = bool(checked);
+        return checked;
+    }
     cudaStream_t stream() const noexcept { return state_ ? state_->stream : nullptr; }
     std::size_t size() const noexcept { return state_ ? state_->descriptor.size_tiles : 0; }
     operation_status upload_direct(std::span<const aos_tile<s>> source) requires (l == layout::pooled_aos)
