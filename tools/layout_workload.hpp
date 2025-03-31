@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <fstream>
 #include <span>
+#include "measurement_protocol.hpp"
 
 namespace covoxslam::metrics
 {
@@ -22,6 +23,8 @@ struct measurement_options
     bool fixed_batch{};
     query_method query{query_method::scalar};
     std::size_t query_stride{1};
+    stability_options stability;
+    bool bulk_transfers{};
 };
 struct measurement
 {
@@ -29,6 +32,10 @@ struct measurement
     double setup_ms{}, upload_ms{}, download_ms{};
     std::size_t mismatch_count{}, bytes{}, copy_calls{};
     std::uint64_t output_hash{};
+    stability_report stability;
+    double planning_ms{}, submission_ms{}, completion_ms{};
+    std::size_t transfer_waits{}, transfer_bytes{};
+    bool transfer_fallback{};
 };
 inline double elapsed(clock::time_point start)
 {
