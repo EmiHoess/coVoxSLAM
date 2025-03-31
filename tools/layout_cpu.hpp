@@ -61,8 +61,10 @@ operation_result<measurement> measure_cpu(view_type view, std::span<const aos_ti
                 }
             }
             if (options.query == query_method::indexed) {
-                for (std::size_t i = 0; i < indices.size(); ++i)
-                    output[i] = std::get<0>(scalar_fields<s>(view[indices[i] / 512].voxels[indices[i] % 512]));
+                for (std::size_t i = 0; i < indices.size(); ++i) {
+                    auto&& voxel = view[indices[i] / 512].voxels[indices[i] % 512];
+                    output[i] = std::get<0>(scalar_fields<s>(voxel));
+                }
             }
             else field_query<s>(view, output);
         }
