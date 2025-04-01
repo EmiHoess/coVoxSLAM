@@ -6,6 +6,7 @@
 #include <charconv>
 #include <iomanip>
 #include <iostream>
+#include <sstream>
 
 namespace covoxslam::metrics
 {
@@ -17,15 +18,16 @@ struct arguments
     measurement_options sampling;
     int rounds{4};
     bool esdf{}, cpu{true}, cuda{};
+    std::string environment_label{"unmeasured"};
 };
-enum class option { unknown, input, output, last, warmup, repeats, rounds, field, device, copy, batch, packing, query, stride, limit, transfer, stabilization };
+enum class option { unknown, input, output, last, warmup, repeats, rounds, field, device, copy, batch, packing, query, stride, limit, transfer, stabilization, environment };
 constexpr cli_option_entry<option> choices[]{
     {"--input", option::input}, {"--output", option::output}, {"--last-submap", option::last},
     {"--warmup", option::warmup}, {"--repeats", option::repeats}, {"--rounds", option::rounds},
     {"--field", option::field}, {"--device", option::device}, {"--copy", option::copy},
     {"--packing-batch", option::batch}, {"--packing-policy", option::packing},
     {"--query", option::query}, {"--query-stride", option::stride}, {"--limit-tiles", option::limit},
-    {"--transfer", option::transfer}, {"--stabilization", option::stabilization}
+    {"--transfer", option::transfer}, {"--stabilization", option::stabilization}, {"--environment-label", option::environment}
 };
 static_assert(valid_cli_options(choices));
 enum class copy_choice { unknown, scalar, range, packed, unpacked };
@@ -71,6 +73,10 @@ operation_result<arguments> parse_arguments(int argc, char** argv)
         case option::stabilization:
             if (value != "fixed" && value != "bounded") return std::unexpected(operation_error{"stabilization must be fixed or bounded"});
             result.sampling.stability.enabled = value == "bounded"; break;
+        case option::environment:
+            if (value.empty() || value.size() > 80 || value.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 _-") != std::string_view::npos)
+                return std::unexpected(operation_error{"environment label contains invalid characters"});
+            result.environment_label = value; break;
         case option::query:
             switch (lookup_cli_option(value, query_choices)) {
             case query_choice::scalar: result.sampling.query = query_method::scalar; break;
@@ -138,7 +144,7 @@ template<schema s> operation_status run(const arguments& settings, std::ostream&
     const std::span<const aos_tile<s>> source(loaded->data(), settings.limit_tiles ? std::min(settings.limit_tiles, loaded->size()) : loaded->size());
     const auto input_hash = hash_values<aos_tile<s>>(source);
     output << std::setprecision(17);
-    output << "round,device,layout,workload,sample_ms,setup_ms,upload_ms,download_mean_ms,bytes,copy_calls,mismatches,input_hash,output_hash,tiles,packing_batch,fixed_batch,query_method,query_stride\n";
+    output << "round,device,layout,workload,sample_ms,setup_ms,upload_ms,download_mean_ms,bytes,copy_calls,mismatches,input_hash,output_hash,tiles,packing_batch,fixed_batch,query_method,query_stride,stability,warmup_samples_ms,median_ms,spread_ms,planning_ms,submission_ms,completion_ms,transfer_bytes,transfer_waits,transfer_fallback,environment\n";
 
     for (int round = 0; round < settings.rounds; ++round)
         for (int order = 0; order < 4; ++order)
@@ -154,6 +160,13 @@ template<schema s> operation_status run(const arguments& settings, std::ostream&
                     auto result = copy ? measure_selected<s, true>(source, settings, selected, direct, gpu)
                                        : measure_selected<s, false>(source, settings, selected, direct, gpu);
                     if (!result) return std::unexpected(result.error());
+                    auto valid = validate_samples(result->samples_ms);
+                    if (!valid) return valid;
+                    std::ostringstream warmup;
+                    warmup << std::setprecision(17);
+
+                    for (double value : result->stability.warmup_ms) warmup << value << ';';
+                    const auto median = sample_median(result->samples_ms), spread = sample_spread(result->samples_ms);
                     const auto workload = !copy ? (settings.sampling.query == query_method::indexed ? "indexed_distance_query" : "field_query") : settings.sampling.method == copy_method::unpacked ? "aos_to_layout_unpack" :
                         settings.sampling.method == copy_method::packed ? "layout_to_aos_pack" : settings.sampling.method == copy_method::range ?
                         (choice < 2 ? "aos_range_copy" : "layout_range_to_aos_conversion") :
@@ -164,7 +177,10 @@ template<schema s> operation_status run(const arguments& settings, std::ostream&
                             << workload << ',' << sample << ',' << result->setup_ms << ',' << result->upload_ms << ',' << result->download_ms << ','
                             << result->bytes << ',' << result->copy_calls << ',' << result->mismatch_count << ',' << input_hash << ',' << result->output_hash << ','
                             << source.size() << ',' << settings.sampling.batch_records << ',' << settings.sampling.fixed_batch << ','
-                            << int(settings.sampling.query) << ',' << settings.sampling.query_stride << '\n';
+                            << int(settings.sampling.query) << ',' << settings.sampling.query_stride << ',' << stability_name(result->stability) << ','
+                            << warmup.str() << ',' << median << ',' << spread << ',' << result->planning_ms << ',' << result->submission_ms << ','
+                            << result->completion_ms << ',' << result->transfer_bytes << ',' << result->transfer_waits << ',' << result->transfer_fallback << ','
+                            << settings.environment_label << '\n';
                     if (!output) return std::unexpected(operation_error{"metrics output failed"});
                     if (result->mismatch_count) return std::unexpected(operation_error{"layout workload output mismatch"});
                 }

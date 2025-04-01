@@ -81,4 +81,18 @@ inline bool timing_tie(std::span<const double> first, std::span<const double> se
     const auto a = sample_median(first), b = sample_median(second);
     return std::abs(a - b) <= std::max({relative * std::max(a, b), sample_spread(first), sample_spread(second)});
 }
+inline const char* stability_name(const stability_report& report) noexcept
+{
+    if (!report.evaluated) return "not_evaluated";
+    return report.stable ? "stable" : "not_stable";
+}
+inline operation_status validate_samples(std::span<const double> samples)
+{
+    if (samples.empty()) return std::unexpected(operation_error{"no measured samples"});
+
+    for (double sample : samples)
+        if (!std::isfinite(sample) || sample < 0)
+            return std::unexpected(operation_error{"invalid measured duration"});
+    return {};
+}
 }
