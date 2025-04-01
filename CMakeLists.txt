@@ -93,11 +93,12 @@ if(covoxslam_enable_metrics)
     target_link_libraries(covoxslam_layout_metrics PRIVATE covoxslam_core)
     file(GLOB_RECURSE covoxslam_hash_inputs CONFIGURE_DEPENDS
         RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}" "include/*.hpp" "src/*.cpp" "src/*.hpp"
-        "cuda/*.cu" "cuda/*.cuh" "tools/*.cpp" "tools/*.hpp" "tools/*.cu" "cmake/*.cmake")
+        "cuda/*.cu" "cuda/*.cuh" "tools/*.cpp" "tools/*.hpp" "tools/*.cu" "cmake/*.cmake" "apps/*.hpp" "apps/*.cpp")
     list(APPEND covoxslam_hash_inputs CMakeLists.txt)
     list(SORT covoxslam_hash_inputs)
     set(covoxslam_hash_text "")
     foreach(covoxslam_hash_file IN LISTS covoxslam_hash_inputs)
+        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/${covoxslam_hash_file}")
         file(SHA256 "${CMAKE_CURRENT_SOURCE_DIR}/${covoxslam_hash_file}" covoxslam_file_hash)
         string(APPEND covoxslam_hash_text "${covoxslam_hash_file}:${covoxslam_file_hash}\n")
     endforeach()
