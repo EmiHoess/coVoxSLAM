@@ -1,4 +1,5 @@
 #include "layout_cpu.hpp"
+#include "cpu_affinity.hpp"
 #if defined(covoxslam_has_cuda)
 #include "layout_gpu.hpp"
 #endif
@@ -19,15 +20,18 @@ struct arguments
     int rounds{4};
     bool esdf{}, cpu{true}, cuda{};
     std::string environment_label{"unmeasured"};
+    std::filesystem::path manifest;
+    int cpu_index{-1};
 };
-enum class option { unknown, input, output, last, warmup, repeats, rounds, field, device, copy, batch, packing, query, stride, limit, transfer, stabilization, environment };
+enum class option { unknown, input, output, last, warmup, repeats, rounds, field, device, copy, batch, packing, query, stride, limit, transfer, stabilization, environment, affinity, manifest };
 constexpr cli_option_entry<option> choices[]{
     {"--input", option::input}, {"--output", option::output}, {"--last-submap", option::last},
     {"--warmup", option::warmup}, {"--repeats", option::repeats}, {"--rounds", option::rounds},
     {"--field", option::field}, {"--device", option::device}, {"--copy", option::copy},
     {"--packing-batch", option::batch}, {"--packing-policy", option::packing},
     {"--query", option::query}, {"--query-stride", option::stride}, {"--limit-tiles", option::limit},
-    {"--transfer", option::transfer}, {"--stabilization", option::stabilization}, {"--environment-label", option::environment}
+    {"--transfer", option::transfer}, {"--stabilization", option::stabilization}, {"--environment-label", option::environment},
+    {"--cpu-affinity", option::affinity}, {"--manifest", option::manifest}
 };
 static_assert(valid_cli_options(choices));
 enum class copy_choice { unknown, scalar, range, packed, unpacked };
@@ -61,6 +65,14 @@ operation_result<arguments> parse_arguments(int argc, char** argv)
         {
         case option::input: result.input = value; break;
         case option::output: result.output = value; break;
+        case option::manifest: result.manifest = value; break;
+        case option::affinity: {
+            if (value == "inherited") { result.cpu_index = -1; break; }
+            const auto parsed = std::from_chars(value.data(), value.data() + value.size(), result.cpu_index);
+            if (parsed.ec != std::errc{} || parsed.ptr != value.data() + value.size() || result.cpu_index < 0 || result.cpu_index >= 64)
+                return std::unexpected(operation_error{"affinity must be inherited or a CPU index 0 through 63"});
+            break;
+        }
         case option::last: result.last_submap = std::size_t(number); break;
         case option::warmup: result.sampling.warmup = number; break;
         case option::repeats: result.sampling.repeats = number; break;
@@ -110,6 +122,8 @@ operation_result<arguments> parse_arguments(int argc, char** argv)
     }
     if (result.input.empty() || result.rounds == 0 || result.sampling.repeats == 0 || result.sampling.query_stride == 0)
         return std::unexpected(operation_error{"input and positive rounds and repeats are required"});
+    if (!result.manifest.empty() && result.manifest.lexically_normal() == result.output.lexically_normal())
+        return std::unexpected(operation_error{"manifest and sample output must be different files"});
     auto packing = select_packing_batch(result.sampling, [](auto value) { return validate_packing(value); });
     if (!packing) return std::unexpected(packing.error());
     if (result.sampling.method != copy_method::scalar && result.cuda)
@@ -143,6 +157,20 @@ template<schema s> operation_status run(const arguments& settings, std::ostream&
     if (!loaded) return std::unexpected(loaded.error());
     const std::span<const aos_tile<s>> source(loaded->data(), settings.limit_tiles ? std::min(settings.limit_tiles, loaded->size()) : loaded->size());
     const auto input_hash = hash_values<aos_tile<s>>(source);
+    if (!settings.manifest.empty()) {
+        std::ofstream manifest(settings.manifest);
+        manifest << std::setprecision(17) << "source_hash=" << covoxslam_metrics_source_hash << "\nhost=" << covoxslam_metrics_host
+            << "\nbuild=" << covoxslam_metrics_build << "\ninput=" << std::quoted(settings.input.generic_string())
+            << "\ninput_hash=" << input_hash << "\nschema=" << (s == schema::tsdf ? "tsdf" : "esdf") << "\ntiles=" << source.size()
+            << "\ncpu_index=" << settings.cpu_index << "\nprecision=32_bit_fields\naccumulation_bits=" << covoxslam_sensor_accumulation_bits
+            << "\nrounds=" << settings.rounds << "\nrepeats=" << settings.sampling.repeats << "\nbounded_warmup=" << settings.sampling.stability.enabled
+            << "\nminimum_warmup=" << settings.sampling.stability.minimum << "\nmaximum_warmup=" << settings.sampling.stability.maximum
+            << "\nwindow=" << settings.sampling.stability.window << "\nrelative_median=" << settings.sampling.stability.relative_median
+            << "\nrelative_spread=" << settings.sampling.stability.relative_spread << "\nenvironment=" << settings.environment_label
+            << "\nclock_policy=unmeasured\npower_policy=unmeasured\nprofile_cause=unmeasured\n";
+        manifest.flush();
+        if (!manifest) return std::unexpected(operation_error{"cannot write measurement manifest"});
+    }
     output << std::setprecision(17);
     output << "round,device,layout,workload,sample_ms,setup_ms,upload_ms,download_mean_ms,bytes,copy_calls,mismatches,input_hash,output_hash,tiles,packing_batch,fixed_batch,query_method,query_stride,stability,warmup_samples_ms,median_ms,spread_ms,planning_ms,submission_ms,completion_ms,transfer_bytes,transfer_waits,transfer_fallback,environment\n";
 
@@ -194,6 +222,9 @@ int main(int argc, char** argv)
     const auto fail = [](const operation_error& error) { std::cerr << error.message << '\n'; return 2; };
     auto args = metrics::parse_arguments(argc, argv);
     if (!args) return fail(args.error());
+    metrics::cpu_affinity affinity;
+    auto affinity_status = affinity.select(args->cpu_index);
+    if (!affinity_status) return fail(affinity_status.error());
     std::ofstream file;
     if (!args->output.empty()) {
         file.open(args->output);

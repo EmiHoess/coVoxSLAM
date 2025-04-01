@@ -91,6 +91,21 @@ option(covoxslam_enable_metrics "Build frozen layout measurement utility" OFF)
 if(covoxslam_enable_metrics)
     add_executable(covoxslam_layout_metrics tools/layout_metrics.cpp)
     target_link_libraries(covoxslam_layout_metrics PRIVATE covoxslam_core)
+    file(GLOB_RECURSE covoxslam_hash_inputs CONFIGURE_DEPENDS
+        RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}" "include/*.hpp" "src/*.cpp" "src/*.hpp"
+        "cuda/*.cu" "cuda/*.cuh" "tools/*.cpp" "tools/*.hpp" "tools/*.cu" "cmake/*.cmake")
+    list(APPEND covoxslam_hash_inputs CMakeLists.txt)
+    list(SORT covoxslam_hash_inputs)
+    set(covoxslam_hash_text "")
+    foreach(covoxslam_hash_file IN LISTS covoxslam_hash_inputs)
+        file(SHA256 "${CMAKE_CURRENT_SOURCE_DIR}/${covoxslam_hash_file}" covoxslam_file_hash)
+        string(APPEND covoxslam_hash_text "${covoxslam_hash_file}:${covoxslam_file_hash}\n")
+    endforeach()
+    string(SHA256 covoxslam_metrics_hash "${covoxslam_hash_text}")
+    target_compile_definitions(covoxslam_layout_metrics PRIVATE
+        covoxslam_metrics_source_hash="${covoxslam_metrics_hash}"
+        covoxslam_metrics_host="${CMAKE_CXX_COMPILER_ID}_${CMAKE_CXX_COMPILER_VERSION}"
+        covoxslam_metrics_build="$<CONFIG>")
     if(covoxslam_enable_cuda)
         target_sources(covoxslam_layout_metrics PRIVATE tools/layout_kernel.cu)
         set_target_properties(covoxslam_layout_metrics PROPERTIES CUDA_STANDARD 20
