@@ -82,10 +82,16 @@ operation_result<measurement> measure_cpu(view_type view, std::span<const aos_ti
     result.bytes = output.size() * sizeof(output_type);
     result.samples_ms.reserve(options.repeats);
 
-    for (int i = 0; i < options.warmup; ++i) {
+    auto warmup = collect_warmup(options.stability, options.warmup, [&]() -> operation_result<double> {
+        const auto start = clock::now();
         auto checked = run();
+        const auto duration = elapsed(start);
         if (!checked) return std::unexpected(checked.error());
-    }
+        result.output_hash = hash_values<output_type>(output);
+        return duration;
+    });
+    if (!warmup) return std::unexpected(warmup.error());
+    result.stability = std::move(*warmup);
 
     for (int i = 0; i < options.repeats; ++i) {
         const auto start = clock::now();
@@ -132,15 +138,23 @@ template<schema s, layout l, bool copy> operation_result<measurement> measure_ho
                 });
             };
 
-            for (int i = 0; i < options.warmup + options.repeats; ++i)
-            {
+            const auto sample = [&]() -> operation_result<double> {
                 const auto begin = clock::now();
                 auto checked = run();
                 const auto milliseconds = elapsed(begin);
                 if (!checked) return std::unexpected(checked.error());
                 record_copy<s>(std::as_const(owner).view(), output);
                 result.output_hash = hash_values<value<s>>(output);
-                if (i >= options.warmup) result.samples_ms.push_back(milliseconds);
+                return milliseconds;
+            };
+            auto warmup = collect_warmup(options.stability, options.warmup, sample);
+            if (!warmup) return std::unexpected(warmup.error());
+            result.stability = std::move(*warmup);
+
+            for (int i = 0; i < options.repeats; ++i) {
+                auto measured = sample();
+                if (!measured) return std::unexpected(measured.error());
+                result.samples_ms.push_back(*measured);
             }
 
             for (std::size_t i = 0; i < input.size(); ++i)

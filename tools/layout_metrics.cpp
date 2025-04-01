@@ -18,13 +18,14 @@ struct arguments
     int rounds{4};
     bool esdf{}, cpu{true}, cuda{};
 };
-enum class option { unknown, input, output, last, warmup, repeats, rounds, field, device, copy, batch, packing, query, stride, limit };
+enum class option { unknown, input, output, last, warmup, repeats, rounds, field, device, copy, batch, packing, query, stride, limit, transfer, stabilization };
 constexpr cli_option_entry<option> choices[]{
     {"--input", option::input}, {"--output", option::output}, {"--last-submap", option::last},
     {"--warmup", option::warmup}, {"--repeats", option::repeats}, {"--rounds", option::rounds},
     {"--field", option::field}, {"--device", option::device}, {"--copy", option::copy},
     {"--packing-batch", option::batch}, {"--packing-policy", option::packing},
-    {"--query", option::query}, {"--query-stride", option::stride}, {"--limit-tiles", option::limit}
+    {"--query", option::query}, {"--query-stride", option::stride}, {"--limit-tiles", option::limit},
+    {"--transfer", option::transfer}, {"--stabilization", option::stabilization}
 };
 static_assert(valid_cli_options(choices));
 enum class copy_choice { unknown, scalar, range, packed, unpacked };
@@ -64,6 +65,12 @@ operation_result<arguments> parse_arguments(int argc, char** argv)
         case option::rounds: result.rounds = number; break;
         case option::stride: result.sampling.query_stride = std::size_t(number); break;
         case option::limit: result.limit_tiles = std::size_t(number); break;
+        case option::transfer:
+            if (value != "reference" && value != "bulk") return std::unexpected(operation_error{"transfer must be reference or bulk"});
+            result.sampling.bulk_transfers = value == "bulk"; break;
+        case option::stabilization:
+            if (value != "fixed" && value != "bounded") return std::unexpected(operation_error{"stabilization must be fixed or bounded"});
+            result.sampling.stability.enabled = value == "bounded"; break;
         case option::query:
             switch (lookup_cli_option(value, query_choices)) {
             case query_choice::scalar: result.sampling.query = query_method::scalar; break;

@@ -49,8 +49,25 @@ template<schema s, layout l, bool copy> operation_result<measurement> measure_gp
     result.bytes = bytes;
     result.copy_calls = direct ? 1 : source.size() * field_count<s>;
     const auto upload_start = clock::now();
-    if constexpr (l == layout::pooled_aos) checked = direct ? device.upload_direct(source) : device.upload(host);
-    else checked = device.upload(host);
+    if (options.bulk_transfers && !direct) {
+        transfer_measurement transfer;
+        checked = device.upload_range(host, 0, 0, source.size() * 512, (1U << field_count<s>) - 1,
+            transfer_method::bulk_same_layout, transfer);
+        result.copy_calls = transfer.calls;
+        result.transfer_bytes = transfer.useful_bytes;
+        result.transfer_waits = transfer.waits;
+        result.transfer_fallback = transfer.fallback;
+        result.planning_ms = transfer.planning_ms;
+        result.submission_ms = transfer.submission_ms;
+        result.completion_ms = transfer.completion_ms;
+    }
+    else {
+        if constexpr (l == layout::pooled_aos) checked = direct ? device.upload_direct(source) : device.upload(host);
+        else checked = device.upload(host);
+        result.planning_ms = result.submission_ms = result.completion_ms = -1;
+        result.transfer_bytes = source.size() * sizeof(aos_tile<s>);
+        result.transfer_waits = 1;
+    }
     if (!checked) return std::unexpected(checked.error());
     result.upload_ms = elapsed(upload_start);
     auto descriptor = device.descriptor();
@@ -59,16 +76,7 @@ template<schema s, layout l, bool copy> operation_result<measurement> measure_gp
         return cuda_storage_status(static_cast<cudaError_t>(launch_layout_query(*descriptor, copy, resources.output, resources.stream)));
     };
 
-    for (int i = 0; i < options.warmup; ++i) {
-        checked = launch();
-        if (!checked) return std::unexpected(checked.error());
-    }
-    checked = device.complete();
-    if (!checked) return std::unexpected(checked.error());
-    result.samples_ms.reserve(options.repeats);
-
-    for (int i = 0; i < options.repeats; ++i)
-    {
+    const auto sample = [&]() -> operation_result<double> {
         checked = cuda_storage_status(cudaEventRecord(resources.begin, resources.stream));
         if (!checked) return std::unexpected(checked.error());
         checked = launch();
@@ -80,7 +88,17 @@ template<schema s, layout l, bool copy> operation_result<measurement> measure_gp
         float milliseconds{};
         checked = cuda_storage_status(cudaEventElapsedTime(&milliseconds, resources.begin, resources.end));
         if (!checked) return std::unexpected(checked.error());
-        result.samples_ms.push_back(milliseconds);
+        return double(milliseconds);
+    };
+    auto warmup = collect_warmup(options.stability, options.warmup, sample);
+    if (!warmup) return std::unexpected(warmup.error());
+    result.stability = std::move(*warmup);
+    result.samples_ms.reserve(options.repeats);
+
+    for (int i = 0; i < options.repeats; ++i) {
+        auto measured = sample();
+        if (!measured) return std::unexpected(measured.error());
+        result.samples_ms.push_back(*measured);
         const auto download_start = clock::now();
         checked = cuda_storage_status(cudaMemcpyAsync(output.data(), resources.output, bytes, cudaMemcpyDeviceToHost, resources.stream));
         if (!checked) return std::unexpected(checked.error());
