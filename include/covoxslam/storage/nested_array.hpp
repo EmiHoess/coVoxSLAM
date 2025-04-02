@@ -1,5 +1,6 @@
 #pragma once
 #include <covoxslam/storage/draft.hpp>
+#include <covoxslam/storage/nested_device_view.hpp>
 
 #if defined(covoxslam_has_urd)
 #include <urd/types/array.hpp>
@@ -99,6 +100,50 @@ public:
     {
         assert(tile < size_ && voxel < 512);
         return traits::template scalar<field>(groups_[tile / lanes], tile % lanes, voxel, order_);
+    }
+    template<bool constant> struct host_accessor
+    {
+        using owner_type = std::conditional_t<constant, const nested_draft, nested_draft>;
+        owner_type* owner{};
+        std::weak_ptr<std::uint64_t> epoch;
+        std::uint64_t captured{};
+        std::size_t count{}, reserved{};
+        static constexpr bool read_only = constant;
+        std::size_t size() const noexcept { return count; }
+        std::size_t capacity() const noexcept { return reserved; }
+        const void* owner_identity() const noexcept { return owner; }
+        bool valid() const noexcept { auto current = epoch.lock(); return current && *current == captured; }
+        template<std::size_t field> decltype(auto) scalar(std::size_t tile, std::size_t voxel) const noexcept
+        {
+            assert(valid());
+            return owner->template scalar<field>(tile, voxel);
+        }
+    };
+    auto view() noexcept
+    {
+        return map_view<s, host_accessor<false>>{host_accessor<false>{this, generation_, *generation_, size_, capacity()}};
+    }
+    auto view() const noexcept
+    {
+        return map_view<s, host_accessor<true>>{host_accessor<true>{this, generation_, *generation_, size_, capacity()}};
+    }
+    nested_descriptor descriptor() const noexcept
+    {
+        nested_descriptor result;
+        result.size_tiles = size_;
+        result.capacity_tiles = capacity();
+        result.lanes = lanes;
+        result.group_stride = sizeof(group);
+        result.member_stride = traits::member_stride;
+        result.tile_stride = traits::member_stride * (order_ == nested_order::lane_major ? 1 : 512);
+        result.voxel_stride = traits::member_stride * (order_ == nested_order::lane_major ? lanes : 1);
+        result.generation = *generation_;
+        result.record_schema = s;
+
+        if (size_) [&]<std::size_t... field>(std::index_sequence<field...>) {
+            ((result.fields[field] = reinterpret_cast<std::byte*>(const_cast<field_type<s, field>*>(&scalar<field>(0, 0)))), ...);
+        }(std::make_index_sequence<field_count<s>>{});
+        return result;
     }
 };
 }
