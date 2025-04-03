@@ -1,6 +1,7 @@
 #pragma once
 #include <covoxslam/storage/draft.hpp>
 #include <covoxslam/storage/nested_device_view.hpp>
+#include <cstring>
 
 #if defined(covoxslam_has_urd)
 #include <urd/types/array.hpp>
@@ -71,13 +72,35 @@ class nested_draft
     std::size_t size_{};
     nested_order order_{nested_order::lane_major};
     std::shared_ptr<std::uint64_t> generation_{std::make_shared<std::uint64_t>(1)};
+    bool initialized_{};
+    operation_status replace(std::size_t tiles, std::size_t size, nested_order order)
+    {
+        constexpr auto maximum = std::size_t(std::numeric_limits<std::ptrdiff_t>::max());
+        if (tiles > maximum - lanes + 1 || (tiles + lanes - 1) / lanes > maximum / sizeof(group) || size > tiles ||
+            *generation_ == std::numeric_limits<std::uint64_t>::max())
+            return std::unexpected(operation_error{"nested replacement extent or generation is invalid"});
+        std::vector<group> replacement((tiles + lanes - 1) / lanes);
+
+        for (std::size_t tile = 0; tile < std::min(size_, size); ++tile)
+            for (std::size_t voxel = 0; voxel < 512; ++voxel) {
+                [&]<std::size_t... field>(std::index_sequence<field...>) {
+                    (std::memcpy(&traits::template scalar<field>(replacement[tile / lanes], tile % lanes, voxel, order),
+                        &scalar<field>(tile, voxel), 4), ...);
+                }(std::make_index_sequence<field_count<s>>{});
+            }
+        groups_.swap(replacement);
+        size_ = size;
+        order_ = order;
+        ++*generation_;
+        return {};
+    }
 public:
     nested_draft() = default;
     nested_draft(const nested_draft&) = delete;
     nested_draft& operator=(const nested_draft&) = delete;
     operation_status initialize(std::size_t tiles, nested_order order = nested_order::lane_major)
     {
-        if (!groups_.empty() || size_) return std::unexpected(operation_error{"nested collection is already initialized"});
+        if (initialized_) return std::unexpected(operation_error{"nested collection is already initialized"});
         if (order != nested_order::lane_major && order != nested_order::parent_major)
             return std::unexpected(operation_error{"invalid nested element order"});
         constexpr auto maximum = std::size_t(std::numeric_limits<std::ptrdiff_t>::max());
@@ -86,7 +109,39 @@ public:
         groups_.resize((tiles + lanes - 1) / lanes);
         size_ = tiles;
         order_ = order;
+        initialized_ = true;
         return {};
+    }
+    operation_status reserve(std::size_t tiles)
+    {
+        if (!initialized_) return std::unexpected(operation_error{"nested collection is uninitialized"});
+        if (tiles <= capacity()) return {};
+        return replace(tiles, size_, order_);
+    }
+    operation_status resize(std::size_t tiles)
+    {
+        if (!initialized_) return std::unexpected(operation_error{"nested collection is uninitialized"});
+        if (tiles == size_) return {};
+        if (tiles > capacity()) return replace(tiles, tiles, order_);
+        if (*generation_ == std::numeric_limits<std::uint64_t>::max())
+            return std::unexpected(operation_error{"nested generation exhausted"});
+
+        for (std::size_t tile = tiles; tile < size_; ++tile)
+            for (std::size_t voxel = 0; voxel < 512; ++voxel) {
+                [&]<std::size_t... field>(std::index_sequence<field...>) {
+                    ((scalar<field>(tile, voxel) = field_type<s, field>{}), ...);
+                }(std::make_index_sequence<field_count<s>>{});
+            }
+        size_ = tiles;
+        ++*generation_;
+        return {};
+    }
+    operation_status reorder(nested_order order)
+    {
+        if (!initialized_ || (order != nested_order::parent_major && order != nested_order::lane_major))
+            return std::unexpected(operation_error{"invalid nested reorder"});
+        if (order == order_) return {};
+        return replace(capacity(), size_, order);
     }
     std::size_t size() const noexcept { return size_; }
     std::size_t capacity() const noexcept { return groups_.size() * lanes; }
@@ -112,7 +167,7 @@ public:
         std::size_t size() const noexcept { return count; }
         std::size_t capacity() const noexcept { return reserved; }
         const void* owner_identity() const noexcept { return owner; }
-        bool valid() const noexcept { auto current = epoch.lock(); return current && *current == captured; }
+        bool valid() const noexcept { auto current = epoch.lock(); return current && *current == captured && owner->initialized_; }
         template<std::size_t field> decltype(auto) scalar(std::size_t tile, std::size_t voxel) const noexcept
         {
             assert(valid());
@@ -140,8 +195,9 @@ public:
         result.generation = *generation_;
         result.record_schema = s;
 
-        if (size_) [&]<std::size_t... field>(std::index_sequence<field...>) {
-            ((result.fields[field] = reinterpret_cast<std::byte*>(const_cast<field_type<s, field>*>(&scalar<field>(0, 0)))), ...);
+        if (capacity()) [&]<std::size_t... field>(std::index_sequence<field...>) {
+            ((result.fields[field] = reinterpret_cast<std::byte*>(const_cast<field_type<s, field>*>(
+                &traits::template scalar<field>(groups_[0], 0, 0, order_)))), ...);
         }(std::make_index_sequence<field_count<s>>{});
         return result;
     }
