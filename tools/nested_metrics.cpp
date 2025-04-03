@@ -14,13 +14,13 @@ struct nested_arguments
     std::size_t last{}, limit{}, lanes{16};
     bool esdf{}, tagged{true};
 };
-enum class nested_option { unknown, input, output, last, limit, field, lanes, order, schedule, array, tagged, repeats, warmup, stabilization };
+enum class nested_option { unknown, input, output, last, limit, field, lanes, order, schedule, array, tagged, repeats, warmup, stabilization, device };
 constexpr cli_option_entry<nested_option> nested_choices[]{
     {"--input", nested_option::input}, {"--output", nested_option::output}, {"--last-submap", nested_option::last},
     {"--limit-tiles", nested_option::limit}, {"--field", nested_option::field}, {"--lanes", nested_option::lanes},
     {"--order", nested_option::order}, {"--schedule", nested_option::schedule}, {"--array", nested_option::array},
     {"--tagged", nested_option::tagged}, {"--repeats", nested_option::repeats}, {"--warmup", nested_option::warmup},
-    {"--stabilization", nested_option::stabilization}
+    {"--stabilization", nested_option::stabilization}, {"--device", nested_option::device}
 };
 static_assert(valid_cli_options(nested_choices));
 operation_result<nested_arguments> parse_nested(int argc, char** argv)
@@ -40,6 +40,9 @@ operation_result<nested_arguments> parse_nested(int argc, char** argv)
         switch (option) {
         case nested_option::input: result.input = value; break;
         case nested_option::output: result.output = value; break;
+        case nested_option::device:
+            if (value != "cpu" && value != "cuda") return std::unexpected(operation_error{"nested device must be cpu or cuda"});
+            result.settings.cuda = value == "cuda"; break;
         case nested_option::last: result.last = number; break;
         case nested_option::limit: result.limit = number; break;
         case nested_option::lanes: result.lanes = number; break;
@@ -69,6 +72,9 @@ operation_result<nested_arguments> parse_nested(int argc, char** argv)
     if (result.input.empty() || (result.lanes != 8 && result.lanes != 16 && result.lanes != 32) ||
         result.settings.sampling.repeats < 1 || result.settings.sampling.repeats > 1000 || result.settings.sampling.warmup > 1000)
         return std::unexpected(operation_error{"nested input lanes or sampling counts are invalid"});
+#if !defined(covoxslam_has_cuda)
+    if (result.settings.cuda) return std::unexpected(operation_error{"nested CUDA support was not built"});
+#endif
     return result;
 }
 template<schema s, std::size_t lanes, bool tagged> operation_result<measurement> select_nested(
@@ -91,12 +97,14 @@ template<schema s> operation_status run_nested(const nested_arguments& args, std
     };
     auto result = args.lanes == 8 ? execute.template operator()<8>() : args.lanes == 16 ? execute.template operator()<16>() : execute.template operator()<32>();
     if (!result) return std::unexpected(result.error());
-    output << std::setprecision(17) << "device,lanes,array,tagged,order,schedule,tiles,reserved_bytes,sample_ms,setup_ms,input_hash,output_hash,mismatches,stability\n";
+    output << std::setprecision(17) << "device,lanes,array,tagged,order,schedule,tiles,reserved_bytes,sample_ms,setup_ms,input_hash,output_hash,mismatches,stability,upload_ms,download_mean_ms,warmup_samples_ms\n";
+    std::string warmup;
+    for (double value : result->stability.warmup_ms) warmup += std::to_string(value) + ';';
 
     for (double sample : result->samples_ms)
-        output << "cpu," << args.lanes << ',' << int(args.policy) << ',' << args.tagged << ',' << int(args.settings.order) << ',' << args.settings.lane_schedule << ','
+        output << (args.settings.cuda ? "cuda," : "cpu,") << args.lanes << ',' << int(args.policy) << ',' << args.tagged << ',' << int(args.settings.order) << ',' << args.settings.lane_schedule << ','
             << source.size() << ',' << result->bytes << ',' << sample << ',' << result->setup_ms << ',' << hash_values<aos_tile<s>>(source) << ','
-            << result->output_hash << ',' << result->mismatch_count << ',' << stability_name(result->stability) << '\n';
+            << result->output_hash << ',' << result->mismatch_count << ',' << stability_name(result->stability) << ',' << result->upload_ms << ',' << result->download_ms << ',' << warmup << '\n';
     if (!output || result->mismatch_count) return std::unexpected(operation_error{"nested output failed or differs from reference"});
     return {};
 }

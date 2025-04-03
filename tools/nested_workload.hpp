@@ -10,9 +10,16 @@ struct nested_options
     nested_order order{nested_order::lane_major};
     bool lane_schedule{}, cuda{};
 };
+#if defined(covoxslam_has_cuda)
+template<schema s, std::size_t lanes, nested_array_policy policy, bool tagged>
+operation_result<measurement> measure_nested_gpu(std::span<const aos_tile<s>> source, const nested_options& options);
+#endif
 template<schema s, std::size_t lanes, nested_array_policy policy, bool tagged>
 operation_result<measurement> measure_nested(std::span<const aos_tile<s>> source, const nested_options& options)
 {
+#if defined(covoxslam_has_cuda)
+    if (options.cuda) return measure_nested_gpu<s, lanes, policy, tagged>(source, options);
+#endif
     const auto setup = clock::now();
     nested_draft<s, lanes, policy, tagged> owner;
     auto checked = owner.initialize(source.size(), options.order);
@@ -63,3 +70,6 @@ operation_result<measurement> measure_nested(std::span<const aos_tile<s>> source
     return result;
 }
 }
+#if defined(covoxslam_has_cuda)
+#include "nested_gpu.hpp"
+#endif
