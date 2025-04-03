@@ -90,6 +90,10 @@ target_link_libraries(covoxslam_cuda PRIVATE covoxslam_core)
 
 option(covoxslam_enable_metrics "Build frozen layout measurement utility" OFF)
 if(covoxslam_enable_metrics)
+    if(covoxslam_enable_urd)
+        add_executable(covoxslam_nested_metrics tools/nested_metrics.cpp)
+        target_link_libraries(covoxslam_nested_metrics PRIVATE covoxslam_core)
+    endif()
     add_executable(covoxslam_layout_metrics tools/layout_metrics.cpp)
     target_link_libraries(covoxslam_layout_metrics PRIVATE covoxslam_core)
     file(GLOB_RECURSE covoxslam_hash_inputs CONFIGURE_DEPENDS
