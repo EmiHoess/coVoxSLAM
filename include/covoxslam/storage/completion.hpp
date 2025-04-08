@@ -15,7 +15,8 @@ struct completion_state
     {
         int previous{-1};
         const auto queried = cudaGetDevice(&previous);
-        if (device < 0 || cudaSetDevice(device) != cudaSuccess) return;
+        if (device < 0) { if (stream) cudaStreamSynchronize(stream); return; }
+        if (cudaSetDevice(device) != cudaSuccess) return;
         if (recorded) cudaEventSynchronize(event);
         else if (stream) cudaStreamSynchronize(stream);
         if (event) cudaEventDestroy(event);
@@ -64,11 +65,35 @@ public:
         if (error != cudaSuccess) return std::unexpected(operation_error{cudaGetErrorString(error)});
         return {};
     }
+    operation_status depend_on(cudaStream_t stream) const
+    {
+        auto available = query();
+        if (!available) return std::unexpected(available.error());
+        const auto error = cudaStreamWaitEvent(stream, state_->event, 0);
+        if (error != cudaSuccess) return std::unexpected(operation_error{cudaGetErrorString(error)});
+        return {};
+    }
+};
+struct stream_drain
+{
+    cudaStream_t stream{};
+    int device{-1};
+    bool armed{true};
+    ~stream_drain()
+    {
+        if (!armed) return;
+        int previous{-1};
+        const auto queried = cudaGetDevice(&previous);
+        if (device < 0 || cudaSetDevice(device) != cudaSuccess) return;
+        cudaStreamSynchronize(stream);
+        if (queried == cudaSuccess && previous != device) cudaSetDevice(previous);
+    }
 };
 class pinned_payload
 {
     void* data_{};
     std::size_t bytes_{};
+    bool initialized_{};
 public:
     pinned_payload() = default;
     pinned_payload(const pinned_payload&) = delete;
@@ -76,13 +101,14 @@ public:
     ~pinned_payload() { if (data_) cudaFreeHost(data_); }
     operation_status initialize(std::size_t bytes, std::size_t budget)
     {
-        if (data_ || bytes_) return std::unexpected(operation_error{"pinned payload is already initialized"});
+        if (initialized_) return std::unexpected(operation_error{"pinned payload is already initialized"});
         if (bytes > budget || bytes > std::size_t(std::numeric_limits<std::ptrdiff_t>::max()))
             return std::unexpected(operation_error{"pinned payload exceeds budget"});
-        if (!bytes) return {};
+        if (!bytes) { initialized_ = true; return {}; }
         const auto error = cudaHostAlloc(&data_, bytes, cudaHostAllocDefault);
         if (error != cudaSuccess) return std::unexpected(operation_error{cudaGetErrorString(error)});
         bytes_ = bytes;
+        initialized_ = true;
         return {};
     }
     std::byte* data() const noexcept { return static_cast<std::byte*>(data_); }

@@ -41,6 +41,7 @@ public:
     {
         std::shared_ptr<session_state> state_;
         completion_ticket completion_;
+        std::vector<completion_ticket> readers_;
         bool download_{};
         ticket(std::shared_ptr<session_state> state, completion_ticket completion, bool download) :
             state_(std::move(state)), completion_(std::move(completion)), download_(download) {}
@@ -54,8 +55,30 @@ public:
         operation_status wait()
         {
             auto checked = completion_.wait();
+            if (!checked) { if (state_) state_->published = false; return checked; }
+
+            for (const auto& reader : readers_) {
+                checked = reader.wait();
+                if (!checked) break;
+            }
             if (state_) state_->published = bool(checked);
             return checked;
+        }
+        template<class function> operation_status read_on(cudaStream_t stream, function&& consumer)
+        {
+            auto checked = completion_.depend_on(stream);
+            if (!checked) return checked;
+            auto descriptor = state_->device.descriptor();
+            if (!descriptor) return std::unexpected(descriptor.error());
+            stream_drain guard{stream, descriptor->device};
+            const device_map_view<s, true> view{device_accessor<s, true>{*descriptor}};
+            checked = consumer(view, stream);
+            if (!checked) return checked;
+            auto completed = completion_ticket::record(stream, state_);
+            if (!completed) return std::unexpected(completed.error());
+            guard.armed = false;
+            readers_.push_back(std::move(*completed));
+            return {};
         }
         operation_result<device_map_view<s, true>> view()
         {
@@ -114,6 +137,25 @@ public:
         return {};
     }
     std::size_t pinned_bytes() const noexcept { return state_ ? state_->staging.size() : 0; }
+    operation_status resize(std::size_t tiles, std::size_t pinned_budget = 256U * 1024U * 1024U)
+    {
+        auto checked = available();
+        if (!checked) return checked;
+        if (tiles == state_->host.tiles) return {};
+        if (pinned_bytes() > pinned_budget) return std::unexpected(operation_error{"existing staging exceeds growth budget"});
+        transfer_session replacement;
+        checked = replacement.initialize(tiles, pinned_budget - pinned_bytes());
+        if (!checked) return checked;
+        if (state_->published) {
+            transfer_measurement measured;
+            checked = replacement.state_->device.copy_from(state_->device, 0, 0, std::min(tiles, state_->host.tiles) * 512,
+                (1U << field_count<s>) - 1, transfer_method::bulk_same_layout, measured);
+            if (!checked) return checked;
+            replacement.state_->published = true;
+        }
+        state_.swap(replacement.state_);
+        return {};
+    }
     template<layout source_layout> operation_result<ticket> upload(const draft<s, source_layout>& source)
     {
         auto checked = available();
