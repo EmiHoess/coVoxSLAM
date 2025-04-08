@@ -198,5 +198,17 @@ public:
         if (!completion) return std::unexpected(completion.error());
         return ticket(state_, std::move(*completion), true);
     }
+    template<layout source_layout> operation_status upload_blocking(const draft<s, source_layout>& source)
+    {
+        auto submitted = upload(source);
+        if (!submitted) return std::unexpected(submitted.error());
+        return submitted->wait();
+    }
+    template<layout destination_layout> operation_status download_blocking(draft<s, destination_layout>& destination)
+    {
+        auto submitted = download();
+        if (!submitted) return std::unexpected(submitted.error());
+        return submitted->copy_to(destination);
+    }
 };
 }
