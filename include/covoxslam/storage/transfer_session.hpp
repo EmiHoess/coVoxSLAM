@@ -175,10 +175,12 @@ public:
                 }(std::make_index_sequence<field_count<s>>{});
             }
         state_->published = false;
+        stream_drain guard{state_->device.stream(), descriptor->device};
         checked = submit(*plan, cudaMemcpyHostToDevice);
         if (!checked) return std::unexpected(checked.error());
         auto completion = completion_ticket::record(state_->device.stream(), state_);
         if (!completion) return std::unexpected(completion.error());
+        guard.armed = false;
         return ticket(state_, std::move(*completion), false);
     }
     operation_result<ticket> download()
@@ -192,10 +194,12 @@ public:
         auto plan = plan_cuda_transfer(transfer_storage(*descriptor), 0, state_->host, 0, state_->host.tiles * 512,
             (1U << field_count<s>) - 1, transfer_method::bulk_same_layout, measurement);
         if (!plan) return std::unexpected(plan.error());
+        stream_drain guard{state_->device.stream(), descriptor->device};
         checked = submit(*plan, cudaMemcpyDeviceToHost);
         if (!checked) return std::unexpected(checked.error());
         auto completion = completion_ticket::record(state_->device.stream(), state_);
         if (!completion) return std::unexpected(completion.error());
+        guard.armed = false;
         return ticket(state_, std::move(*completion), true);
     }
     template<layout source_layout> operation_status upload_blocking(const draft<s, source_layout>& source)
