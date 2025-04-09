@@ -24,8 +24,8 @@ template<storage::schema s, storage::layout l> struct field_pool
 template<storage::layout l, storage::schema es = storage::schema::esdf> struct map_entry
 {
     submap_record record;
-    std::shared_ptr<field_pool<storage::schema::tsdf, l>> tsdf;
-    std::shared_ptr<field_pool<es, l>> esdf;
+    std::shared_ptr<const field_pool<storage::schema::tsdf, l>> tsdf;
+    std::shared_ptr<const field_pool<es, l>> esdf;
 };
 inline bool finite_pose(const pose_record& pose) noexcept
 {
@@ -52,6 +52,47 @@ public:
         entry.record.initial_pose = entry.record.optimized_pose = pose;
         maps_.emplace(id, std::move(entry));
         return {};
+    }
+    operation_status update_pose(std::uint64_t id, std::uint64_t expected, pose_record pose)
+    {
+        auto found = maps_.find(id);
+        if (found == maps_.end() || found->second.record.state == lifecycle::retired || !finite_pose(pose))
+            return std::unexpected(operation_error{"pose publication has invalid identity or value"});
+        auto& record = found->second.record;
+        if (record.versions.pose != expected)
+            return std::unexpected(operation_error{"pose publication is stale"});
+        auto next = next_epoch(expected);
+        if (!next) return std::unexpected(next.error());
+        record.optimized_pose = pose;
+        record.versions.pose = *next;
+        return {};
+    }
+    template<storage::schema s> operation_result<std::shared_ptr<const field_pool<s, l>>> field(std::uint64_t id) const
+    {
+        const auto* entry = find(id);
+        if (!entry || entry->record.state == lifecycle::retired)
+            return std::unexpected(operation_error{"submap identity is unavailable"});
+        auto result = [&]() { if constexpr (s == storage::schema::tsdf) return entry->tsdf; else return entry->esdf; }();
+        if (!result) return std::unexpected(operation_error{"submap field is absent"});
+        return result;
+    }
+    operation_result<block_key> resolve(tile_handle handle) const
+    {
+        const auto resolve_field = [&]<storage::schema s>() -> operation_result<block_key> {
+            auto selected = field<s>(handle.submap);
+            if (!selected) return std::unexpected(selected.error());
+            const auto& pool = **selected;
+            if (handle.slot >= pool.slots.size()) return std::unexpected(operation_error{"tile slot is outside the field"});
+            const auto& slot = pool.slots[handle.slot];
+            if (!slot.occupied || slot.generation != handle.reuse_generation || slot.key.submap != handle.submap)
+                return std::unexpected(operation_error{"tile handle is stale"});
+            return slot.key;
+        };
+        switch (handle.field) {
+        case field_kind::tsdf: return resolve_field.template operator()<storage::schema::tsdf>();
+        case field_kind::esdf: return resolve_field.template operator()<es>();
+        default: return std::unexpected(operation_error{"tile field is invalid"});
+        }
     }
     template<storage::schema s> operation_status import_field(std::uint64_t id,
         std::span<const block_key> keys, std::span<const storage::value<s>> records)
@@ -80,7 +121,7 @@ public:
         auto view = replacement->payload.view();
 
         for (std::size_t i = 0; i < records.size(); ++i)
-            storage::scatter<s>(view[i / 512].voxels[i % 512], records[i]);
+            storage::scatter_record<s>(view[i / 512].voxels[i % 512], records[i]);
         replacement->content_epoch = 1;
         field = std::move(replacement);
         entry.record.cpu = residency::resident;
