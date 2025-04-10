@@ -1,5 +1,6 @@
 #pragma once
 #include <covoxslam/store/handle.hpp>
+#include <covoxslam/store/cpu_index.hpp>
 #include <covoxslam/storage/draft.hpp>
 #include <covoxslam/storage/record_pack.hpp>
 #include <cmath>
@@ -9,16 +10,10 @@
 
 namespace covoxslam::store
 {
-struct slot_record
-{
-    block_key key;
-    std::uint64_t generation{1};
-    bool occupied{true};
-};
 template<storage::schema s, storage::layout l> struct field_pool
 {
     storage::draft<s, l> payload;
-    std::vector<slot_record> slots;
+    cpu_block_index index;
     std::uint64_t content_epoch{};
 };
 template<storage::layout l, storage::schema es = storage::schema::esdf> struct map_entry
@@ -81,12 +76,7 @@ public:
         const auto resolve_field = [&]<storage::schema s>() -> operation_result<block_key> {
             auto selected = field<s>(handle.submap);
             if (!selected) return std::unexpected(selected.error());
-            const auto& pool = **selected;
-            if (handle.slot >= pool.slots.size()) return std::unexpected(operation_error{"tile slot is outside the field"});
-            const auto& slot = pool.slots[handle.slot];
-            if (!slot.occupied || slot.generation != handle.reuse_generation || slot.key.submap != handle.submap)
-                return std::unexpected(operation_error{"tile handle is stale"});
-            return slot.key;
+            return (*selected)->index.resolve(handle);
         };
         switch (handle.field) {
         case field_kind::tsdf: return resolve_field.template operator()<storage::schema::tsdf>();
@@ -115,9 +105,8 @@ public:
         auto replacement = std::make_shared<field_pool<s, l>>();
         auto checked = replacement->payload.initialize(keys.size());
         if (!checked) return checked;
-        replacement->slots.reserve(keys.size());
-
-        for (const auto& key : keys) replacement->slots.push_back({key});
+        checked = replacement->index.initialize(id, s == storage::schema::tsdf ? field_kind::tsdf : field_kind::esdf, keys);
+        if (!checked) return checked;
         auto view = replacement->payload.view();
 
         for (std::size_t i = 0; i < records.size(); ++i)
