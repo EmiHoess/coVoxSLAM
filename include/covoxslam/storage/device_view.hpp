@@ -1,5 +1,5 @@
 #pragma once
-#include <covoxslam/storage/views.hpp>
+#include <covoxslam/storage/device_collection.hpp>
 
 namespace covoxslam::storage
 {
@@ -31,6 +31,6 @@ template<schema s, bool constant = false> struct device_accessor
     }
 #endif
 };
-template<schema s, bool constant = false> using device_map_view = map_view<s, device_accessor<s, constant>>;
+template<schema s, bool constant = false> using device_map_view = device_collection<s, device_accessor<s, constant>>;
 int initialize_device_fields(device_descriptor descriptor, void* stream) noexcept;
 }
