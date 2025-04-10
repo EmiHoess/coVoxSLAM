@@ -1,5 +1,6 @@
 #pragma once
 #include <covoxslam/storage/selection.hpp>
+#include <covoxslam/store/key.hpp>
 #include <bit>
 #include <chrono>
 #include <cmath>
@@ -49,13 +50,15 @@ template<class t> std::uint64_t hash_values(std::span<const t> values)
     return hash;
 }
 template<schema s> operation_result<std::vector<aos_tile<s>>> load_tiles(
-    const std::filesystem::path& root, std::size_t last_submap, std::size_t maximum_tiles = 100000)
+    const std::filesystem::path& root, std::size_t last_submap, std::size_t maximum_tiles = 100000,
+    std::vector<store::block_key>* keys = nullptr)
 {
     static_assert(s == schema::tsdf || s == schema::esdf);
     static_assert(std::endian::native == std::endian::little);
     static_assert(sizeof(aos_tile<s>) == sizeof(value<s>) * voxels_per_tile);
     if (last_submap > 100000) return std::unexpected(operation_error{"submap limit exceeded"});
     std::vector<aos_tile<s>> result;
+    std::vector<store::block_key> loaded_keys;
     float common_voxel{}, common_band{};
 
     for (std::size_t id = 0; id <= last_submap; ++id)
@@ -91,6 +94,7 @@ template<schema s> operation_result<std::vector<aos_tile<s>>> load_tiles(
             if (!input || (tile && std::tie(key[2], key[1], key[0]) <= std::tie(previous[2], previous[1], previous[0])))
                 return std::unexpected(operation_error{"invalid frozen tile record"});
             previous = key;
+            if (keys) loaded_keys.push_back({id, key[0], key[1], key[2]});
 
             for (const auto& v : record.voxels)
             {
@@ -106,6 +110,7 @@ template<schema s> operation_result<std::vector<aos_tile<s>>> load_tiles(
             return std::unexpected(operation_error{"frozen map changed while reading"});
     }
     if (result.empty()) return std::unexpected(operation_error{"frozen map has no tiles"});
+    if (keys) *keys = std::move(loaded_keys);
     return result;
 }
 template<class t> auto record_value(const t& record)
