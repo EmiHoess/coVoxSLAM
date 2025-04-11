@@ -45,6 +45,34 @@ public:
     std::size_t size() const noexcept { return buckets_.size(); }
     std::size_t slot_count() const noexcept { return slots_.size(); }
     std::span<const slot_record> records() const noexcept { return slots_; }
+    operation_result<tile_handle> insert(block_key key, std::size_t maximum_slots)
+    {
+        if (!initialized_ || key.submap != submap_)
+            return std::unexpected(operation_error{"block insertion has invalid submap"});
+        const auto existing = buckets_.find(key);
+        if (existing != buckets_.end()) return find(key);
+        std::size_t slot{};
+        while (slot < slots_.size() && slots_[slot].occupied) ++slot;
+
+        if (slot >= maximum_slots || slot >= std::numeric_limits<std::uint32_t>::max())
+            return std::unexpected(operation_error{"block pool capacity is exhausted"});
+        if (slot == slots_.size()) slots_.reserve(slot + 1);
+        buckets_.emplace(key, std::uint32_t(slot));
+        if (slot == slots_.size()) slots_.push_back({key});
+        else { slots_[slot].key = key; slots_[slot].occupied = true; }
+        return tile_handle{submap_, field_, std::uint32_t(slot), slots_[slot].generation};
+    }
+    operation_status erase(tile_handle handle)
+    {
+        auto key = resolve(handle);
+        if (!key) return std::unexpected(key.error());
+        auto generation = next_epoch(slots_[handle.slot].generation);
+        if (!generation) return std::unexpected(generation.error());
+        buckets_.erase(*key);
+        slots_[handle.slot].occupied = false;
+        slots_[handle.slot].generation = *generation;
+        return {};
+    }
     operation_result<tile_handle> find(block_key key) const
     {
         const auto found = buckets_.find(key);
