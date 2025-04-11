@@ -88,6 +88,29 @@ public:
         record.versions.pose = *next;
         return {};
     }
+    operation_status retire(std::uint64_t id)
+    {
+        auto found = maps_.find(id);
+        if (found == maps_.end() || found->second.record.state == lifecycle::retired)
+            return std::unexpected(operation_error{"submap is already absent or retired"});
+        auto& entry = found->second;
+        if (entry.record.writer != writer_kind::none)
+            return std::unexpected(operation_error{"cannot retire a submap with a writer"});
+        auto next = next_epoch(entry.record.versions.descriptor);
+        if (!next) return std::unexpected(next.error());
+        entry.record.state = lifecycle::retired;
+        entry.record.versions.descriptor = *next;
+        entry.tsdf.reset();
+        entry.esdf.reset();
+        entry.record.cpu = entry.record.gpu = residency::absent;
+        return {};
+    }
+    template<storage::schema s> operation_result<tile_handle> lookup(block_key key) const
+    {
+        auto selected = field<s>(key.submap);
+        if (!selected) return std::unexpected(selected.error());
+        return (*selected)->index.find(key);
+    }
     template<storage::schema s> operation_result<std::shared_ptr<const field_pool<s, l>>> field(std::uint64_t id) const
     {
         const auto* entry = find(id);
@@ -182,6 +205,9 @@ public:
             return std::unexpected(operation_error{"field import requires an active submap"});
         auto& entry = found->second;
         auto& field = [&]() -> auto& { if constexpr (s == storage::schema::tsdf) return entry.tsdf; else return entry.esdf; }();
+        const auto allocation = next_epoch(entry.record.versions.allocation);
+        const auto descriptor = next_epoch(entry.record.versions.descriptor);
+        if (!allocation || !descriptor) return std::unexpected(operation_error{"store epoch exhausted"});
 
         if (field) return std::unexpected(operation_error{"field import cannot replace published storage"});
         if (keys.size() > maximum_tiles_ || keys.size() > std::numeric_limits<std::uint32_t>::max() ||
@@ -203,6 +229,8 @@ public:
             storage::scatter_record<s>(view[i / 512].voxels[i % 512], records[i]);
         replacement->content_epoch = 1;
         field = std::move(replacement);
+        entry.record.versions.allocation = *allocation;
+        entry.record.versions.descriptor = *descriptor;
         entry.record.cpu = residency::resident;
         if constexpr (s == storage::schema::tsdf) entry.record.versions.tsdf = 1;
         else entry.record.versions.esdf = 1;
