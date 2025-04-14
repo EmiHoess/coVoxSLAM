@@ -26,6 +26,16 @@ inline bool finite_pose(const pose_record& pose) noexcept
 {
     return std::isfinite(pose.x) && std::isfinite(pose.y) && std::isfinite(pose.z) && std::isfinite(pose.yaw);
 }
+template<storage::layout l, storage::schema es = storage::schema::esdf> struct map_snapshot
+{
+    submap_record record;
+    std::shared_ptr<const field_pool<storage::schema::tsdf, l>> tsdf;
+    std::shared_ptr<const field_pool<es, l>> esdf;
+};
+struct store_statistics
+{
+    std::size_t submaps{}, retired{}, live_tiles{}, allocated_slots{}, payload_capacity_bytes{}, index_entries{};
+};
 template<storage::layout l, storage::schema es = storage::schema::esdf> class map_store
 {
     std::unordered_map<std::uint64_t, map_entry<l, es>> maps_;
@@ -63,6 +73,74 @@ public:
     {
         const auto found = maps_.find(id);
         return found == maps_.end() ? nullptr : &found->second;
+    }
+    operation_result<store_statistics> statistics() const
+    {
+        store_statistics result;
+        result.submaps = maps_.size();
+
+        for (const auto& [id, map] : maps_) {
+            result.retired += map.record.state == lifecycle::retired;
+            auto count = [&](const auto& field) -> operation_status {
+                if (!field) return {};
+                using pool = std::remove_cvref_t<decltype(*field)>;
+                constexpr auto selected = std::is_same_v<pool, field_pool<storage::schema::tsdf, l>> ? storage::schema::tsdf : es;
+                constexpr auto bytes_per_tile = storage::storage_traits<selected, l>::tile_stride *
+                    (l == storage::layout::pool_soa ? storage::field_count<selected> : 1);
+                const auto descriptor = field->payload.view();
+                const auto bytes = field->payload.capacity() * bytes_per_tile;
+                if (bytes > std::numeric_limits<std::size_t>::max() - result.payload_capacity_bytes)
+                    return std::unexpected(operation_error{"store statistics overflow"});
+                result.payload_capacity_bytes += bytes;
+                result.live_tiles += field->index.size();
+                result.allocated_slots += descriptor.size();
+                result.index_entries += field->index.size();
+                return {};
+            };
+            auto checked = count(map.tsdf);
+            if (!checked) return std::unexpected(checked.error());
+            checked = count(map.esdf);
+            if (!checked) return std::unexpected(checked.error());
+        }
+        return result;
+    }
+    operation_result<std::vector<map_snapshot<l, es>>> snapshot(std::span<const std::uint64_t> ids,
+        std::uint32_t fields, std::size_t maximum_payload_bytes) const
+    {
+        if (!fields || (fields & ~3U)) return std::unexpected(operation_error{"snapshot field mask is invalid"});
+        std::unordered_set<std::uint64_t> unique;
+        std::vector<map_snapshot<l, es>> result;
+        std::size_t remaining = maximum_payload_bytes;
+
+        for (auto id : ids) {
+            const auto* entry = find(id);
+            if (!entry || entry->record.state == lifecycle::retired || !unique.insert(id).second)
+                return std::unexpected(operation_error{"snapshot submap is absent retired or duplicated"});
+            map_snapshot<l, es> copy;
+            copy.record = entry->record;
+            const auto bind = [&]<storage::schema s>(auto& target) -> operation_status {
+                auto selected = field<s>(id);
+                if (!selected) return std::unexpected(selected.error());
+                const auto capacity = (*selected)->payload.capacity();
+                constexpr auto bytes_per_tile = storage::storage_traits<s, l>::tile_stride *
+                    (l == storage::layout::pool_soa ? storage::field_count<s> : 1);
+                if (capacity > remaining / bytes_per_tile)
+                    return std::unexpected(operation_error{"snapshot payload budget is exhausted"});
+                remaining -= capacity * bytes_per_tile;
+                target = *selected;
+                return {};
+            };
+            if (fields & 1U) {
+                auto checked = bind.template operator()<storage::schema::tsdf>(copy.tsdf);
+                if (!checked) return std::unexpected(checked.error());
+            }
+            if (fields & 2U) {
+                auto checked = bind.template operator()<es>(copy.esdf);
+                if (!checked) return std::unexpected(checked.error());
+            }
+            result.push_back(std::move(copy));
+        }
+        return result;
     }
     operation_status create(std::uint64_t id, pose_record pose = {})
     {

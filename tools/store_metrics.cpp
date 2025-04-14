@@ -9,13 +9,14 @@ namespace covoxslam::metrics
 struct store_arguments {
     std::filesystem::path input;
     std::size_t last{};
+    std::size_t snapshot_budget{512U * 1024U * 1024U};
     layout selected{layout::pooled_aos};
     bool persistent{true};
 };
-enum class store_option { unknown, input, last, layout, store };
+enum class store_option { unknown, input, last, layout, store, budget };
 constexpr cli_option_entry<store_option> store_options[]{
     {"--input", store_option::input}, {"--last-submap", store_option::last},
-    {"--layout", store_option::layout}, {"--store", store_option::store}
+    {"--layout", store_option::layout}, {"--store", store_option::store}, {"--snapshot-memory-mib", store_option::budget}
 };
 static_assert(valid_cli_options(store_options));
 operation_result<store_arguments> parse_store(int argc, char** argv)
@@ -27,6 +28,13 @@ operation_result<store_arguments> parse_store(int argc, char** argv)
         const std::string_view value = argv[i + 1];
         switch (lookup_cli_option(argv[i], store_options)) {
         case store_option::input: result.input = value; break;
+        case store_option::budget: {
+            std::size_t mib{};
+            const auto converted = std::from_chars(value.data(), value.data() + value.size(), mib);
+            if (converted.ec != std::errc{} || converted.ptr != value.data() + value.size() || mib > 16384)
+                return std::unexpected(operation_error{"invalid snapshot budget"});
+            result.snapshot_budget = mib * 1024 * 1024; break;
+        }
         case store_option::last: {
             const auto converted = std::from_chars(value.data(), value.data() + value.size(), result.last);
             if (converted.ec != std::errc{} || converted.ptr != value.data() + value.size() || result.last > 1000)
@@ -72,9 +80,11 @@ template<schema s, layout l> operation_status import_maps(store::map_store<l>& m
         import_ms += elapsed(started);
         const auto read_start = clock::now();
         if (args.persistent) {
-            auto field = maps.template field<s>(id);
-            if (!field) return std::unexpected(field.error());
-            auto view = (*field)->payload.view();
+            const std::array<std::uint64_t, 1> ids{id};
+            auto snapshot = maps.snapshot(ids, s == schema::tsdf ? 1U : 2U, args.snapshot_budget);
+            if (!snapshot) return std::unexpected(snapshot.error());
+            auto field = [&]() { if constexpr (s == schema::tsdf) return snapshot->front().tsdf; else return snapshot->front().esdf; }();
+            auto view = field->payload.view();
 
             for (std::size_t tile = 0; tile < view.size(); ++tile)
                 for (std::size_t voxel = 0; voxel < 512; ++voxel)
