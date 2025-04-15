@@ -54,8 +54,7 @@ public:
         if (error == cudaSuccess && !records.empty()) error = cudaMalloc(reinterpret_cast<void**>(&candidate->input), records.size() * sizeof(device_hash_entry));
         if (error == cudaSuccess) error = cudaMalloc(reinterpret_cast<void**>(&candidate->errors), sizeof(unsigned));
         if (error != cudaSuccess) return storage::cuda_storage_status(error);
-        error = cudaMemsetAsync(candidate->entries, 0, capacity * sizeof(device_hash_entry), candidate->stream);
-        if (error == cudaSuccess) error = cudaMemsetAsync(candidate->errors, 0, sizeof(unsigned), candidate->stream);
+        error = cudaMemsetAsync(candidate->errors, 0, sizeof(unsigned), candidate->stream);
         if (error == cudaSuccess && !records.empty()) error = cudaMemcpyAsync(candidate->input, records.data(),
             records.size() * sizeof(device_hash_entry), cudaMemcpyHostToDevice, candidate->stream);
         if (error == cudaSuccess) error = cudaError_t(build_device_index(candidate->entries, capacity,
@@ -66,6 +65,14 @@ public:
         if (error != cudaSuccess) return storage::cuda_storage_status(error);
         if (completion != cudaSuccess) return storage::cuda_storage_status(completion);
         if (failures) return std::unexpected(operation_error{"GPU index insertion failed"});
+        auto* input = std::exchange(candidate->input, nullptr);
+        if (input) {
+            error = cudaFree(input);
+            if (error != cudaSuccess) return storage::cuda_storage_status(error);
+        }
+        auto* errors = std::exchange(candidate->errors, nullptr);
+        error = cudaFree(errors);
+        if (error != cudaSuccess) return storage::cuda_storage_status(error);
         candidate->descriptor.entries = candidate->entries;
         candidate->descriptor.capacity = capacity;
         candidate->descriptor.submap = source.submap();
