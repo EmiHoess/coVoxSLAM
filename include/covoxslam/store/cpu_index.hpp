@@ -43,6 +43,9 @@ public:
         return {};
     }
     std::size_t size() const noexcept { return buckets_.size(); }
+    bool initialized() const noexcept { return initialized_; }
+    std::uint64_t submap() const noexcept { return submap_; }
+    field_kind field() const noexcept { return field_; }
     std::size_t slot_count() const noexcept { return slots_.size(); }
     std::span<const slot_record> records() const noexcept { return slots_; }
     operation_result<tile_handle> insert(block_key key, std::size_t maximum_slots)
