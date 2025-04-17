@@ -10,6 +10,7 @@ template<storage::schema s, storage::layout l> struct gpu_field
     storage::cuda_draft<s, l> payload;
     gpu_block_index index;
     std::uint64_t content_epoch{}, allocation_generation{};
+    std::weak_ptr<const field_pool<s, l>> source_identity;
 };
 template<storage::layout l, storage::schema es = storage::schema::esdf> struct resident_entry
 {
@@ -36,6 +37,7 @@ template<storage::layout l, storage::schema es = storage::schema::esdf> class gp
         if (!checked) return std::unexpected(checked.error());
         field->content_epoch = source->content_epoch;
         field->allocation_generation = generation;
+        field->source_identity = source;
         return field;
     }
 public:
@@ -47,11 +49,24 @@ public:
         resident_entry<l, es> candidate;
         auto old = maps_.find(source.record.id);
         if (old != maps_.end()) candidate = old->second;
+        if (old != maps_.end() && (source.record.versions.pose < old->second.record.versions.pose ||
+            source.record.versions.descriptor < old->second.record.versions.descriptor))
+            return std::unexpected(operation_error{"resident metadata publication is stale"});
         const auto prepare = [&]<storage::schema s>(const auto& input, auto& output) -> operation_status {
             if (!input) return std::unexpected(operation_error{"resident publication field is absent"});
+            const auto expected = s == storage::schema::tsdf ? source.record.versions.tsdf : source.record.versions.esdf;
+            const auto kind = s == storage::schema::tsdf ? field_kind::tsdf : field_kind::esdf;
+            if (!expected || input->content_epoch != expected || input->index.submap() != source.record.id || input->index.field() != kind)
+                return std::unexpected(operation_error{"resident publication identity or version differs"});
             if (output && output->content_epoch > input->content_epoch)
                 return std::unexpected(operation_error{"resident publication is stale"});
-            if (output && output->content_epoch == input->content_epoch) return {};
+            if (output && output->content_epoch == input->content_epoch) {
+                if (output->source_identity.lock() != input)
+                    return std::unexpected(operation_error{"resident epoch refers to different source storage"});
+                auto device = output->payload.descriptor();
+                if (!device) return std::unexpected(device.error());
+                return {};
+            }
             auto replacement = upload<s>(input, source.record.versions.allocation);
             if (!replacement) return std::unexpected(replacement.error());
             output = std::move(*replacement);
@@ -66,6 +81,9 @@ public:
             if (!checked) return checked;
         }
         candidate.record = source.record;
+        candidate.record.versions.tsdf = candidate.tsdf ? candidate.tsdf->content_epoch : 0;
+        candidate.record.versions.esdf = candidate.esdf ? candidate.esdf->content_epoch : 0;
+        if (!(fields & 2U)) candidate.record.versions.esdf_source = old == maps_.end() ? 0 : old->second.record.versions.esdf_source;
         candidate.record.gpu = residency::resident;
         maps_.insert_or_assign(source.record.id, std::move(candidate));
         return {};
