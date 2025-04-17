@@ -18,6 +18,43 @@ struct authority_state
     std::mutex mutex;
     authority_snapshot current;
 };
+class mirror_ticket
+{
+    std::shared_ptr<authority_state> state_;
+    writer_kind destination_{};
+    std::uint32_t fields_{};
+    std::array<std::uint64_t, 2> versions_{};
+    bool complete_{};
+    friend class map_authority;
+    mirror_ticket(std::shared_ptr<authority_state> state, writer_kind destination, std::uint32_t fields,
+        std::array<std::uint64_t, 2> versions) : state_(std::move(state)), destination_(destination), fields_(fields), versions_(versions) {}
+public:
+    mirror_ticket(const mirror_ticket&) = delete;
+    mirror_ticket& operator=(const mirror_ticket&) = delete;
+    mirror_ticket(mirror_ticket&&) noexcept = default;
+    mirror_ticket& operator=(mirror_ticket&&) noexcept = default;
+    const auto& versions() const noexcept { return versions_; }
+    template<class function> operation_status acknowledge(function&& commit)
+    {
+        if (!state_ || complete_) return std::unexpected(operation_error{"mirror completion is not pending"});
+        std::lock_guard lock(state_->mutex);
+        auto& current = state_->current;
+        if (current.state == lifecycle::retired || current.writer != writer_kind::none)
+            return std::unexpected(operation_error{"mirror completion conflicts with map state"});
+
+        for (unsigned field = 0; field < 2; ++field)
+            if ((fields_ & (1U << field)) && versions_[field] != current.content[field])
+                return std::unexpected(operation_error{"mirror completion is stale"});
+        auto checked = commit();
+        if (!checked) return checked;
+        auto& destination = destination_ == writer_kind::cpu ? current.cpu : current.gpu;
+
+        for (unsigned field = 0; field < 2; ++field)
+            if (fields_ & (1U << field)) destination[field] = versions_[field];
+        complete_ = true;
+        return {};
+    }
+};
 class writer_lease
 {
     std::shared_ptr<authority_state> state_;
@@ -103,6 +140,45 @@ public:
         current.lease_generation = *generation;
         current.writer = side;
         return writer_lease(state_, side, fields, *generation);
+    }
+    operation_result<mirror_ticket> transfer(writer_kind source, writer_kind destination, std::uint32_t fields)
+    {
+        std::lock_guard lock(state_->mutex);
+        const auto& current = state_->current;
+        if ((source != writer_kind::cpu && source != writer_kind::gpu) ||
+            (destination != writer_kind::cpu && destination != writer_kind::gpu) || source == destination ||
+            !fields || (fields & ~3U) || current.state == lifecycle::retired || current.writer != writer_kind::none)
+            return std::unexpected(operation_error{"mirror transfer admission conflicts"});
+        const auto& replica = source == writer_kind::cpu ? current.cpu : current.gpu;
+
+        for (unsigned field = 0; field < 2; ++field)
+            if ((fields & (1U << field)) && (!current.content[field] || replica[field] != current.content[field]))
+                return std::unexpected(operation_error{"mirror source is not current"});
+        return mirror_ticket(state_, destination, fields, current.content);
+    }
+    operation_status finalize(std::uint32_t required_fields)
+    {
+        std::lock_guard lock(state_->mutex);
+        auto& current = state_->current;
+        if (!required_fields || (required_fields & ~3U) || current.state != lifecycle::active || current.writer != writer_kind::none)
+            return std::unexpected(operation_error{"finalization conflicts"});
+
+        for (unsigned field = 0; field < 2; ++field)
+            if ((required_fields & (1U << field)) && (!current.content[field] ||
+                (current.cpu[field] != current.content[field] && current.gpu[field] != current.content[field])))
+                return std::unexpected(operation_error{"finalization requires complete current fields"});
+        if ((required_fields & 2U) && current.esdf_source != current.content[0])
+            return std::unexpected(operation_error{"finalization requires current ESDF derivation"});
+        current.state = lifecycle::finalized;
+        return {};
+    }
+    operation_status retire()
+    {
+        std::lock_guard lock(state_->mutex);
+        if (state_->current.writer != writer_kind::none || state_->current.state == lifecycle::retired)
+            return std::unexpected(operation_error{"retirement conflicts"});
+        state_->current.state = lifecycle::retired;
+        return {};
     }
 };
 }
