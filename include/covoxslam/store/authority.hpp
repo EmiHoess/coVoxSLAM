@@ -156,7 +156,7 @@ public:
                 return std::unexpected(operation_error{"mirror source is not current"});
         return mirror_ticket(state_, destination, fields, current.content);
     }
-    operation_status finalize(std::uint32_t required_fields)
+    template<class function> operation_status finalize(std::uint32_t required_fields, function&& commit)
     {
         std::lock_guard lock(state_->mutex);
         auto& current = state_->current;
@@ -169,8 +169,14 @@ public:
                 return std::unexpected(operation_error{"finalization requires complete current fields"});
         if ((required_fields & 2U) && current.esdf_source != current.content[0])
             return std::unexpected(operation_error{"finalization requires current ESDF derivation"});
+        auto checked = commit();
+        if (!checked) return checked;
         current.state = lifecycle::finalized;
         return {};
+    }
+    operation_status finalize(std::uint32_t required_fields)
+    {
+        return finalize(required_fields, []() -> operation_status { return {}; });
     }
     operation_status retire()
     {

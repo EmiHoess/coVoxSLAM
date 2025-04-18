@@ -183,6 +183,19 @@ public:
         entry.record.cpu = entry.record.gpu = residency::absent;
         return {};
     }
+    operation_status seal(std::uint64_t id, std::uint32_t fields, std::uint64_t esdf_source)
+    {
+        auto found = maps_.find(id);
+        if (found == maps_.end() || !fields || (fields & ~3U) || found->second.record.state != lifecycle::active)
+            return std::unexpected(operation_error{"invalid submap seal"});
+        auto& entry = found->second;
+        if (((fields & 1U) && !entry.tsdf) || ((fields & 2U) && (!entry.esdf || !entry.tsdf ||
+            esdf_source != entry.record.versions.tsdf)) || entry.record.writer != writer_kind::none)
+            return std::unexpected(operation_error{"submap seal requires current fields"});
+        entry.record.versions.esdf_source = esdf_source;
+        entry.record.state = lifecycle::finalized;
+        return {};
+    }
     template<storage::schema s> operation_result<tile_handle> lookup(block_key key) const
     {
         auto selected = field<s>(key.submap);
