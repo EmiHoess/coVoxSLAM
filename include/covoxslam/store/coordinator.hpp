@@ -63,7 +63,7 @@ public:
         auto writer = map.authority.acquire(writer_kind::cpu, s == storage::schema::tsdf ? 1U : 2U);
         if (!writer) return std::unexpected(writer.error());
         operation_result<tile_handle> result = std::unexpected(operation_error{"insertion did not publish"});
-        auto checked = writer->publish(state.content[0], [&](const auto&) -> operation_status {
+        auto checked = writer->publish(state.esdf_source, [&](const auto&) -> operation_status {
             result = map.cpu.template insert<s>(key);
             if (!result) return std::unexpected(result.error());
             return {};
