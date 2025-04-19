@@ -45,12 +45,14 @@ public:
         auto next = target;
         if (handle.reuse_generation != target.generation) {
             if (fields != mask) return std::unexpected(operation_error{"reused slot requires all fields"});
+            if (content_epoch <= *std::max_element(target.versions.begin(), target.versions.end()))
+                return std::unexpected(operation_error{"reused slot content epoch did not advance"});
             next = {}; next.generation = handle.reuse_generation;
         }
 
         for (unsigned i = 0; i < storage::field_count<s>; ++i)
             if (fields & (1U << i)) {
-                if (content_epoch < next.versions[i]) return std::unexpected(operation_error{"dirty content version is stale"});
+                if (content_epoch <= next.versions[i]) return std::unexpected(operation_error{"dirty content version did not advance"});
                 next.versions[i] = content_epoch;
             }
         next.fields |= fields;
@@ -68,14 +70,25 @@ public:
         }
         return batch;
     }
-    operation_status acknowledge(const dirty_batch& batch)
+    operation_status acknowledge(const dirty_batch& batch, operation_status completed)
     {
+        if (!completed) return completed;
         if (batch.submap != submap_ || batch.field != field)
             return std::unexpected(operation_error{"dirty acknowledgement belongs to another field"});
 
-        for (const auto& record : batch.records)
-            if (record.slot >= slots_.size() || (record.state.fields & ~mask))
+        std::uint64_t previous{};
+        bool first = true;
+
+        for (const auto& record : batch.records) {
+            if (record.slot >= slots_.size() || !record.state.generation || !record.state.fields ||
+                (record.state.fields & ~mask) || (!first && record.slot <= previous))
                 return std::unexpected(operation_error{"dirty acknowledgement is out of bounds"});
+            first = false; previous = record.slot;
+
+            for (unsigned i = 0; i < storage::field_count<s>; ++i)
+                if ((record.state.fields & (1U << i)) && !record.state.versions[i])
+                    return std::unexpected(operation_error{"dirty acknowledgement has no source version"});
+        }
 
         for (const auto& record : batch.records) {
             auto& current = slots_[record.slot];
