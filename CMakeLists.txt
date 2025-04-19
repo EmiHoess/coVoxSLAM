@@ -123,6 +123,8 @@ if(covoxslam_enable_metrics)
     if(covoxslam_enable_cuda)
         target_sources(covoxslam_layout_metrics PRIVATE tools/layout_kernel.cu)
         add_executable(covoxslam_transfer_metrics tools/transfer_metrics.cpp)
+        add_executable(covoxslam_dirty_metrics tools/dirty_metrics.cpp)
+        target_link_libraries(covoxslam_dirty_metrics PRIVATE covoxslam_core)
         target_link_libraries(covoxslam_transfer_metrics PRIVATE covoxslam_core)
         set_target_properties(covoxslam_layout_metrics PROPERTIES CUDA_STANDARD 20
             CUDA_STANDARD_REQUIRED ON CUDA_EXTENSIONS OFF CUDA_RUNTIME_LIBRARY Shared)
