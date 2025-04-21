@@ -1,6 +1,7 @@
 #pragma once
 #include <covoxslam/store/store.hpp>
 #include <covoxslam/store/gpu_index.hpp>
+#include <covoxslam/store/snapshot.hpp>
 #include <covoxslam/storage/completion.hpp>
 
 namespace covoxslam::store
@@ -21,6 +22,19 @@ template<storage::layout l, storage::schema es = storage::schema::esdf> struct r
 template<storage::layout l, storage::schema es = storage::schema::esdf> class gpu_map_store
 {
     std::unordered_map<std::uint64_t, resident_entry<l, es>> maps_;
+    retirement_queue retired_;
+    template<storage::schema s> operation_result<retired_allocation> retained_field(const std::shared_ptr<const gpu_field<s, l>>& field) const
+    {
+        auto payload = field->payload.descriptor();
+        if (!payload) return std::unexpected(payload.error());
+        auto index = field->index.view();
+        if (!index) return std::unexpected(index.error());
+        const auto payload_bytes = payload->capacity_tiles * payload->tile_stride * (l == storage::layout::pool_soa ? storage::field_count<s> : 1);
+        const auto index_bytes = index->capacity * sizeof(device_hash_entry);
+        if (payload_bytes > std::numeric_limits<std::size_t>::max() - index_bytes)
+            return std::unexpected(operation_error{"resident byte accounting overflows"});
+        return retired_allocation{field, payload_bytes + index_bytes};
+    }
     template<storage::schema s> operation_result<std::shared_ptr<const gpu_field<s, l>>> upload(
         const std::shared_ptr<const field_pool<s, l>>& source, std::uint64_t generation)
     {
@@ -42,6 +56,28 @@ template<storage::layout l, storage::schema es = storage::schema::esdf> class gp
     }
 public:
     std::size_t size() const noexcept { return maps_.size(); }
+    std::size_t collect() { return retired_.collect(); }
+    std::size_t pending_bytes() const noexcept { return retired_.pending_bytes(); }
+    operation_status retire(std::uint64_t id)
+    {
+        auto found = maps_.find(id);
+        if (found == maps_.end()) return {};
+        std::vector<retired_allocation> entries;
+        if (found->second.tsdf) {
+            auto retained = retained_field(found->second.tsdf);
+            if (!retained) return std::unexpected(retained.error());
+            entries.push_back(std::move(*retained));
+        }
+        if (found->second.esdf) {
+            auto retained = retained_field(found->second.esdf);
+            if (!retained) return std::unexpected(retained.error());
+            entries.push_back(std::move(*retained));
+        }
+        auto checked = retired_.retain_many(entries);
+        if (!checked) return checked;
+        maps_.erase(found);
+        return {};
+    }
     operation_status publish(const map_snapshot<l, es>& source, std::uint32_t fields)
     {
         if (!fields || (fields & ~3U) || source.record.state == lifecycle::retired)

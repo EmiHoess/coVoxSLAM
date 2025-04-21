@@ -71,14 +71,30 @@ class retirement_queue
 public:
     operation_status retain(std::shared_ptr<const void> owner, std::size_t bytes)
     {
-        if (!owner || bytes > std::numeric_limits<std::size_t>::max() - bytes_)
-            return std::unexpected(operation_error{"retirement accounting overflows"});
+        const std::array<retired_allocation, 1> items{{{std::move(owner), bytes}}};
+        return retain_many(items);
+    }
+    operation_status retain_many(std::span<const retired_allocation> items)
+    {
+        auto bytes = bytes_;
 
-        for (const auto& entry : entries_)
-            if (!owner.owner_before(entry.owner) && !entry.owner.owner_before(owner))
-                return std::unexpected(operation_error{"allocation is already retired"});
-        entries_.push_back({std::move(owner), bytes});
-        bytes_ += bytes;
+        for (std::size_t i = 0; i < items.size(); ++i) {
+            const auto& owner = items[i].owner;
+            if (!owner || items[i].bytes > std::numeric_limits<std::size_t>::max() - bytes)
+                return std::unexpected(operation_error{"retirement accounting overflows"});
+
+            for (const auto& entry : entries_)
+                if (!owner.owner_before(entry.owner) && !entry.owner.owner_before(owner))
+                    return std::unexpected(operation_error{"allocation is already retired"});
+
+            for (std::size_t j = 0; j < i; ++j)
+                if (!owner.owner_before(items[j].owner) && !items[j].owner.owner_before(owner))
+                    return std::unexpected(operation_error{"retirement batch repeats an allocation"});
+            bytes += items[i].bytes;
+        }
+        entries_.reserve(entries_.size() + items.size());
+        entries_.insert(entries_.end(), items.begin(), items.end());
+        bytes_ = bytes;
         return {};
     }
     std::size_t collect()

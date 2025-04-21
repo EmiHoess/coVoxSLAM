@@ -1,6 +1,7 @@
 #pragma once
 #include <covoxslam/store/store.hpp>
 #include <covoxslam/store/authority.hpp>
+#include <covoxslam/store/snapshot.hpp>
 #if defined(covoxslam_has_cuda)
 #include <covoxslam/store/gpu_store.hpp>
 #endif
@@ -16,10 +17,65 @@ template<storage::layout l, storage::schema es = storage::schema::esdf> class co
     };
     mutable std::mutex mutex_;
     std::unordered_map<std::uint64_t, std::shared_ptr<entry>> maps_;
+    retirement_queue retired_;
 #if defined(covoxslam_has_cuda)
     gpu_map_store<l, es> gpu_;
 #endif
 public:
+    operation_result<immutable_snapshot<l, es>> lease(std::span<const std::uint64_t> ids, std::uint32_t fields, std::size_t budget) const
+    {
+        std::lock_guard lock(mutex_);
+        std::vector<map_snapshot<l, es>> selected;
+
+        for (auto id : ids) {
+            auto found = maps_.find(id);
+            if (found == maps_.end()) return std::unexpected(operation_error{"snapshot submap is absent"});
+            const std::array<std::uint64_t, 1> single{id};
+            auto copied = found->second->cpu.snapshot(single, fields, budget);
+            if (!copied) return std::unexpected(copied.error());
+            copied->front().record.versions.esdf_source = found->second->authority.snapshot().esdf_source;
+            selected.push_back(std::move(copied->front()));
+        }
+        return immutable_snapshot<l, es>::create(std::move(selected), budget);
+    }
+    operation_status retire(std::uint64_t id)
+    {
+        std::lock_guard lock(mutex_);
+        auto found = maps_.find(id);
+        if (found == maps_.end()) return std::unexpected(operation_error{"submap identity is absent"});
+        auto& map = *found->second;
+        const auto state = map.authority.snapshot();
+        if (state.writer != writer_kind::none || state.state == lifecycle::retired)
+            return std::unexpected(operation_error{"retirement conflicts"});
+        const auto* entry = map.cpu.find(id);
+        if (!entry || !next_epoch(entry->record.versions.descriptor))
+            return std::unexpected(operation_error{"retirement descriptor is exhausted"});
+        std::vector<retired_allocation> retained;
+        auto append = [&]<storage::schema s>(const std::shared_ptr<const field_pool<s, l>>& field) {
+            if (!field) return;
+            constexpr auto stride = storage::storage_traits<s, l>::tile_stride * (l == storage::layout::pool_soa ? storage::field_count<s> : 1);
+            retained.push_back({field, field->payload.capacity() * stride});
+        };
+        append(entry->tsdf); append(entry->esdf);
+#if defined(covoxslam_has_cuda)
+        auto gpu_status = gpu_.retire(id);
+        if (!gpu_status) return gpu_status;
+#endif
+        auto checked = retired_.retain_many(retained);
+        if (!checked) return checked;
+        checked = map.cpu.retire(id);
+        if (!checked) return checked;
+        return map.authority.retire();
+    }
+    std::size_t collect()
+    {
+        std::lock_guard lock(mutex_);
+        auto bytes = retired_.collect();
+#if defined(covoxslam_has_cuda)
+        bytes += gpu_.collect();
+#endif
+        return bytes;
+    }
     operation_status create(std::uint64_t id, pose_record pose = {})
     {
         std::lock_guard lock(mutex_);
