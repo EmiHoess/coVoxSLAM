@@ -73,6 +73,13 @@ public:
         if (error != cudaSuccess) return std::unexpected(operation_error{cudaGetErrorString(error)});
         return {};
     }
+    operation_status cancel()
+    {
+        auto checked = wait();
+        if (!checked) return checked;
+        state_.reset();
+        return {};
+    }
 };
 struct stream_drain
 {

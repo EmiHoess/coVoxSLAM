@@ -8,6 +8,11 @@
 
 namespace covoxslam::store
 {
+struct residency_diagnostics
+{
+    std::size_t active{}, finalized{}, retired{}, cpu_stale_fields{}, gpu_stale_fields{};
+    std::size_t pending_reclamation_bytes{}, current_cpu_payload_bytes{};
+};
 template<storage::layout l, storage::schema es = storage::schema::esdf> class coordinated_store
 {
     struct entry
@@ -22,6 +27,36 @@ template<storage::layout l, storage::schema es = storage::schema::esdf> class co
     gpu_map_store<l, es> gpu_;
 #endif
 public:
+    operation_result<residency_diagnostics> diagnostics() const
+    {
+        std::lock_guard lock(mutex_);
+        residency_diagnostics result;
+        result.pending_reclamation_bytes = retired_.pending_bytes();
+#if defined(covoxslam_has_cuda)
+        if (gpu_.pending_bytes() > std::numeric_limits<std::size_t>::max() - result.pending_reclamation_bytes)
+            return std::unexpected(operation_error{"pending retirement count overflows"});
+        result.pending_reclamation_bytes += gpu_.pending_bytes();
+#endif
+
+        for (const auto& [id, map] : maps_) {
+            const auto state = map->authority.snapshot();
+            result.active += state.state == lifecycle::active;
+            result.finalized += state.state == lifecycle::finalized;
+            result.retired += state.state == lifecycle::retired;
+            if (state.state == lifecycle::retired) continue;
+
+            for (unsigned field = 0; field < 2; ++field) {
+                result.cpu_stale_fields += state.content[field] && state.cpu[field] != state.content[field];
+                result.gpu_stale_fields += state.content[field] && state.gpu[field] != state.content[field];
+            }
+            auto current = map->cpu.statistics();
+            if (!current) return std::unexpected(current.error());
+            if (current->payload_capacity_bytes > std::numeric_limits<std::size_t>::max() - result.current_cpu_payload_bytes)
+                return std::unexpected(operation_error{"current payload count overflows"});
+            result.current_cpu_payload_bytes += current->payload_capacity_bytes;
+        }
+        return result;
+    }
     operation_result<immutable_snapshot<l, es>> lease(std::span<const std::uint64_t> ids, std::uint32_t fields, std::size_t budget) const
     {
         std::lock_guard lock(mutex_);

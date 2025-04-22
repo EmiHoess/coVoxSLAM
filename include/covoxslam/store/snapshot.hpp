@@ -58,6 +58,7 @@ public:
     std::uint64_t id() const noexcept { return id_; }
     std::size_t payload_bytes() const noexcept { return bytes_; }
     std::span<const map_snapshot<l, es>> maps() const noexcept { return maps_; }
+    void cancel() noexcept { maps_.clear(); bytes_ = 0; id_ = 0; }
 };
 struct retired_allocation
 {
