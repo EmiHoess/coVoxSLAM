@@ -21,6 +21,7 @@ template<storage::layout l, storage::schema es = storage::schema::esdf> struct r
 };
 template<storage::layout l, storage::schema es = storage::schema::esdf> class gpu_map_store
 {
+    template<storage::layout, storage::schema> friend class coordinated_store;
     std::unordered_map<std::uint64_t, resident_entry<l, es>> maps_;
     retirement_queue retired_;
     template<storage::schema s> operation_result<retired_allocation> retained_field(const std::shared_ptr<const gpu_field<s, l>>& field) const
@@ -54,15 +55,11 @@ template<storage::layout l, storage::schema es = storage::schema::esdf> class gp
         field->source_identity = source;
         return field;
     }
-public:
-    std::size_t size() const noexcept { return maps_.size(); }
-    std::size_t collect() { return retired_.collect(); }
-    std::size_t pending_bytes() const noexcept { return retired_.pending_bytes(); }
-    operation_status retire(std::uint64_t id)
+    operation_result<std::vector<retired_allocation>> prepare_retirement(std::uint64_t id) const
     {
         auto found = maps_.find(id);
-        if (found == maps_.end()) return {};
         std::vector<retired_allocation> entries;
+        if (found == maps_.end()) return entries;
         if (found->second.tsdf) {
             auto retained = retained_field(found->second.tsdf);
             if (!retained) return std::unexpected(retained.error());
@@ -73,9 +70,20 @@ public:
             if (!retained) return std::unexpected(retained.error());
             entries.push_back(std::move(*retained));
         }
-        auto checked = retired_.retain_many(entries);
+        return entries;
+    }
+    void finish_retirement(std::uint64_t id) { maps_.erase(id); }
+public:
+    std::size_t size() const noexcept { return maps_.size(); }
+    std::size_t collect() { return retired_.collect(); }
+    std::size_t pending_bytes() const noexcept { return retired_.pending_bytes(); }
+    operation_status retire(std::uint64_t id)
+    {
+        auto entries = prepare_retirement(id);
+        if (!entries) return std::unexpected(entries.error());
+        auto checked = retired_.retain_many(*entries);
         if (!checked) return checked;
-        maps_.erase(found);
+        finish_retirement(id);
         return {};
     }
     operation_status publish(const map_snapshot<l, es>& source, std::uint32_t fields)
@@ -121,6 +129,21 @@ public:
         candidate.record.versions.esdf = candidate.esdf ? candidate.esdf->content_epoch : 0;
         if (!(fields & 2U)) candidate.record.versions.esdf_source = old == maps_.end() ? 0 : old->second.record.versions.esdf_source;
         candidate.record.gpu = residency::resident;
+        std::vector<retired_allocation> previous;
+        if (old != maps_.end()) {
+            if (old->second.tsdf && old->second.tsdf != candidate.tsdf) {
+                auto retained = retained_field(old->second.tsdf);
+                if (!retained) return std::unexpected(retained.error());
+                previous.push_back(std::move(*retained));
+            }
+            if (old->second.esdf && old->second.esdf != candidate.esdf) {
+                auto retained = retained_field(old->second.esdf);
+                if (!retained) return std::unexpected(retained.error());
+                previous.push_back(std::move(*retained));
+            }
+        }
+        auto retained = retired_.retain_many(previous);
+        if (!retained) return retained;
         maps_.insert_or_assign(source.record.id, std::move(candidate));
         return {};
     }

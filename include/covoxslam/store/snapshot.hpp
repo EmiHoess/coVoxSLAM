@@ -76,6 +76,8 @@ public:
     }
     operation_status retain_many(std::span<const retired_allocation> items)
     {
+        if (items.size() > entries_.max_size() - entries_.size())
+            return std::unexpected(operation_error{"retirement queue capacity exceeded"});
         auto bytes = bytes_;
 
         for (std::size_t i = 0; i < items.size(); ++i) {

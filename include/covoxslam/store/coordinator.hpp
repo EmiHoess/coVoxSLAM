@@ -58,11 +58,15 @@ public:
         };
         append(entry->tsdf); append(entry->esdf);
 #if defined(covoxslam_has_cuda)
-        auto gpu_status = gpu_.retire(id);
-        if (!gpu_status) return gpu_status;
+        auto gpu_retained = gpu_.prepare_retirement(id);
+        if (!gpu_retained) return std::unexpected(gpu_retained.error());
+        retained.insert(retained.end(), gpu_retained->begin(), gpu_retained->end());
 #endif
         auto checked = retired_.retain_many(retained);
         if (!checked) return checked;
+#if defined(covoxslam_has_cuda)
+        gpu_.finish_retirement(id);
+#endif
         checked = map.cpu.retire(id);
         if (!checked) return checked;
         return map.authority.retire();
