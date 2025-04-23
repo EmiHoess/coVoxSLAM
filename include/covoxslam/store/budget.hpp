@@ -1,6 +1,7 @@
 #pragma once
 #include <covoxslam/result.hpp>
 #include <array>
+#include <algorithm>
 #include <cstddef>
 #include <limits>
 #include <memory>

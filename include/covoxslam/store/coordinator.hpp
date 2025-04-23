@@ -198,6 +198,15 @@ public:
         return map.authority.finalize(fields, [&] { return map.cpu.seal(id, fields, source); });
     }
 #if defined(covoxslam_has_cuda)
+    operation_status evict_gpu(std::uint64_t id)
+    {
+        std::lock_guard lock(mutex_);
+        auto found = maps_.find(id);
+        if (found == maps_.end()) return std::unexpected(operation_error{"submap identity is absent"});
+        auto& map = *found->second;
+        const auto state = map.authority.snapshot();
+        return map.authority.evict(writer_kind::gpu, [&] { return gpu_.evict(id, state); });
+    }
     operation_status synchronize_gpu(std::uint64_t id, std::uint32_t fields, std::size_t budget)
     {
         std::lock_guard lock(mutex_);

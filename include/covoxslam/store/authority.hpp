@@ -186,5 +186,22 @@ public:
         state_->current.state = lifecycle::retired;
         return {};
     }
+    template<class function> operation_status evict(writer_kind side, function&& remove)
+    {
+        std::lock_guard lock(state_->mutex);
+        auto& current = state_->current;
+        if ((side != writer_kind::cpu && side != writer_kind::gpu) || current.state != lifecycle::finalized ||
+            current.writer != writer_kind::none)
+            return std::unexpected(operation_error{"eviction requires finalized quiescent storage"});
+        const auto& alternate = side == writer_kind::cpu ? current.gpu : current.cpu;
+
+        for (unsigned field = 0; field < 2; ++field)
+            if (current.content[field] && alternate[field] != current.content[field])
+                return std::unexpected(operation_error{"eviction requires a complete recoverable replica"});
+        auto checked = remove();
+        if (!checked) return checked;
+        (side == writer_kind::cpu ? current.cpu : current.gpu) = {};
+        return {};
+    }
 };
 }

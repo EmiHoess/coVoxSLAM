@@ -2,6 +2,7 @@
 #include <covoxslam/store/store.hpp>
 #include <covoxslam/store/gpu_index.hpp>
 #include <covoxslam/store/snapshot.hpp>
+#include <covoxslam/store/authority.hpp>
 #include <covoxslam/storage/completion.hpp>
 
 namespace covoxslam::store
@@ -77,6 +78,30 @@ public:
     std::size_t size() const noexcept { return maps_.size(); }
     std::size_t collect() { return retired_.collect(); }
     std::size_t pending_bytes() const noexcept { return retired_.pending_bytes(); }
+    operation_status evict(std::uint64_t id, const authority_snapshot& authority)
+    {
+        auto found = maps_.find(id);
+        if (authority.state != lifecycle::finalized || authority.writer != writer_kind::none)
+            return std::unexpected(operation_error{"GPU eviction requires a finalized submap"});
+        if (found == maps_.end()) return {};
+        auto available = [&]<storage::schema s>(const std::shared_ptr<const gpu_field<s, l>>& field, unsigned i) -> operation_status {
+            if (!field) return {};
+            if (field.use_count() != 1) return std::unexpected(operation_error{"GPU allocation is pinned"});
+            if (authority.cpu[i] != authority.content[i] || field->content_epoch != authority.content[i])
+                return std::unexpected(operation_error{"GPU eviction has no current CPU replica"});
+            auto descriptor = field->payload.descriptor();
+            if (!descriptor) return std::unexpected(descriptor.error());
+            return {};
+        };
+        auto checked = available(found->second.tsdf, 0);
+        if (!checked) return checked;
+        checked = available(found->second.esdf, 1);
+        if (!checked) return checked;
+        found->second.tsdf.reset();
+        found->second.esdf.reset();
+        found->second.record.gpu = residency::evicted;
+        return {};
+    }
     operation_status retire(std::uint64_t id)
     {
         auto entries = prepare_retirement(id);
