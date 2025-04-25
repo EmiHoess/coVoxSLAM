@@ -9,6 +9,7 @@ namespace covoxslam::store
 {
 template<storage::schema s, storage::layout l> struct gpu_field
 {
+    std::shared_ptr<budget_claim> memory;
     storage::cuda_draft<s, l> payload;
     gpu_block_index index;
     std::uint64_t content_epoch{}, allocation_generation{};
@@ -25,6 +26,7 @@ template<storage::layout l, storage::schema es = storage::schema::esdf> class gp
     template<storage::layout, storage::schema> friend class coordinated_store;
     std::unordered_map<std::uint64_t, resident_entry<l, es>> maps_;
     retirement_queue retired_;
+    std::shared_ptr<memory_budget> budget_;
     template<storage::schema s> operation_result<retired_allocation> retained_field(const std::shared_ptr<const gpu_field<s, l>>& field) const
     {
         auto payload = field->payload.descriptor();
@@ -42,7 +44,23 @@ template<storage::layout l, storage::schema es = storage::schema::esdf> class gp
     {
         if (!source || source->index.slot_count() != source->payload.size())
             return std::unexpected(operation_error{"resident field has invalid initialized slots"});
+        constexpr auto stride = storage::storage_traits<s, l>::tile_stride *
+            (l == storage::layout::pool_soa ? storage::field_count<s> : 1);
+        std::size_t buckets{2};
+        if (source->index.size() > std::size_t(std::numeric_limits<std::uint32_t>::max()) / 2 ||
+            source->payload.size() > std::numeric_limits<std::size_t>::max() / stride)
+            return std::unexpected(operation_error{"resident capacity is unsupported"});
+        while (buckets / 2 < source->index.size()) buckets *= 2;
+        const auto index_bytes = buckets * sizeof(device_hash_entry);
+        auto bytes = add_memory({0, 0, source->payload.size() * stride}, {0, 0, index_bytes});
+        if (!bytes) return std::unexpected(bytes.error());
+        auto retained = budget_->reserve(*bytes);
+        if (!retained) return std::unexpected(retained.error());
+        const auto input_bytes = source->index.size() * sizeof(device_hash_entry);
+        auto transient = budget_->reserve({input_bytes, 0, input_bytes + sizeof(unsigned)});
+        if (!transient) return std::unexpected(transient.error());
         auto field = std::make_shared<gpu_field<s, l>>();
+        field->memory = std::move(*retained);
         auto checked = field->payload.initialize(source->payload.size());
         if (!checked) return std::unexpected(checked.error());
         storage::transfer_measurement measured;
@@ -73,8 +91,18 @@ template<storage::layout l, storage::schema es = storage::schema::esdf> class gp
         }
         return entries;
     }
-    void finish_retirement(std::uint64_t id) { maps_.erase(id); }
+    void finish_retirement(std::uint64_t id)
+    {
+        auto found = maps_.find(id);
+        if (found == maps_.end()) return;
+        if (found->second.tsdf && found->second.tsdf->memory) found->second.tsdf->memory->retire();
+        if (found->second.esdf && found->second.esdf->memory) found->second.esdf->memory->retire();
+        maps_.erase(found);
+    }
 public:
+    explicit gpu_map_store(std::shared_ptr<memory_budget> budget = {})
+        : budget_(budget ? std::move(budget) : std::make_shared<memory_budget>(residency_policy{}.limits)) {}
+    budget_snapshot memory() const { return budget_->snapshot(); }
     std::size_t size() const noexcept { return maps_.size(); }
     std::size_t collect() { return retired_.collect(); }
     std::size_t pending_bytes() const noexcept { return retired_.pending_bytes(); }
@@ -177,6 +205,12 @@ public:
         }
         auto retained = retired_.retain_many(previous);
         if (!retained) return retained;
+        if (old != maps_.end()) {
+            if (old->second.tsdf && old->second.tsdf != candidate.tsdf && old->second.tsdf->memory)
+                old->second.tsdf->memory->retire();
+            if (old->second.esdf && old->second.esdf != candidate.esdf && old->second.esdf->memory)
+                old->second.esdf->memory->retire();
+        }
         maps_.insert_or_assign(source.record.id, std::move(candidate));
         return {};
     }

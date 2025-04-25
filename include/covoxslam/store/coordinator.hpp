@@ -19,14 +19,30 @@ template<storage::layout l, storage::schema es = storage::schema::esdf> class co
     {
         map_store<l, es> cpu;
         map_authority authority;
+        entry(std::size_t slots, std::shared_ptr<memory_budget> budget) : cpu(slots, std::move(budget)) {}
     };
     mutable std::mutex mutex_;
+    residency_policy policy_;
+    std::shared_ptr<memory_budget> budget_;
     std::unordered_map<std::uint64_t, std::shared_ptr<entry>> maps_;
     retirement_queue retired_;
 #if defined(covoxslam_has_cuda)
     gpu_map_store<l, es> gpu_;
 #endif
 public:
+    explicit coordinated_store(residency_policy policy = {}) : policy_(policy), budget_(std::make_shared<memory_budget>(policy.limits))
+#if defined(covoxslam_has_cuda)
+        , gpu_(budget_)
+#endif
+    {}
+    operation_status configure_budget(memory_bytes limits)
+    {
+        std::lock_guard lock(mutex_);
+        auto checked = budget_->configure(limits);
+        if (checked) policy_.limits = limits;
+        return checked;
+    }
+    budget_snapshot memory() const { return budget_->snapshot(); }
     operation_result<residency_diagnostics> diagnostics() const
     {
         std::lock_guard lock(mutex_);
@@ -119,7 +135,7 @@ public:
     {
         std::lock_guard lock(mutex_);
         if (maps_.contains(id)) return std::unexpected(operation_error{"submap identity already exists"});
-        auto replacement = std::make_shared<entry>();
+        auto replacement = std::make_shared<entry>(policy_.maximum_tiles, budget_);
         auto checked = replacement->cpu.create(id, pose);
         if (!checked) return checked;
         maps_.emplace(id, std::move(replacement));

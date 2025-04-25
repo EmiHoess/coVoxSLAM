@@ -1,6 +1,7 @@
 #pragma once
 #include <covoxslam/store/handle.hpp>
 #include <covoxslam/store/cpu_index.hpp>
+#include <covoxslam/store/budget.hpp>
 #include <covoxslam/storage/draft.hpp>
 #include <covoxslam/storage/record_pack.hpp>
 #include <cmath>
@@ -12,6 +13,7 @@ namespace covoxslam::store
 {
 template<storage::schema s, storage::layout l> struct field_pool
 {
+    std::shared_ptr<budget_claim> memory;
     storage::draft<s, l> payload;
     cpu_block_index index;
     std::uint64_t content_epoch{};
@@ -40,6 +42,21 @@ template<storage::layout l, storage::schema es = storage::schema::esdf> class ma
 {
     std::unordered_map<std::uint64_t, map_entry<l, es>> maps_;
     std::size_t maximum_tiles_{1000000};
+    std::shared_ptr<memory_budget> budget_;
+    template<storage::schema s> operation_result<std::shared_ptr<field_pool<s, l>>> allocate_field(std::size_t count)
+    {
+        constexpr auto stride = storage::storage_traits<s, l>::tile_stride *
+            (l == storage::layout::pool_soa ? storage::field_count<s> : 1);
+        if (count > maximum_tiles_ || count > std::numeric_limits<std::size_t>::max() / stride)
+            return std::unexpected(operation_error{"field allocation exceeds capacity"});
+        auto claim = budget_->reserve({count * stride, 0, 0});
+        if (!claim) return std::unexpected(claim.error());
+        auto field = std::make_shared<field_pool<s, l>>();
+        field->memory = std::move(*claim);
+        auto checked = field->payload.initialize(count);
+        if (!checked) return std::unexpected(checked.error());
+        return field;
+    }
     template<storage::schema s> auto& select_field(map_entry<l, es>& entry)
     {
         if constexpr (s == storage::schema::tsdf) return entry.tsdf;
@@ -48,9 +65,9 @@ template<storage::layout l, storage::schema es = storage::schema::esdf> class ma
     template<storage::schema s> operation_result<std::shared_ptr<field_pool<s, l>>> clone_field(
         std::uint64_t id, const std::shared_ptr<const field_pool<s, l>>& source, std::size_t count)
     {
-        auto target = std::make_shared<field_pool<s, l>>();
-        auto checked = target->payload.initialize(count);
-        if (!checked) return std::unexpected(checked.error());
+        auto allocated = allocate_field<s>(count);
+        if (!allocated) return std::unexpected(allocated.error());
+        auto target = std::move(*allocated);
         if (source) {
             target->index = source->index;
             auto in = source->payload.view();
@@ -61,13 +78,15 @@ template<storage::layout l, storage::schema es = storage::schema::esdf> class ma
                     storage::scatter_record(out[tile].voxels[voxel], storage::gather_record(in[tile].voxels[voxel]));
         }
         else {
-            checked = target->index.initialize(id, s == storage::schema::tsdf ? field_kind::tsdf : field_kind::esdf, {});
+            auto checked = target->index.initialize(id, s == storage::schema::tsdf ? field_kind::tsdf : field_kind::esdf, {});
             if (!checked) return std::unexpected(checked.error());
         }
         return target;
     }
 public:
-    explicit map_store(std::size_t maximum_tiles = 1000000) : maximum_tiles_(maximum_tiles) {}
+    explicit map_store(std::size_t maximum_tiles = 1000000, std::shared_ptr<memory_budget> budget = {})
+        : maximum_tiles_(maximum_tiles), budget_(budget ? std::move(budget) : std::make_shared<memory_budget>(residency_policy{}.limits)) {}
+    budget_snapshot memory() const { return budget_->snapshot(); }
     std::size_t size() const noexcept { return maps_.size(); }
     const map_entry<l, es>* find(std::uint64_t id) const noexcept
     {
@@ -178,6 +197,8 @@ public:
         if (!next) return std::unexpected(next.error());
         entry.record.state = lifecycle::retired;
         entry.record.versions.descriptor = *next;
+        if (entry.tsdf && entry.tsdf->memory) entry.tsdf->memory->retire();
+        if (entry.esdf && entry.esdf->memory) entry.esdf->memory->retire();
         entry.tsdf.reset();
         entry.esdf.reset();
         entry.record.cpu = entry.record.gpu = residency::absent;
@@ -253,6 +274,7 @@ public:
         for (std::size_t voxel = 0; voxel < 512; ++voxel)
             storage::scatter_record(view[handle->slot].voxels[voxel], storage::value<s>{});
         (*replacement)->content_epoch = *epoch;
+        if (source && source->memory) source->memory->retire();
         source = std::move(*replacement);
         entry.record.versions.allocation = *allocation;
         entry.record.versions.descriptor = *descriptor;
@@ -280,6 +302,7 @@ public:
             for (std::size_t voxel = 0; voxel < 512; ++voxel)
                 storage::scatter_record(view[handle.slot].voxels[voxel], storage::value<s>{});
             (*replacement)->content_epoch = *epoch;
+            if (source->memory) source->memory->retire();
             source = std::move(*replacement);
             entry.record.versions.allocation = *allocation;
             entry.record.versions.descriptor = *descriptor;
@@ -309,10 +332,10 @@ public:
         for (const auto& key : keys)
             if (key.submap != id || !unique.insert(key).second)
                 return std::unexpected(operation_error{"field keys conflict"});
-        auto replacement = std::make_shared<field_pool<s, l>>();
-        auto checked = replacement->payload.initialize(keys.size());
-        if (!checked) return checked;
-        checked = replacement->index.initialize(id, s == storage::schema::tsdf ? field_kind::tsdf : field_kind::esdf, keys);
+        auto allocated = allocate_field<s>(keys.size());
+        if (!allocated) return std::unexpected(allocated.error());
+        auto replacement = std::move(*allocated);
+        auto checked = replacement->index.initialize(id, s == storage::schema::tsdf ? field_kind::tsdf : field_kind::esdf, keys);
         if (!checked) return checked;
         auto view = replacement->payload.view();
 
