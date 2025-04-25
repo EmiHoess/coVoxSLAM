@@ -11,6 +11,11 @@ namespace covoxslam::store
 {
 enum class memory_space : std::size_t { host, pinned, device };
 using memory_bytes = std::array<std::size_t, 3>;
+struct residency_policy
+{
+    memory_bytes limits{1024U * 1024U * 1024U, 128U * 1024U * 1024U, 1024U * 1024U * 1024U};
+    std::size_t maximum_tiles{1000000};
+};
 struct budget_snapshot
 {
     memory_bytes limit{}, used{}, peak{}, pending{};

@@ -89,8 +89,16 @@ public:
             if (field.use_count() != 1) return std::unexpected(operation_error{"GPU allocation is pinned"});
             if (authority.cpu[i] != authority.content[i] || field->content_epoch != authority.content[i])
                 return std::unexpected(operation_error{"GPU eviction has no current CPU replica"});
+            auto recovery = field->source_identity.lock();
+            if (!recovery || recovery->content_epoch != authority.content[i] ||
+                recovery->index.submap() != id || recovery->index.slot_count() != recovery->payload.size())
+                return std::unexpected(operation_error{"GPU eviction has no retained lossless recovery field"});
+            if (recovery->index.field() != (i ? field_kind::esdf : field_kind::tsdf))
+                return std::unexpected(operation_error{"GPU recovery field identity conflicts"});
             auto descriptor = field->payload.descriptor();
             if (!descriptor) return std::unexpected(descriptor.error());
+            if (descriptor->capacity_tiles < recovery->payload.size())
+                return std::unexpected(operation_error{"GPU recovery field size conflicts"});
             return {};
         };
         auto checked = available(found->second.tsdf, 0);
