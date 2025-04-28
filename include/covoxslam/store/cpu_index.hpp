@@ -20,6 +20,25 @@ class cpu_block_index
     field_kind field_{};
     bool initialized_{};
 public:
+    operation_status restore(std::uint64_t submap, field_kind field, std::span<const slot_record> records)
+    {
+        if (initialized_ || (field != field_kind::tsdf && field != field_kind::esdf) ||
+            records.size() > std::numeric_limits<std::uint32_t>::max())
+            return std::unexpected(operation_error{"invalid restored block index"});
+        decltype(buckets_) buckets;
+        buckets.reserve(records.size());
+
+        for (std::size_t slot = 0; slot < records.size(); ++slot) {
+            const auto& record = records[slot];
+            if (!record.generation || record.key.submap != submap ||
+                (record.occupied && !buckets.emplace(record.key, std::uint32_t(slot)).second))
+                return std::unexpected(operation_error{"restored slot identities conflict"});
+        }
+        std::vector<slot_record> slots(records.begin(), records.end());
+        buckets_ = std::move(buckets); slots_ = std::move(slots);
+        submap_ = submap; field_ = field; initialized_ = true;
+        return {};
+    }
     operation_status initialize(std::uint64_t submap, field_kind field, std::span<const block_key> keys)
     {
         if (initialized_ || (field != field_kind::tsdf && field != field_kind::esdf) ||
