@@ -18,6 +18,57 @@ template<storage::schema s, storage::layout l> struct field_pool
     cpu_block_index index;
     std::uint64_t content_epoch{};
 };
+template<storage::schema s, storage::layout l> class field_editor
+{
+    field_pool<s, l>& field_;
+    memory_budget& budget_;
+    std::size_t maximum_tiles_;
+public:
+    using voxel_reference = decltype(std::declval<storage::draft<s, l>&>().view()[0].voxels[0]);
+    field_editor(field_pool<s, l>& field, memory_budget& budget, std::size_t maximum_tiles)
+        : field_(field), budget_(budget), maximum_tiles_(maximum_tiles) {}
+    field_editor(const field_editor&) = delete;
+    field_editor& operator=(const field_editor&) = delete;
+    std::size_t size() const { return field_.index.size(); }
+    std::span<const slot_record> slots() const { return field_.index.records(); }
+    operation_result<tile_handle> find(block_key key) const { return field_.index.find(key); }
+    operation_result<tile_handle> allocate(block_key key)
+    {
+        auto present = find(key);
+        if (present) return present;
+        const auto count = field_.payload.size();
+        auto handle = field_.index.insert(key, maximum_tiles_);
+        if (!handle) return std::unexpected(handle.error());
+        const auto capacity = field_.index.slot_count();
+        std::shared_ptr<budget_claim> replacement;
+        if (capacity > field_.payload.capacity()) {
+            constexpr auto stride = storage::storage_traits<s, l>::tile_stride *
+                (l == storage::layout::pool_soa ? storage::field_count<s> : 1);
+            if (capacity > std::numeric_limits<std::size_t>::max() / stride)
+                return std::unexpected(operation_error{"mapping field growth overflows"});
+            auto memory = budget_.reserve({capacity * stride, 0, 0});
+            if (!memory) return std::unexpected(memory.error());
+            replacement = std::move(*memory);
+        }
+        auto checked = field_.payload.resize(capacity);
+        if (!checked) return std::unexpected(checked.error());
+        if (replacement) field_.memory = std::move(replacement);
+        if (handle->slot < count) {
+            auto view = field_.payload.view();
+
+            for (std::size_t voxel = 0; voxel < 512; ++voxel)
+                storage::scatter_record(view[handle->slot].voxels[voxel], storage::value<s>{});
+        }
+        return handle;
+    }
+    operation_result<voxel_reference> voxel(tile_handle handle, std::size_t local)
+    {
+        auto checked = field_.index.resolve(handle);
+        if (!checked) return std::unexpected(checked.error());
+        if (local >= 512) return std::unexpected(operation_error{"local voxel index is invalid"});
+        return field_.payload.view()[handle.slot].voxels[local];
+    }
+};
 template<storage::layout l, storage::schema es = storage::schema::esdf> struct map_entry
 {
     submap_record record;
@@ -87,6 +138,29 @@ public:
     explicit map_store(std::size_t maximum_tiles = 1000000, std::shared_ptr<memory_budget> budget = {})
         : maximum_tiles_(maximum_tiles), budget_(budget ? std::move(budget) : std::make_shared<memory_budget>(residency_policy{}.limits)) {}
     budget_snapshot memory() const { return budget_->snapshot(); }
+    template<storage::schema s, class function> operation_status edit_field(std::uint64_t id, function&& edit)
+    {
+        auto found = maps_.find(id);
+        if (found == maps_.end() || found->second.record.state != lifecycle::active)
+            return std::unexpected(operation_error{"field editing requires an active submap"});
+        auto& entry = found->second;
+        auto& source = select_field<s>(entry);
+        auto epoch = next_epoch(source ? source->content_epoch : 0);
+        auto allocation = next_epoch(entry.record.versions.allocation), descriptor = next_epoch(entry.record.versions.descriptor);
+        if (!epoch || !allocation || !descriptor) return std::unexpected(operation_error{"field editing epoch exhausted"});
+        auto replacement = clone_field<s>(id, source, source ? source->payload.size() : 0);
+        if (!replacement) return std::unexpected(replacement.error());
+        field_editor<s, l> editor(**replacement, *budget_, maximum_tiles_);
+        auto checked = edit(editor);
+        if (!checked) return checked;
+        (*replacement)->content_epoch = *epoch;
+        if (source && source->memory) source->memory->retire();
+        source = std::move(*replacement);
+        entry.record.versions.allocation = *allocation; entry.record.versions.descriptor = *descriptor;
+        (s == storage::schema::tsdf ? entry.record.versions.tsdf : entry.record.versions.esdf) = *epoch;
+        entry.record.cpu = residency::resident;
+        return {};
+    }
     operation_status restore(map_snapshot<l, es> snapshot)
     {
         auto& record = snapshot.record;

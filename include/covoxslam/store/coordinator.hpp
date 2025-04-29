@@ -44,6 +44,19 @@ public:
         return checked;
     }
     budget_snapshot memory() const { return budget_->snapshot(); }
+    template<storage::schema s, class function> operation_status edit(std::uint64_t id, function&& function_body,
+        std::uint64_t esdf_source = 0)
+    {
+        std::lock_guard lock(mutex_);
+        auto found = maps_.find(id);
+        if (found == maps_.end()) return std::unexpected(operation_error{"mapping submap is absent"});
+        auto& map = *found->second;
+        auto writer = map.authority.acquire(writer_kind::cpu, s == storage::schema::tsdf ? 1U : 2U);
+        if (!writer) return std::unexpected(writer.error());
+        return writer->publish(esdf_source, [&](const auto&) {
+            return map.cpu.template edit_field<s>(id, std::forward<function>(function_body));
+        });
+    }
     operation_status save(std::uint64_t id, const std::filesystem::path& destination,
         checkpoint_parameters parameters, std::size_t maximum_bytes) const
     {
