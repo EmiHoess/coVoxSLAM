@@ -2,6 +2,7 @@
 #include <covoxslam/store/store.hpp>
 #include <covoxslam/store/authority.hpp>
 #include <covoxslam/store/snapshot.hpp>
+#include <covoxslam/store/checkpoint.hpp>
 #if defined(covoxslam_has_cuda)
 #include <covoxslam/store/gpu_store.hpp>
 #endif
@@ -43,6 +44,46 @@ public:
         return checked;
     }
     budget_snapshot memory() const { return budget_->snapshot(); }
+    operation_status save(std::uint64_t id, const std::filesystem::path& destination,
+        checkpoint_parameters parameters, std::size_t maximum_bytes) const
+    {
+        map_snapshot<l, es> selected;
+        {
+            std::lock_guard lock(mutex_);
+            auto found = maps_.find(id);
+            if (found == maps_.end()) return std::unexpected(operation_error{"checkpoint submap is absent"});
+            const auto state = found->second->authority.snapshot();
+            const auto fields = std::uint32_t(bool(state.content[0])) | (std::uint32_t(bool(state.content[1])) << 1);
+            if (state.state != lifecycle::finalized || state.cpu != state.content)
+                return std::unexpected(operation_error{"checkpoint requires complete finalized CPU storage"});
+            const std::array<std::uint64_t, 1> ids{id};
+            auto snapshot = found->second->cpu.snapshot(ids, fields, maximum_bytes);
+            if (!snapshot) return std::unexpected(snapshot.error());
+            selected = std::move(snapshot->front());
+            selected.record.versions.esdf_source = state.esdf_source;
+        }
+        auto bytes = encode_checkpoint(selected, parameters, maximum_bytes);
+        if (!bytes) return std::unexpected(bytes.error());
+        return save_checkpoint_bytes(destination, *bytes);
+    }
+    operation_result<std::uint64_t> restore(const std::filesystem::path& source,
+        checkpoint_parameters parameters, std::size_t maximum_bytes)
+    {
+        auto bytes = read_checkpoint_bytes(source, maximum_bytes);
+        if (!bytes) return std::unexpected(bytes.error());
+        std::lock_guard lock(mutex_);
+        auto decoded = decode_checkpoint<l, es>(*bytes, parameters, policy_.maximum_tiles, *budget_);
+        if (!decoded) return std::unexpected(decoded.error());
+        const auto id = decoded->record.id;
+        if (maps_.contains(id)) return std::unexpected(operation_error{"checkpoint identity already exists"});
+        auto replacement = std::make_shared<entry>(policy_.maximum_tiles, budget_);
+        auto checked = replacement->cpu.restore(std::move(*decoded));
+        if (!checked) return std::unexpected(checked.error());
+        checked = replacement->authority.restore(replacement->cpu.find(id)->record);
+        if (!checked) return std::unexpected(checked.error());
+        maps_.emplace(id, std::move(replacement));
+        return id;
+    }
     operation_result<residency_diagnostics> diagnostics() const
     {
         std::lock_guard lock(mutex_);
