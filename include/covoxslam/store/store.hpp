@@ -87,6 +87,36 @@ public:
     explicit map_store(std::size_t maximum_tiles = 1000000, std::shared_ptr<memory_budget> budget = {})
         : maximum_tiles_(maximum_tiles), budget_(budget ? std::move(budget) : std::make_shared<memory_budget>(residency_policy{}.limits)) {}
     budget_snapshot memory() const { return budget_->snapshot(); }
+    operation_status restore(map_snapshot<l, es> snapshot)
+    {
+        auto& record = snapshot.record;
+        if (maps_.contains(record.id) || record.state != lifecycle::finalized || record.writer != writer_kind::none ||
+            !finite_pose(record.initial_pose) || !finite_pose(record.optimized_pose) || !record.versions.pose ||
+            (!snapshot.tsdf && !snapshot.esdf) || bool(record.versions.tsdf) != bool(snapshot.tsdf) ||
+            bool(record.versions.esdf) != bool(snapshot.esdf) ||
+            (snapshot.esdf && (!snapshot.tsdf || record.versions.esdf_source != record.versions.tsdf)))
+            return std::unexpected(operation_error{"restored submap identity or metadata conflicts"});
+        auto admit = [&]<storage::schema s>(const std::shared_ptr<const field_pool<s, l>>& field) -> operation_status {
+            if (!field) return {};
+            const auto version = s == storage::schema::tsdf ? record.versions.tsdf : record.versions.esdf;
+            const auto kind = s == storage::schema::tsdf ? field_kind::tsdf : field_kind::esdf;
+            if (!budget_->owns(field->memory) || !field->index.initialized() || field->index.submap() != record.id ||
+                field->index.field() != kind || field->payload.size() != field->index.slot_count() ||
+                field->payload.size() > maximum_tiles_ || field->content_epoch != version)
+                return std::unexpected(operation_error{"restored field identity or admission differs"});
+            return {};
+        };
+        auto checked = admit(snapshot.tsdf);
+        if (!checked) return checked;
+        checked = admit(snapshot.esdf);
+        if (!checked) return checked;
+        auto allocation = next_epoch(record.versions.allocation), descriptor = next_epoch(record.versions.descriptor);
+        if (!allocation || !descriptor) return std::unexpected(operation_error{"restored allocation epochs are exhausted"});
+        record.versions.allocation = *allocation; record.versions.descriptor = *descriptor;
+        record.cpu = residency::resident; record.gpu = residency::absent;
+        maps_.emplace(record.id, map_entry<l, es>{record, std::move(snapshot.tsdf), std::move(snapshot.esdf)});
+        return {};
+    }
     std::size_t size() const noexcept { return maps_.size(); }
     const map_entry<l, es>* find(std::uint64_t id) const noexcept
     {

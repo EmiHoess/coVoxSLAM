@@ -118,6 +118,24 @@ class map_authority
 {
     std::shared_ptr<authority_state> state_{std::make_shared<authority_state>()};
 public:
+    operation_status restore(const submap_record& record)
+    {
+        std::lock_guard lock(state_->mutex);
+        const auto& current = state_->current;
+        if (current.state != lifecycle::active || current.writer != writer_kind::none || current.lease_generation ||
+            current.content[0] || current.content[1] || record.state != lifecycle::finalized ||
+            record.writer != writer_kind::none || record.cpu != residency::resident ||
+            (!record.versions.tsdf && !record.versions.esdf) ||
+            (record.versions.esdf && (!record.versions.tsdf || record.versions.esdf_source != record.versions.tsdf)))
+            return std::unexpected(operation_error{"restored authority conflicts"});
+        authority_snapshot replacement;
+        replacement.state = lifecycle::finalized;
+        replacement.content = {record.versions.tsdf, record.versions.esdf};
+        replacement.cpu = replacement.content;
+        replacement.esdf_source = record.versions.esdf_source;
+        state_->current = replacement;
+        return {};
+    }
     authority_snapshot snapshot() const
     {
         std::lock_guard lock(state_->mutex);

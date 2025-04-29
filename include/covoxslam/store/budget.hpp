@@ -64,6 +64,10 @@ public:
     {
         state_->counters.limit = limits;
     }
+    bool owns(const std::shared_ptr<budget_claim>& claim) const noexcept
+    {
+        return claim && claim->state_ == state_;
+    }
     operation_result<std::shared_ptr<budget_claim>> reserve(memory_bytes bytes)
     {
         auto claim = std::make_shared<budget_claim>();

@@ -62,6 +62,14 @@ template<storage::layout l, storage::schema es> operation_result<map_snapshot<l,
         header.layout > std::uint32_t(storage::layout::pool_soa) || header.esdf_schema != std::uint32_t(es) ||
         !header.fields || (header.fields & ~3U) || !valid_parameters(header.parameters) || header.parameters != expected)
         return std::unexpected(operation_error{"checkpoint format or configuration differs"});
+    const auto& record = header.record;
+    if (!record.versions.pose || !record.versions.allocation || !record.versions.descriptor ||
+        !finite_pose(record.initial_pose) || !finite_pose(record.optimized_pose) ||
+        bool(header.fields & 1U) != bool(record.versions.tsdf) ||
+        bool(header.fields & 2U) != bool(record.versions.esdf) ||
+        ((header.fields & 2U) && (!record.versions.tsdf || record.versions.esdf_source != record.versions.tsdf)) ||
+        (!(header.fields & 2U) && record.versions.esdf_source))
+        return std::unexpected(operation_error{"checkpoint epochs or poses are inconsistent"});
     map_snapshot<l, es> result;
     result.record = header.record;
     result.record.state = lifecycle::finalized;
