@@ -58,6 +58,8 @@ template<storage::layout l> operation_result<bool> integrate_store_ray(field_edi
         const float projected = dot(center - input.origin, direction);
         if (boundary > entered && projected >= 0 && projected <= traversal) {
             const auto block = block_index(voxel);
+            if (!editor.find({id, block.x, block.y, block.z}) && editor.size() >= config.maximum_tiles)
+                return std::unexpected(operation_error{"CPU mapping tile budget exceeded"});
             auto handle = editor.allocate({id, block.x, block.y, block.z});
             if (!handle) return std::unexpected(handle.error());
             auto target = editor.voxel(*handle, local_index(voxel));

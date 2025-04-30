@@ -5,6 +5,7 @@
 #include <covoxslam/storage/draft.hpp>
 #include <covoxslam/storage/record_pack.hpp>
 #include <cmath>
+#include <optional>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -23,7 +24,14 @@ template<storage::schema s, storage::layout l> class field_editor
     field_pool<s, l>& field_;
     memory_budget& budget_;
     std::size_t maximum_tiles_;
+    std::optional<operation_error> failure_;
 public:
+    struct cached_tile
+    {
+        tile_handle handle;
+        const void* owner{};
+        std::uint64_t generation{};
+    };
     using voxel_reference = decltype(std::declval<storage::draft<s, l>&>().view()[0].voxels[0]);
     field_editor(field_pool<s, l>& field, memory_budget& budget, std::size_t maximum_tiles)
         : field_(field), budget_(budget), maximum_tiles_(maximum_tiles) {}
@@ -32,7 +40,8 @@ public:
     std::size_t size() const { return field_.index.size(); }
     std::span<const slot_record> slots() const { return field_.index.records(); }
     operation_result<tile_handle> find(block_key key) const { return field_.index.find(key); }
-    operation_result<tile_handle> allocate(block_key key)
+private:
+    operation_result<tile_handle> allocate_impl(block_key key)
     {
         auto present = find(key);
         if (present) return present;
@@ -61,12 +70,45 @@ public:
         }
         return handle;
     }
+public:
+    operation_status status() const
+    {
+        if (failure_) return std::unexpected(*failure_);
+        if (field_.payload.size() != field_.index.slot_count())
+            return std::unexpected(operation_error{"mapping payload and index sizes differ"});
+        return {};
+    }
+    operation_result<tile_handle> allocate(block_key key)
+    {
+        if (failure_) return std::unexpected(*failure_);
+        auto result = allocate_impl(key);
+        if (!result) failure_ = result.error();
+        return result;
+    }
+    operation_result<cached_tile> cache(block_key key)
+    {
+        auto handle = allocate(key);
+        if (!handle) return std::unexpected(handle.error());
+        return cached_tile{*handle, &field_, field_.payload.generation()};
+    }
     operation_result<voxel_reference> voxel(tile_handle handle, std::size_t local)
     {
+        if (failure_) return std::unexpected(*failure_);
         auto checked = field_.index.resolve(handle);
-        if (!checked) return std::unexpected(checked.error());
-        if (local >= 512) return std::unexpected(operation_error{"local voxel index is invalid"});
+        if (!checked) { failure_ = checked.error(); return std::unexpected(*failure_); }
+        if (local >= 512) {
+            failure_ = operation_error{"local voxel index is invalid"};
+            return std::unexpected(*failure_);
+        }
         return field_.payload.view()[handle.slot].voxels[local];
+    }
+    operation_result<voxel_reference> voxel(cached_tile cached, std::size_t local)
+    {
+        if (cached.owner != &field_ || cached.generation != field_.payload.generation()) {
+            failure_ = operation_error{"cached mapping view is stale"};
+            return std::unexpected(*failure_);
+        }
+        return voxel(cached.handle, local);
     }
 };
 template<storage::layout l, storage::schema es = storage::schema::esdf> struct map_entry
@@ -152,6 +194,8 @@ public:
         if (!replacement) return std::unexpected(replacement.error());
         field_editor<s, l> editor(**replacement, *budget_, maximum_tiles_);
         auto checked = edit(editor);
+        if (!checked) return checked;
+        checked = editor.status();
         if (!checked) return checked;
         (*replacement)->content_epoch = *epoch;
         if (source && source->memory) source->memory->retire();
