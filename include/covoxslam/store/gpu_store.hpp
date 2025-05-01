@@ -103,6 +103,48 @@ public:
     explicit gpu_map_store(std::shared_ptr<memory_budget> budget = {})
         : budget_(budget ? std::move(budget) : std::make_shared<memory_budget>(residency_policy{}.limits)) {}
     budget_snapshot memory() const { return budget_->snapshot(); }
+    template<storage::schema s, class function> operation_status edit(std::uint64_t id,
+        std::uint64_t content_epoch, std::uint64_t esdf_source, function&& consumer)
+    {
+        auto previous = field<s>(id);
+        if (!previous) return std::unexpected(previous.error());
+        auto& entry = maps_.at(id);
+        auto source = (*previous)->source_identity.lock();
+        auto generation = next_epoch(entry.record.versions.allocation);
+        auto descriptor = next_epoch(entry.record.versions.descriptor);
+        if (!source || entry.record.state != lifecycle::active || !generation || !descriptor ||
+            content_epoch <= (*previous)->content_epoch)
+            return std::unexpected(operation_error{"GPU writer source or epoch is invalid"});
+        auto replacement = upload<s>(source, *generation);
+        if (!replacement) return std::unexpected(replacement.error());
+        auto candidate = std::const_pointer_cast<gpu_field<s, l>>(*replacement);
+        storage::transfer_measurement copied;
+        auto checked = candidate->payload.copy_from((*previous)->payload, 0, 0, source->payload.size() * 512,
+            (1U << storage::field_count<s>) - 1, storage::transfer_method::bulk_same_layout, copied);
+        if (!checked) return checked;
+        auto view = candidate->payload.view();
+        auto index = candidate->index.view();
+        if (!view) return std::unexpected(view.error());
+        if (!index) return std::unexpected(index.error());
+        storage::stream_drain drain{candidate->payload.stream(), index->device};
+        checked = consumer(*view, *index, candidate->payload.stream());
+        if (!checked) return checked;
+        checked = storage::cuda_storage_status(cudaStreamSynchronize(candidate->payload.stream()));
+        if (!checked) return checked;
+        drain.armed = false;
+        auto retired = retained_field(*previous);
+        if (!retired) return std::unexpected(retired.error());
+        checked = retired_.retain(retired->owner, retired->bytes);
+        if (!checked) return checked;
+        candidate->content_epoch = content_epoch;
+        if ((*previous)->memory) (*previous)->memory->retire();
+        if constexpr (s == storage::schema::tsdf) entry.tsdf = std::move(candidate);
+        else entry.esdf = std::move(candidate);
+        (s == storage::schema::tsdf ? entry.record.versions.tsdf : entry.record.versions.esdf) = content_epoch;
+        if constexpr (s != storage::schema::tsdf) entry.record.versions.esdf_source = esdf_source;
+        entry.record.versions.allocation = *generation; entry.record.versions.descriptor = *descriptor;
+        return {};
+    }
     std::size_t size() const noexcept { return maps_.size(); }
     std::size_t collect() { return retired_.collect(); }
     std::size_t pending_bytes() const noexcept { return retired_.pending_bytes(); }

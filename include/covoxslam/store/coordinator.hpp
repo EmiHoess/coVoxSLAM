@@ -268,6 +268,19 @@ public:
         return map.authority.finalize(fields, [&] { return map.cpu.seal(id, fields, source); });
     }
 #if defined(covoxslam_has_cuda)
+    template<storage::schema s, class function> operation_status edit_gpu(std::uint64_t id, function&& consumer,
+        std::uint64_t esdf_source = 0)
+    {
+        std::lock_guard lock(mutex_);
+        auto found = maps_.find(id);
+        if (found == maps_.end()) return std::unexpected(operation_error{"GPU writer submap is absent"});
+        auto writer = found->second->authority.acquire(writer_kind::gpu, s == storage::schema::tsdf ? 1U : 2U);
+        if (!writer) return std::unexpected(writer.error());
+        return writer->publish(esdf_source, [&](const auto& versions) {
+            return gpu_.template edit<s>(id, versions[s == storage::schema::tsdf ? 0 : 1], esdf_source,
+                std::forward<function>(consumer));
+        });
+    }
     operation_status evict_gpu(std::uint64_t id)
     {
         std::lock_guard lock(mutex_);
