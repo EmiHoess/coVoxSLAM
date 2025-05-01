@@ -127,4 +127,88 @@ template<storage::layout l> operation_result<tsdf_tiles> canonical_tsdf(const fi
     }
     return result;
 }
+template<storage::layout l> operation_status build_cpu_store_esdf(coordinated_store<l>& store,
+    std::uint64_t id, const mapping_config& config, std::size_t snapshot_budget)
+{
+    if (!config.valid() || config.esdf_generator != esdf_backend::cpu_blocks_batch)
+        return std::unexpected(operation_error{"CPU store ESDF requires the CPU batch generator"});
+    auto snapshot = store.snapshot(id, 1U, snapshot_budget);
+    if (!snapshot) return std::unexpected(snapshot.error());
+    if (snapshot->record.versions.esdf)
+        return std::unexpected(operation_error{"CPU batch ESDF is already initialized"});
+
+    for (const auto& slot : snapshot->tsdf->index.records()) {
+        if (!slot.occupied) continue;
+
+        for (const auto component : {slot.key.x, slot.key.y, slot.key.z})
+            if (std::int64_t(component) * 8 < std::numeric_limits<int>::min() ||
+                std::int64_t(component) * 8 + 7 > std::numeric_limits<int>::max())
+                return std::unexpected(operation_error{"CPU ESDF block exceeds voxel coordinate bounds"});
+    }
+    auto canonical = canonical_tsdf(*snapshot->tsdf);
+    if (!canonical) return std::unexpected(canonical.error());
+    esdf_tiles esdf;
+    build_cpu_esdf(*canonical, esdf, config);
+    return store.template edit<storage::schema::esdf>(id, [&](auto& editor) -> operation_status {
+
+        for (const auto& [block, tile] : esdf) {
+            auto handle = editor.allocate({id, block.x, block.y, block.z});
+            if (!handle) return std::unexpected(handle.error());
+
+            for (std::size_t local = 0; local < 512; ++local) {
+                auto target = editor.voxel(*handle, local);
+                if (!target) return std::unexpected(target.error());
+                const auto& value = tile.voxels[local];
+                storage::scatter_record<storage::schema::esdf>(*target,
+                    {value.signed_distance_m, value.parent_dx, value.parent_dy, value.parent_dz, value.flags});
+            }
+        }
+        return {};
+    }, snapshot->record.versions.tsdf);
+}
+template<storage::layout l> class cpu_store_mapper
+{
+    mapping_config config_;
+    coordinated_store<l> store_;
+    std::optional<std::uint64_t> active_;
+    std::size_t snapshot_budget_;
+public:
+    explicit cpu_store_mapper(mapping_config config, residency_policy policy = {})
+        : config_(config), store_(policy), snapshot_budget_(policy.limits[0]) {}
+    operation_status begin(std::uint64_t id, pose_record pose = {})
+    {
+        if (active_ || !config_.valid() || (config_.esdf_generator != esdf_backend::none &&
+            config_.esdf_generator != esdf_backend::cpu_blocks_batch))
+            return std::unexpected(operation_error{"CPU store mapper configuration or state is invalid"});
+        auto checked = store_.create(id, pose);
+        if (checked) active_ = id;
+        return checked;
+    }
+    operation_result<mapping_statistics> integrate(std::span<const ray> rays)
+    {
+        if (!active_) return std::unexpected(operation_error{"CPU store mapper has no active submap"});
+        return integrate_cpu_store(store_, *active_, rays, config_);
+    }
+    operation_result<map_snapshot<l>> finish()
+    {
+        if (!active_) return std::unexpected(operation_error{"CPU store mapper has no active submap"});
+        const auto fields = config_.esdf_generator == esdf_backend::none ? 1U : 3U;
+        if (fields & 2U) {
+            auto state = store_.status(*active_);
+            if (!state) return std::unexpected(state.error());
+            if (!state->content[1]) {
+                auto checked = build_cpu_store_esdf(store_, *active_, config_, snapshot_budget_);
+                if (!checked) return std::unexpected(checked.error());
+            }
+        }
+        auto candidate = store_.snapshot(*active_, fields, snapshot_budget_);
+        if (!candidate) return std::unexpected(candidate.error());
+        auto checked = store_.finalize(*active_, fields);
+        if (!checked) return std::unexpected(checked.error());
+        candidate->record.state = lifecycle::finalized;
+        active_.reset();
+        return candidate;
+    }
+    const coordinated_store<l>& maps() const { return store_; }
+};
 }
