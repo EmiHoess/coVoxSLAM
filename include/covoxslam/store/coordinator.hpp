@@ -135,6 +135,11 @@ public:
         for (auto id : ids) {
             auto found = maps_.find(id);
             if (found == maps_.end()) return std::unexpected(operation_error{"snapshot submap is absent"});
+            const auto state = found->second->authority.snapshot();
+
+            for (unsigned field = 0; field < 2; ++field)
+                if ((fields & (1U << field)) && state.cpu[field] != state.content[field])
+                    return std::unexpected(operation_error{"CPU snapshot requires mirror synchronization"});
             const std::array<std::uint64_t, 1> single{id};
             auto copied = found->second->cpu.snapshot(single, fields, budget);
             if (!copied) return std::unexpected(copied.error());
@@ -253,6 +258,11 @@ public:
         auto found = maps_.find(id);
         if (found == maps_.end()) return std::unexpected(operation_error{"submap identity is absent"});
         const std::array<std::uint64_t, 1> ids{id};
+        const auto state = found->second->authority.snapshot();
+
+        for (unsigned field = 0; field < 2; ++field)
+            if ((fields & (1U << field)) && state.cpu[field] != state.content[field])
+                return std::unexpected(operation_error{"CPU snapshot requires mirror synchronization"});
         auto result = found->second->cpu.snapshot(ids, fields, budget);
         if (!result) return std::unexpected(result.error());
         result->front().record.versions.esdf_source = found->second->authority.snapshot().esdf_source;

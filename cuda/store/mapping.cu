@@ -104,6 +104,10 @@ bool valid_mapping(storage::device_descriptor field, device_index_view index, un
     if (field.record_schema != storage::schema::tsdf || field.size_tiles > field.capacity_tiles || !field.generation ||
         !status || !index.entries || !index.capacity || (index.capacity & (index.capacity - 1)) ||
         !index.allocation_generation || index.field != 0U || field.device != index.device) return false;
+    int current{-1};
+    if (cudaGetDevice(&current) != cudaSuccess || current != field.device || !field.tile_stride ||
+        field.tile_stride % 4 || field.voxel_stride % 4 || field.voxel_stride < 4 ||
+        unsigned(field.storage_layout) > unsigned(storage::layout::pool_soa)) return false;
 
     for (unsigned f = 0; f < 4; ++f)
         if (!field.fields[f] || reinterpret_cast<std::uintptr_t>(field.fields[f]) % 4) return false;
@@ -135,6 +139,15 @@ int integrate_nearest(storage::device_descriptor payload, device_index_view inde
     if (!valid_mapping(payload, index, status) || !sensor_grid::sampling_detail::valid_view(source) || !keys || !count ||
         count > 1048576 || !isfinite(size) || size <= 0 || !isfinite(weight) || weight <= 0 || !isfinite(band) || band < 0)
         return int(cudaErrorInvalidValue);
+    double norm{};
+
+    for (auto component : transform.rotation_xyzw) {
+        if (!isfinite(component)) return int(cudaErrorInvalidValue);
+        norm += double(component) * component;
+    }
+    for (auto component : transform.translation)
+        if (!isfinite(component)) return int(cudaErrorInvalidValue);
+    if (fabs(norm - 1.0) > 1.0e-5) return int(cudaErrorInvalidValue);
     const auto native = static_cast<cudaStream_t>(stream);
     auto error = cudaMemsetAsync(status, 0, sizeof(unsigned), native);
     if (error) return int(error);
