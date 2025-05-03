@@ -291,6 +291,25 @@ public:
                 std::forward<function>(consumer));
         });
     }
+    template<storage::schema s> operation_status synchronize_cpu(std::uint64_t id)
+    {
+        std::lock_guard lock(mutex_);
+        auto found = maps_.find(id);
+        if (found == maps_.end()) return std::unexpected(operation_error{"CPU mirror submap is absent"});
+        auto& map = *found->second;
+        auto ticket = map.authority.transfer(writer_kind::gpu, writer_kind::cpu, s == storage::schema::tsdf ? 1U : 2U);
+        if (!ticket) return std::unexpected(ticket.error());
+        const auto source = map.authority.snapshot().esdf_source;
+        auto resident = gpu_.template field<s>(id);
+        if (!resident) return std::unexpected(resident.error());
+        auto copied = gpu_.template download<s>(id);
+        if (!copied) return std::unexpected(copied.error());
+        return ticket->acknowledge([&]() -> operation_status {
+            auto checked = map.cpu.template install_mirror<s>(id, *copied, source);
+            if (checked) (*resident)->source_identity = *copied;
+            return checked;
+        });
+    }
     operation_status evict_gpu(std::uint64_t id)
     {
         std::lock_guard lock(mutex_);

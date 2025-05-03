@@ -180,6 +180,29 @@ public:
     explicit map_store(std::size_t maximum_tiles = 1000000, std::shared_ptr<memory_budget> budget = {})
         : maximum_tiles_(maximum_tiles), budget_(budget ? std::move(budget) : std::make_shared<memory_budget>(residency_policy{}.limits)) {}
     budget_snapshot memory() const { return budget_->snapshot(); }
+    template<storage::schema s> operation_status install_mirror(std::uint64_t id,
+        std::shared_ptr<const field_pool<s, l>> replacement, std::uint64_t esdf_source)
+    {
+        auto found = maps_.find(id);
+        if (found == maps_.end() || found->second.record.state == lifecycle::retired || !replacement)
+            return std::unexpected(operation_error{"mirror destination is unavailable"});
+        auto& entry = found->second;
+        auto& field = select_field<s>(entry);
+        const auto kind = s == storage::schema::tsdf ? field_kind::tsdf : field_kind::esdf;
+        auto generation = next_epoch(entry.record.versions.allocation), descriptor = next_epoch(entry.record.versions.descriptor);
+        if (!generation || !descriptor || !budget_->owns(replacement->memory) || replacement->index.submap() != id ||
+            replacement->index.field() != kind || replacement->payload.size() > maximum_tiles_ ||
+            replacement->payload.size() != replacement->index.slot_count() || !replacement->content_epoch ||
+            (field && replacement->content_epoch < field->content_epoch))
+            return std::unexpected(operation_error{"mirror metadata or admission is invalid"});
+        if (field && field->memory) field->memory->retire();
+        field = std::move(replacement);
+        entry.record.versions.allocation = *generation; entry.record.versions.descriptor = *descriptor;
+        (s == storage::schema::tsdf ? entry.record.versions.tsdf : entry.record.versions.esdf) = field->content_epoch;
+        if constexpr (s != storage::schema::tsdf) entry.record.versions.esdf_source = esdf_source;
+        entry.record.cpu = residency::resident;
+        return {};
+    }
     template<storage::schema s, class function> operation_status edit_field(std::uint64_t id, function&& edit)
     {
         auto found = maps_.find(id);

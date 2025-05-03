@@ -13,7 +13,7 @@ template<storage::schema s, storage::layout l> struct gpu_field
     storage::cuda_draft<s, l> payload;
     gpu_block_index index;
     std::uint64_t content_epoch{}, allocation_generation{};
-    std::weak_ptr<const field_pool<s, l>> source_identity;
+    mutable std::weak_ptr<const field_pool<s, l>> source_identity;
 };
 template<storage::layout l, storage::schema es = storage::schema::esdf> struct resident_entry
 {
@@ -103,6 +103,28 @@ public:
     explicit gpu_map_store(std::shared_ptr<memory_budget> budget = {})
         : budget_(budget ? std::move(budget) : std::make_shared<memory_budget>(residency_policy{}.limits)) {}
     budget_snapshot memory() const { return budget_->snapshot(); }
+    template<storage::schema s> operation_result<std::shared_ptr<const field_pool<s, l>>> download(std::uint64_t id)
+    {
+        auto resident = field<s>(id);
+        if (!resident) return std::unexpected(resident.error());
+        auto metadata = (*resident)->source_identity.lock();
+        if (!metadata) return std::unexpected(operation_error{"GPU readback topology is unavailable"});
+        constexpr auto stride = storage::storage_traits<s, l>::tile_stride *
+            (l == storage::layout::pool_soa ? storage::field_count<s> : 1);
+        auto memory = budget_->reserve({metadata->payload.size() * stride, 0, 0});
+        if (!memory) return std::unexpected(memory.error());
+        auto candidate = std::make_shared<field_pool<s, l>>();
+        candidate->memory = std::move(*memory);
+        auto checked = candidate->payload.initialize(metadata->payload.size());
+        if (!checked) return std::unexpected(checked.error());
+        candidate->index = metadata->index;
+        storage::transfer_measurement measured;
+        checked = (*resident)->payload.download_range(candidate->payload, 0, 0, candidate->payload.size() * 512,
+            (1U << storage::field_count<s>) - 1, storage::transfer_method::bulk_same_layout, measured);
+        if (!checked) return std::unexpected(checked.error());
+        candidate->content_epoch = (*resident)->content_epoch;
+        return candidate;
+    }
     template<storage::schema s, class function> operation_status edit(std::uint64_t id,
         std::uint64_t content_epoch, std::uint64_t esdf_source, function&& consumer)
     {
