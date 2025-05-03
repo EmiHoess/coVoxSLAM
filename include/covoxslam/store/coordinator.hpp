@@ -278,6 +278,29 @@ public:
         return map.authority.finalize(fields, [&] { return map.cpu.seal(id, fields, source); });
     }
 #if defined(covoxslam_has_cuda)
+    template<class function> operation_status derive_gpu(std::uint64_t id, function&& consumer)
+    {
+        std::lock_guard lock(mutex_);
+        auto found = maps_.find(id);
+        if (found == maps_.end()) return std::unexpected(operation_error{"ESDF derivation submap is absent"});
+        auto& map = *found->second;
+        const auto state = map.authority.snapshot();
+        if (!state.content[0] || state.gpu[0] != state.content[0])
+            return std::unexpected(operation_error{"ESDF derivation requires the current GPU TSDF"});
+        auto source = gpu_.template field<storage::schema::tsdf>(id);
+        if (!source) return std::unexpected(source.error());
+        auto read_view = (*source)->payload.view();
+        auto read_index = (*source)->index.view();
+        if (!read_view) return std::unexpected(read_view.error());
+        if (!read_index) return std::unexpected(read_index.error());
+        auto writer = map.authority.acquire(writer_kind::gpu, 2U);
+        if (!writer) return std::unexpected(writer.error());
+        return writer->publish(state.content[0], [&](const auto& versions) {
+            return gpu_.template edit<es>(id, versions[1], state.content[0], [&](auto target, auto index, auto stream) {
+                return consumer(*read_view, *read_index, target, index, stream);
+            });
+        });
+    }
     template<storage::schema s, class function> operation_status edit_gpu(std::uint64_t id, function&& consumer,
         std::uint64_t esdf_source = 0)
     {
