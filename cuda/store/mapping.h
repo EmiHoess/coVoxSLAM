@@ -6,6 +6,12 @@
 
 namespace covoxslam::store
 {
+int pack_esdf_input(storage::device_descriptor payload, device_index_view index,
+    const block_key* keys, std::uint32_t count, detail::cuda_tile_coordinate* ordered_keys,
+    detail::cuda_tsdf_tile* values, unsigned* status, void* stream);
+int unpack_esdf_output(storage::device_descriptor payload, device_index_view index,
+    const block_key* keys, std::uint32_t count, const void* values,
+    storage::schema schema, unsigned* status, void* stream);
 int integrate_ordered(storage::device_descriptor payload, device_index_view index,
     const detail::cuda_ray_contribution* samples, std::size_t sample_count,
     const detail::cuda_voxel_segment* segments, std::uint32_t segment_count,
