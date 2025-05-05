@@ -46,6 +46,26 @@ template<storage::schema s, class value_type> __global__ void unpack_kernel(stor
     unsigned slot{};
     if (!valid_esdf_key(index, keys, unsigned(i / 512), target.size(), slot)) { atomicOr(status, 1U); return; }
     const auto value = input[i];
+    bool valid = (value.flags & ~unsigned(s == storage::schema::blocks_esdf ? 7 : 15)) == 0;
+    valid = valid && ((value.flags & 1U) || !(value.flags & ~1U));
+    if constexpr (s == storage::schema::blocks_esdf) {
+        valid = valid && isfinite(value.distance_m);
+        if (value.flags & 4U)
+            valid = valid && !value.parent[0] && !value.parent[1] && !value.parent[2];
+        const auto key = keys[i / 512];
+        const unsigned local = unsigned(i % 512);
+        const std::int64_t position[]{std::int64_t(key.x) * 8 + (local & 7),
+            std::int64_t(key.y) * 8 + ((local >> 3) & 7), std::int64_t(key.z) * 8 + (local >> 6)};
+
+        for (unsigned axis = 0; axis < 3; ++axis)
+            valid = valid && position[axis] + value.parent[axis] >= INT_MIN && position[axis] + value.parent[axis] <= INT_MAX;
+    }
+    else {
+        valid = valid && isfinite(value.squared_distance_voxels) && value.squared_distance_voxels >= 0;
+        if (value.flags & 4U)
+            valid = valid && value.squared_distance_voxels == 0 && (value.flags & 8U);
+    }
+    if (!valid) { atomicOr(status, 2U); return; }
     if constexpr (s == storage::schema::blocks_esdf)
         storage::scatter_record<s>(target[slot].voxels[i % 512],
             {value.distance_m, value.parent[0], value.parent[1], value.parent[2], value.flags});

@@ -136,7 +136,8 @@ public:
             auto found = maps_.find(id);
             if (found == maps_.end()) return std::unexpected(operation_error{"snapshot submap is absent"});
             const auto state = found->second->authority.snapshot();
-
+            auto dependency = require_current_esdf(state, fields);
+            if (!dependency) return std::unexpected(dependency.error());
             for (unsigned field = 0; field < 2; ++field)
                 if ((fields & (1U << field)) && state.cpu[field] != state.content[field])
                     return std::unexpected(operation_error{"CPU snapshot requires mirror synchronization"});
@@ -259,6 +260,8 @@ public:
         if (found == maps_.end()) return std::unexpected(operation_error{"submap identity is absent"});
         const std::array<std::uint64_t, 1> ids{id};
         const auto state = found->second->authority.snapshot();
+        auto dependency = require_current_esdf(state, fields);
+        if (!dependency) return std::unexpected(dependency.error());
 
         for (unsigned field = 0; field < 2; ++field)
             if ((fields & (1U << field)) && state.cpu[field] != state.content[field])
@@ -364,6 +367,8 @@ public:
         if (found == maps_.end()) return std::unexpected(operation_error{"submap identity is absent"});
         const auto state = found->second->authority.snapshot();
         const unsigned field = s == storage::schema::tsdf ? 0 : 1;
+        auto dependency = require_current_esdf(state, 1U << field);
+        if (!dependency) return std::unexpected(dependency.error());
         if (!state.content[field] || state.gpu[field] != state.content[field])
             return std::unexpected(operation_error{"GPU mirror is not current"});
         return gpu_.template read_on<s>(id, stream, std::forward<function>(consumer));

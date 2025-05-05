@@ -18,6 +18,12 @@ struct authority_state
     std::mutex mutex;
     authority_snapshot current;
 };
+inline operation_status require_current_esdf(const authority_snapshot& state, std::uint32_t fields)
+{
+    if ((fields & 2U) && (!state.content[0] || !state.content[1] || state.esdf_source != state.content[0]))
+        return std::unexpected(operation_error{"ESDF requires regeneration from the current TSDF"});
+    return {};
+}
 class mirror_ticket
 {
     std::shared_ptr<authority_state> state_;
