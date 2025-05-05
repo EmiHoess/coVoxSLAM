@@ -5,7 +5,7 @@
 
 namespace covoxslam::detail
 {
-__device__ bool valid_segment_binding(const cuda_voxel_segment& segment, std::size_t count,
+static __device__ bool valid_segment_binding(const cuda_voxel_segment& segment, std::size_t count,
     const cuda_tile_coordinate* keys, std::uint32_t tile_count)
 {
     if (!segment.count || segment.begin > count || segment.count > count - segment.begin ||
@@ -23,7 +23,7 @@ __device__ bool valid_segment_binding(const cuda_voxel_segment& segment, std::si
     return local == segment.local_index;
 }
 
-__device__ bool fuse_ordered_samples(cuda_tsdf_voxel& voxel, const cuda_ray_contribution* values,
+static __device__ bool fuse_ordered_samples(cuda_tsdf_voxel& voxel, const cuda_ray_contribution* values,
     std::uint32_t count, cuda_fusion_parameters config)
 {
     for (std::uint32_t index = 0; index < count; ++index)
@@ -44,7 +44,7 @@ __device__ bool fuse_ordered_samples(cuda_tsdf_voxel& voxel, const cuda_ray_cont
     return true;
 }
 
-__device__ bool voxel_key_less(const cuda_voxel_segment& a, const cuda_voxel_segment& b)
+static __device__ bool voxel_key_less(const cuda_voxel_segment& a, const cuda_voxel_segment& b)
 {
     for (int axis = 2; axis >= 0; --axis)
         if (a.voxel[axis] != b.voxel[axis]) return a.voxel[axis] < b.voxel[axis];
@@ -94,7 +94,7 @@ __global__ void validate_fusion_segments(const cuda_ray_contribution* values, st
     }
 }
 
-__global__ void fuse_voxel_segments(const cuda_ray_contribution* values, std::size_t count,
+static __global__ void fuse_voxel_segments(const cuda_ray_contribution* values, std::size_t count,
     const cuda_voxel_segment* segments, std::uint32_t segment_count,
     const cuda_tile_coordinate* keys, cuda_tsdf_tile* tiles, std::uint32_t tile_count,
     cuda_fusion_parameters config, std::uint32_t* status)
