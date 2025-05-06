@@ -296,11 +296,21 @@ public:
         auto read_index = (*source)->index.view();
         if (!read_view) return std::unexpected(read_view.error());
         if (!read_index) return std::unexpected(read_index.error());
+        auto metadata = (*source)->source_identity.lock();
+        if (!metadata) return std::unexpected(operation_error{"ESDF source topology is unavailable"});
+        std::vector<block_key> keys;
+        keys.reserve(metadata->index.size());
+
+        for (const auto& slot : metadata->index.records())
+            if (slot.occupied) keys.push_back(slot.key);
+        std::sort(keys.begin(), keys.end(), [](auto a, auto b) {
+            return a.z < b.z || (a.z == b.z && (a.y < b.y || (a.y == b.y && a.x < b.x)));
+        });
         auto writer = map.authority.acquire(writer_kind::gpu, 2U);
         if (!writer) return std::unexpected(writer.error());
         return writer->publish(state.content[0], [&](const auto& versions) {
             return gpu_.template edit<es>(id, versions[1], state.content[0], [&](auto target, auto index, auto stream) {
-                return consumer(*read_view, *read_index, target, index, stream);
+                return consumer(*read_view, *read_index, target, index, stream, std::span<const block_key>(keys), *budget_);
             });
         });
     }
