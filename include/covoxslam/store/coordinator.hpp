@@ -14,6 +14,12 @@ struct residency_diagnostics
     std::size_t active{}, finalized{}, retired{}, cpu_stale_fields{}, gpu_stale_fields{};
     std::size_t pending_reclamation_bytes{}, current_cpu_payload_bytes{};
 };
+struct pose_publication
+{
+    std::uint64_t submap{};
+    epochs expected;
+    pose_record optimized;
+};
 template<storage::layout l, storage::schema es = storage::schema::esdf> class coordinated_store
 {
     struct entry
@@ -31,6 +37,39 @@ template<storage::layout l, storage::schema es = storage::schema::esdf> class co
     gpu_map_store<l, es> gpu_;
 #endif
 public:
+    operation_status publish_poses(std::span<const pose_publication> poses)
+    {
+        std::lock_guard lock(mutex_);
+        std::unordered_set<std::uint64_t> identities;
+
+        for (const auto& update : poses) {
+            auto found = maps_.find(update.submap);
+            if (found == maps_.end() || !identities.insert(update.submap).second || !finite_pose(update.optimized))
+                return std::unexpected(operation_error{"pose batch has invalid identities or values"});
+            const auto& map = *found->second;
+            const auto state = map.authority.snapshot();
+            const auto* current = map.cpu.find(update.submap);
+            if (!current || state.state == lifecycle::retired || state.writer != writer_kind::none ||
+                current->record.versions.pose != update.expected.pose || !next_epoch(update.expected.pose) ||
+                state.content[0] != update.expected.tsdf || state.content[1] != update.expected.esdf ||
+                state.esdf_source != update.expected.esdf_source)
+                return std::unexpected(operation_error{"pose batch source snapshot is stale"});
+        }
+
+        for (const auto& update : poses) {
+            auto& map = *maps_.find(update.submap)->second;
+            auto checked = map.cpu.update_pose(update.submap, update.expected.pose, update.optimized);
+            if (!checked) return checked;
+#if defined(covoxslam_has_cuda)
+            auto resident = gpu_.maps_.find(update.submap);
+            if (resident != gpu_.maps_.end()) {
+                resident->second.record.optimized_pose = update.optimized;
+                resident->second.record.versions.pose = update.expected.pose + 1;
+            }
+#endif
+        }
+        return {};
+    }
     explicit coordinated_store(residency_policy policy = {}) : policy_(policy), budget_(std::make_shared<memory_budget>(policy.limits))
 #if defined(covoxslam_has_cuda)
         , gpu_(budget_)

@@ -30,6 +30,9 @@ public:
         auto checked = validate_geometry(parameters);
         if (!checked) return std::unexpected(checked.error());
         if (!source.id()) return std::unexpected(operation_error{"geometry snapshot is empty"});
+        if (source.maps().empty()) return std::unexpected(operation_error{"geometry snapshot has no submaps"});
+        for (const auto& map : source.maps())
+            if (!map.record.versions.pose) return std::unexpected(operation_error{"geometry pose epoch is invalid"});
         return geometry_snapshot(std::move(source), parameters);
     }
     std::uint64_t id() const noexcept { return snapshot_.id(); }
