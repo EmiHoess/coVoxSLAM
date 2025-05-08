@@ -41,10 +41,10 @@ template<storage::layout l> operation_status generate_blocks_esdf(
             parameters.bucket_count * std::size_t(4), sizeof(detail::cuda_blocks_queue), 4};
         auto host_memory = budget.reserve({voxels * 4, 0, 0});
         if (!host_memory) return std::unexpected(host_memory.error());
+        const auto order = esdf_seed_order(keys);
         esdf_scratch scratch;
         auto checked = scratch.initialize(sizes, limits.scratch_bytes, budget, stream);
         if (!checked) return checked;
-        const auto order = esdf_seed_order(keys);
         auto* device_keys = scratch.get<block_key>(0);
         auto* ordered_keys = scratch.get<detail::cuda_tile_coordinate>(1);
         auto* input = scratch.get<detail::cuda_tsdf_tile>(2);
