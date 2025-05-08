@@ -166,9 +166,9 @@ public:
         }
         return result;
     }
-    operation_result<immutable_snapshot<l, es>> lease(std::span<const std::uint64_t> ids, std::uint32_t fields, std::size_t budget) const
+private:
+    operation_result<immutable_snapshot<l, es>> lease_locked(std::span<const std::uint64_t> ids, std::uint32_t fields, std::size_t budget) const
     {
-        std::lock_guard lock(mutex_);
         std::vector<map_snapshot<l, es>> selected;
 
         for (auto id : ids) {
@@ -187,6 +187,12 @@ public:
             selected.push_back(std::move(copied->front()));
         }
         return immutable_snapshot<l, es>::create(std::move(selected), budget);
+    }
+public:
+    operation_result<immutable_snapshot<l, es>> lease(std::span<const std::uint64_t> ids, std::uint32_t fields, std::size_t budget) const
+    {
+        std::lock_guard lock(mutex_);
+        return lease_locked(ids, fields, budget);
     }
     operation_status retire(std::uint64_t id)
     {
@@ -366,9 +372,9 @@ public:
                 std::forward<function>(consumer));
         });
     }
-    template<storage::schema s> operation_status synchronize_cpu(std::uint64_t id)
+private:
+    template<storage::schema s> operation_status synchronize_cpu_locked(std::uint64_t id)
     {
-        std::lock_guard lock(mutex_);
         auto found = maps_.find(id);
         if (found == maps_.end()) return std::unexpected(operation_error{"CPU mirror submap is absent"});
         auto& map = *found->second;
@@ -384,6 +390,74 @@ public:
             if (checked) (*resident)->source_identity = *copied;
             return checked;
         });
+    }
+public:
+    template<storage::schema s> operation_status synchronize_cpu(std::uint64_t id)
+    {
+        std::lock_guard lock(mutex_);
+        return synchronize_cpu_locked<s>(id);
+    }
+    operation_result<immutable_snapshot<l, es>> lease_readback(std::span<const std::uint64_t> ids,
+        std::uint32_t fields, std::size_t payload_budget, std::size_t readback_budget)
+    {
+        std::lock_guard lock(mutex_);
+        if (ids.empty() || !fields || (fields & ~3U)) return std::unexpected(operation_error{"invalid geometry selection"});
+        std::unordered_set<std::uint64_t> unique;
+        std::size_t download_bytes{}, payload_bytes{};
+
+        for (auto id : ids) {
+            auto found = maps_.find(id);
+            if (found == maps_.end() || !unique.insert(id).second)
+                return std::unexpected(operation_error{"geometry submap is absent or duplicated"});
+            const auto state = found->second->authority.snapshot();
+            auto checked = require_current_esdf(state, fields);
+            if (!checked) return std::unexpected(checked.error());
+            if (state.state == lifecycle::retired || state.writer != writer_kind::none)
+                return std::unexpected(operation_error{"geometry submap is unavailable"});
+            const auto* cpu = found->second->cpu.find(id);
+            auto admit = [&]<storage::schema s>(unsigned field) -> operation_status {
+                if (!(fields & (1U << field))) return {};
+                if (!state.content[field]) return std::unexpected(operation_error{"geometry field is absent"});
+                constexpr auto stride = storage::storage_traits<s, l>::tile_stride *
+                    (l == storage::layout::pool_soa ? storage::field_count<s> : 1);
+                const auto& host = [&]() -> const auto& {
+                    if constexpr (s == storage::schema::tsdf) return cpu->tsdf;
+                    else return cpu->esdf;
+                }();
+                std::size_t capacity = host ? host->payload.capacity() : 0;
+                if (state.cpu[field] != state.content[field]) {
+                    if (state.gpu[field] != state.content[field]) return std::unexpected(operation_error{"geometry has no current replica"});
+                    auto resident = gpu_.template field<s>(id);
+                    if (!resident) return std::unexpected(resident.error());
+                    capacity = (*resident)->payload.size();
+                    constexpr auto record_bytes = 512 * sizeof(storage::value<s>);
+                    if (capacity > (readback_budget - download_bytes) / record_bytes)
+                        return std::unexpected(operation_error{"geometry readback limit exceeded"});
+                    download_bytes += capacity * record_bytes;
+                }
+                if (capacity > (payload_budget - payload_bytes) / stride)
+                    return std::unexpected(operation_error{"geometry snapshot limit exceeded"});
+                payload_bytes += capacity * stride;
+                return {};
+            };
+            checked = admit.template operator()<storage::schema::tsdf>(0);
+            if (!checked) return std::unexpected(checked.error());
+            checked = admit.template operator()<es>(1);
+            if (!checked) return std::unexpected(checked.error());
+        }
+
+        for (auto id : ids) {
+            const auto state = maps_.find(id)->second->authority.snapshot();
+            if ((fields & 1U) && state.cpu[0] != state.content[0]) {
+                auto checked = synchronize_cpu_locked<storage::schema::tsdf>(id);
+                if (!checked) return std::unexpected(checked.error());
+            }
+            if ((fields & 2U) && state.cpu[1] != state.content[1]) {
+                auto checked = synchronize_cpu_locked<es>(id);
+                if (!checked) return std::unexpected(checked.error());
+            }
+        }
+        return lease_locked(ids, fields, payload_budget);
     }
     operation_status evict_gpu(std::uint64_t id)
     {
