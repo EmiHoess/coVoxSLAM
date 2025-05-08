@@ -33,5 +33,43 @@ template<storage::schema s> ceronoceres::field_tile_view pgo_tile(
     tile.slot_generation = slot.generation;
     return tile;
 }
+template<storage::layout l, storage::schema es>
+operation_result<std::shared_ptr<const ceronoceres::field_snapshot>> borrow_pgo_fields(
+    const geometry_snapshot<l, es>& snapshot, std::span<const pgo_field_binding> bindings)
+{
+    auto result = std::make_shared<ceronoceres::field_snapshot>();
+    result->identity = snapshot.id();
+
+    for (const auto& binding : bindings) {
+        const auto* map = snapshot.find(binding.submap);
+        if (!map) return std::unexpected(operation_error{"PGO submap is not captured"});
+        const auto append = [&]<storage::schema s>(const std::shared_ptr<const field_pool<s, l>>& field) {
+            if (!field) return;
+            result->owners.push_back(field);
+            const auto endpoint = storage::transfer_storage(field->payload);
+            const auto slots = field->index.records();
+
+            for (std::size_t i = 0; i < slots.size(); ++i)
+                if (slots[i].occupied)
+                    result->tiles.push_back(pgo_tile<s>(endpoint, slots[i], i, binding.volume,
+                        field->content_epoch, field->payload.generation(), snapshot.parameters()));
+        };
+        append(map->tsdf);
+        append(map->esdf);
+    }
+    return std::shared_ptr<const ceronoceres::field_snapshot>(std::move(result));
+}
+inline operation_result<ceronoceres::PreparedProblem> prepare_borrowed_pgo(pgo::graph_snapshot graph,
+    std::shared_ptr<const ceronoceres::field_snapshot> fields)
+{
+    auto valid = pgo::validate_graph(graph);
+    if (!valid) return std::unexpected(valid.error());
+    if (!fields || fields->device != -1)
+        return std::unexpected(operation_error{"CPU PGO requires a host field snapshot"});
+    auto prepared = ceronoceres::prepare_fields(std::move(graph.problem), std::move(fields));
+    if (const auto* error = std::get_if<std::string>(&prepared))
+        return std::unexpected(operation_error{*error});
+    return std::get<ceronoceres::PreparedProblem>(std::move(prepared));
+}
 }
 #endif
