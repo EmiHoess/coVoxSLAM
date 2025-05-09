@@ -326,6 +326,51 @@ public:
         return map.authority.finalize(fields, [&] { return map.cpu.seal(id, fields, source); });
     }
 #if defined(covoxslam_has_cuda)
+    operation_result<std::vector<resident_entry<l, es>>> lease_resident(
+        std::span<const std::uint64_t> ids, std::uint32_t fields, std::size_t budget) const
+    {
+        std::lock_guard lock(mutex_);
+        std::vector<resident_entry<l, es>> result;
+        std::unordered_set<std::uint64_t> unique;
+        if (!fields || (fields & ~3U)) return std::unexpected(operation_error{"invalid resident field selection"});
+
+        for (auto id : ids) {
+            auto found = maps_.find(id);
+            if (found == maps_.end() || !unique.insert(id).second)
+                return std::unexpected(operation_error{"resident snapshot identity is invalid"});
+            const auto state = found->second->authority.snapshot();
+            auto valid = require_current_esdf(state, fields);
+            if (!valid) return std::unexpected(valid.error());
+            auto resident = gpu_.maps_.find(id);
+            if (state.state != lifecycle::finalized || state.writer != writer_kind::none || resident == gpu_.maps_.end())
+                return std::unexpected(operation_error{"resident PGO requires finalized maps"});
+            auto selected = resident->second;
+            selected.record = found->second->cpu.find(id)->record;
+            selected.record.versions.tsdf = state.content[0];
+            selected.record.versions.esdf = state.content[1];
+            selected.record.versions.esdf_source = state.esdf_source;
+            const auto admit = [&]<storage::schema s>(const std::shared_ptr<const gpu_field<s, l>>& field) -> operation_status {
+                constexpr auto ordinal = s == storage::schema::tsdf ? 0 : 1;
+                if (!(fields & (1U << ordinal))) return {};
+                if (!field || !state.content[ordinal] || state.gpu[ordinal] != state.content[ordinal] ||
+                    field->content_epoch != state.content[ordinal])
+                    return std::unexpected(operation_error{"resident snapshot requires current GPU fields"});
+                auto bytes = gpu_.retained_field(field);
+                if (!bytes) return std::unexpected(bytes.error());
+                if (bytes->bytes > budget) return std::unexpected(operation_error{"resident snapshot budget exceeded"});
+                budget -= bytes->bytes;
+                return {};
+            };
+            valid = admit(selected.tsdf);
+            if (!valid) return std::unexpected(valid.error());
+            valid = admit(selected.esdf);
+            if (!valid) return std::unexpected(valid.error());
+            if (!(fields & 1U)) selected.tsdf.reset();
+            if (!(fields & 2U)) selected.esdf.reset();
+            result.push_back(std::move(selected));
+        }
+        return result;
+    }
     template<class function> operation_status derive_gpu(std::uint64_t id, function&& consumer)
     {
         std::lock_guard lock(mutex_);
