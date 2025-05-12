@@ -98,5 +98,30 @@ operation_result<std::shared_ptr<const ceronoceres::field_snapshot>> resident_pg
     if (result->device < 0) return std::unexpected(operation_error{"resident PGO has no device fields"});
     return std::shared_ptr<const ceronoceres::field_snapshot>(std::move(result));
 }
+template<storage::layout l, storage::schema es>
+operation_result<resident_pgo_problem> prepare_resident_snapshot(pgo::graph_snapshot graph,
+    std::span<const resident_entry<l, es>> maps, std::span<const pgo_field_binding> bindings,
+    geometry_parameters parameters)
+{
+    if (parameters.pose != geometry_pose::optimized)
+        return std::unexpected(operation_error{"resident PGO requires optimized initial graph poses"});
+    for (const auto& binding : bindings) {
+        auto found = std::find_if(maps.begin(), maps.end(), [&](const auto& map) { return map.record.id == binding.submap; });
+        if (found == maps.end() || binding.volume >= graph.problem.volumes.size())
+            return std::unexpected(operation_error{"resident graph volume is absent"});
+        const auto& volume = graph.problem.volumes[binding.volume];
+        if (volume.pose_node >= graph.problem.nodes.size())
+            return std::unexpected(operation_error{"resident graph node is absent"});
+        const auto& node = graph.problem.nodes[volume.pose_node];
+        const auto& pose = found->record.optimized_pose;
+        if (node.id != binding.submap || node.initial.x != pose.x || node.initial.y != pose.y || node.initial.z != pose.z ||
+            ceronoceres::wrap_yaw(node.initial.yaw - pose.yaw) != 0 || volume.voxel_size != double(parameters.voxel_size) ||
+            (volume.has_tsdf && !found->tsdf) || (volume.has_esdf && !found->esdf))
+            return std::unexpected(operation_error{"resident graph and map snapshot differ"});
+    }
+    auto fields = resident_pgo_fields<l, es>(maps, bindings, parameters);
+    if (!fields) return std::unexpected(fields.error());
+    return resident_pgo_problem::create(std::move(graph), std::move(*fields));
+}
 }
 #endif
