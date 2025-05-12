@@ -1,9 +1,50 @@
 #pragma once
 #include <covoxslam/store/pgo_fields.hpp>
 #include <covoxslam/store/coordinator.hpp>
+#include <covoxslam/pgo_snapshot.hpp>
 #if defined(covoxslam_has_pgo) && defined(covoxslam_has_cuda)
 namespace covoxslam::store
 {
+class resident_pgo_problem
+{
+    ceronoceres::PreparedProblem prepared_;
+    std::shared_ptr<const ceronoceres::field_snapshot> fields_;
+    resident_pgo_problem(ceronoceres::PreparedProblem prepared,
+        std::shared_ptr<const ceronoceres::field_snapshot> fields)
+        : prepared_(std::move(prepared)), fields_(std::move(fields)) {}
+public:
+    static operation_result<resident_pgo_problem> create(pgo::graph_snapshot graph,
+        std::shared_ptr<const ceronoceres::field_snapshot> fields)
+    {
+        auto valid = pgo::validate_graph(graph);
+        if (!valid) return std::unexpected(valid.error());
+        if (!fields || fields->device < 0)
+            return std::unexpected(operation_error{"resident solve requires device fields"});
+        auto retained = std::make_shared<const ceronoceres::field_snapshot>(*fields);
+        auto prepared = ceronoceres::prepare_fields(std::move(graph.problem), retained);
+        if (const auto* error = std::get_if<std::string>(&prepared))
+            return std::unexpected(operation_error{*error});
+        return resident_pgo_problem(std::get<ceronoceres::PreparedProblem>(std::move(prepared)), std::move(retained));
+    }
+    const ceronoceres::PreparedProblem& prepared() const noexcept { return prepared_; }
+    operation_result<ceronoceres::SolveResult> solve(const pgo::options& execution,
+        const ceronoceres::NativeLmOptions& lm = {}) const
+    {
+        auto configured = pgo::cuda_solve_options(execution, lm);
+        if (!configured) return std::unexpected(configured.error());
+        if (execution.device != fields_->device)
+            return std::unexpected(operation_error{"resident solve device differs from field allocation"});
+        const auto pin = fields_;
+        auto result = ceronoceres::solve_cuda_checked(prepared_, configured->common,
+            std::get<ceronoceres::NativeCudaColdOptions>(configured->backend_options));
+        if (const auto* error = std::get_if<ceronoceres::cuda_solve_error>(&result))
+            return std::unexpected(operation_error{error->message});
+        auto solution = std::get<ceronoceres::SolveResult>(std::move(result));
+        auto valid = pgo::validate_solve_result(solution, prepared_.node_count(), ceronoceres::Backend::NativeCudaCold);
+        if (!valid) return std::unexpected(valid.error());
+        return solution;
+    }
+};
 template<storage::layout l, storage::schema es>
 operation_result<std::shared_ptr<const ceronoceres::field_snapshot>> resident_pgo_fields(
     std::span<const resident_entry<l, es>> maps, std::span<const pgo_field_binding> bindings,
