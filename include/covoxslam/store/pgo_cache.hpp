@@ -30,6 +30,14 @@ public:
         std::lock_guard lock(mutex_);
         return metrics_;
     }
+    void invalidate()
+    {
+        std::lock_guard lock(mutex_);
+        key_.reset();
+        problem_ = {};
+        metrics_.key_bytes = 0;
+        ++metrics_.invalidations;
+    }
     operation_result<cached_preparation> prepare(pgo::graph_snapshot graph,
         std::shared_ptr<const ceronoceres::field_snapshot> fields)
     {

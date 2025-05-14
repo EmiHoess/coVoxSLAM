@@ -46,6 +46,9 @@ operation_result<std::shared_ptr<const ceronoceres::field_snapshot>> borrow_pgo_
         if (!map) return std::unexpected(operation_error{"PGO submap is not captured"});
         const auto& current = map->record.versions;
         const auto& expected = binding.expected;
+        result->dependencies.insert(result->dependencies.end(), {binding.submap, binding.volume,
+            current.pose, current.tsdf, current.esdf, current.esdf_source, current.allocation, current.descriptor,
+            std::uint64_t(l), std::uint64_t(es)});
         if (!maps.insert(binding.submap).second || !volumes.insert(binding.volume).second ||
             current.tsdf != expected.tsdf || current.esdf != expected.esdf || current.pose != expected.pose ||
             current.allocation != expected.allocation || current.descriptor != expected.descriptor ||

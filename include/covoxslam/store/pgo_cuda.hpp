@@ -65,6 +65,9 @@ operation_result<std::shared_ptr<const ceronoceres::field_snapshot>> resident_pg
             return std::unexpected(operation_error{"resident PGO bindings are invalid"});
         const auto& current = found->record.versions;
         const auto& expected = binding.expected;
+        result->dependencies.insert(result->dependencies.end(), {binding.submap, binding.volume,
+            current.pose, current.tsdf, current.esdf, current.esdf_source, current.allocation, current.descriptor,
+            std::uint64_t(l), std::uint64_t(es)});
         if (found->record.state != lifecycle::finalized || current.tsdf != expected.tsdf ||
             current.esdf != expected.esdf || current.esdf_source != expected.esdf_source || current.pose != expected.pose ||
             current.allocation != expected.allocation || current.descriptor != expected.descriptor)

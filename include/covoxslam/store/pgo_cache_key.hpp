@@ -26,6 +26,8 @@ inline operation_result<preparation_key> make_preparation_key(const pgo::graph_s
     const auto& p = graph.problem;
     add(ceronoceres::field_view_api_version);
     add(fields.version); add(fields.device);
+    add(fields.dependencies.size());
+    for (auto dependency : fields.dependencies) add(dependency);
     add(graph.node_ids.size());
 
     for (auto id : graph.node_ids) add(id);

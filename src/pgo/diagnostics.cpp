@@ -1,4 +1,5 @@
 #include "diagnostics_internal.hpp"
+#include <ceronoceres/field_views.hpp>
 #include <algorithm>
 #include <limits>
 
@@ -73,6 +74,8 @@ operation_result<equation_statistics> summarize_linearization(
 operation_result<ceronoceres::LinearizationSnapshot> linearize_graph(
     const ceronoceres::PreparedProblem& problem, std::span<const pose4> poses)
 {
+    if (!ceronoceres::cpu_fields_accessible(problem))
+        return std::unexpected(operation_error{"host linearization requires host field allocations"});
     auto values = detail::checked_poses(problem, poses);
 
     if (!values) return std::unexpected(values.error());
@@ -84,6 +87,8 @@ operation_result<ceronoceres::LinearizationSnapshot> linearize_graph(
 operation_result<ceronoceres::CostBreakdown> evaluate_graph(
     const ceronoceres::PreparedProblem& problem, std::span<const pose4> poses)
 {
+    if (!ceronoceres::cpu_fields_accessible(problem))
+        return std::unexpected(operation_error{"host evaluation requires host field allocations"});
     auto values = detail::checked_poses(problem, poses);
 
     if (!values) return std::unexpected(values.error());
