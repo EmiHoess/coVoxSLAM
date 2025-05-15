@@ -8,6 +8,7 @@
 #include "resident_cli.hpp"
 #include "sensor_mapping_cli.hpp"
 #include "pgo_cli.hpp"
+#include "store_cli.hpp"
 
 #include <charconv>
 #include <iomanip>
@@ -61,6 +62,7 @@ inline int run_submap_cli(int argc, char** argv)
         std::filesystem::path output;
         bool nearest_preset{};
         pgo_cli_options pgo_settings;
+        store_pipeline_options store_settings;
 
         for (int index = 2; index < argc; index += 2) {
             if (index + 1 >= argc) return report_error("missing submap option value");
@@ -83,6 +85,9 @@ inline int run_submap_cli(int argc, char** argv)
             const std::string_view option(argv[index]);
             if (index + 1 >= argc) return report_error("missing submap option value");
             const std::string_view value(argv[index + 1]);
+            const auto store_parsed = parse_store_option(option, value, store_settings);
+            if (!store_parsed) return report_error(store_parsed.error().message);
+            if (*store_parsed) continue;
             const auto pgo_parsed = parse_pgo_option(option, value, pgo_settings);
             if (!pgo_parsed) return report_error(pgo_parsed.error().message);
             if (*pgo_parsed) continue;
@@ -391,11 +396,11 @@ inline int run_submap_cli(int argc, char** argv)
         if (sensor_selected && sensor_transfer.discovery == sensor_grid::discovery_mode::gpu_host) backend_label += "-gpu-discovery";
         if (sensor_selected && sensor_transfer.discovery == sensor_grid::discovery_mode::gpu_resident) backend_label += "-gpu-resident";
         const auto fusion_label = sensor_selected ? sensor_sampling_name(sensor_mode) : resident ? resident_fusion_name(resident->fusion_order(), resident->reduction_mode(), resident->uses_step_tasks(), resident->warp_configuration().mode, resident->free_space_configuration().enabled, resident->segment_length() != 0, resident->uses_compact(), resident->uses_compact_batched(), resident->uses_fp32()) : "unspecified";
-        auto exporter = pgo_settings.solver.enabled ? std::unique_ptr<map_exporter>{} :
+        auto exporter = pgo_settings.solver.enabled || store_settings.enabled ? std::unique_ptr<map_exporter>{} :
             open_map_export(output, input, mapping_options, backend_label.c_str(), fusion_label);
         std::vector<submap> pgo_maps;
         const auto publish = [&](const submap& completed) {
-            if (pgo_settings.solver.enabled) pgo_maps.push_back(completed);
+            if (pgo_settings.solver.enabled || store_settings.enabled) pgo_maps.push_back(completed);
             else if (exporter) exporter->write(completed);
         };
         auto callbacks = resident ? resident_callbacks(*resident, mapping_options, resident_failure, publish, finalize) :
@@ -412,8 +417,13 @@ inline int run_submap_cli(int argc, char** argv)
         const auto result = run_frame_pipeline(input, options, callbacks);
 
         if (result.cancelled) return report_error(resident_failure ? resident_failure->message : "mapping cancelled");
-        if (pgo_settings.solver.enabled) {
-            auto optimized = finish_pgo(pgo_maps, pgo_settings);
+        if (pgo_settings.solver.enabled || store_settings.enabled) {
+            auto optimized = [&]() -> operation_result<pgo_cli_result> {
+                if (!store_settings.enabled) return finish_pgo(pgo_maps, pgo_settings);
+                auto stored = finish_stored_pipeline(pgo_maps, store_settings, pgo_settings.solver, pgo_settings.shadow);
+                if (!stored) return std::unexpected(stored.error());
+                return pgo_cli_result{stored->backend, stored->hash, stored->publication, stored->report};
+            }();
             if (!optimized) return report_error(optimized.error().message);
             std::cout << optimized->report << "pose publication " << optimized->publication << '\n';
             exporter = open_map_export(output, input, mapping_options, backend_label.c_str(), fusion_label,
