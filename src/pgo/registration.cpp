@@ -4,7 +4,7 @@
 namespace covoxslam::pgo
 {
 operation_status append_registration(graph_snapshot& graph, std::span<const submap> maps,
-    const candidate_set& candidates, registration_options options)
+    const candidate_set& candidates, registration_options options, bool copy_fields)
 {
     const auto valid = validate_graph(graph);
     if (!valid) return valid;
@@ -33,6 +33,7 @@ operation_status append_registration(graph_snapshot& graph, std::span<const subm
         if (map.frame.id != graph.node_ids[index] || !map.config.valid())
             return std::unexpected(operation_error{"registration submap identity or configuration differs"});
         problem.volumes.push_back({index, map.config.voxel_size, !map.tsdf.empty(), !map.esdf.empty()});
+        if (!copy_fields) continue;
 
         for (const auto& entry : map.tsdf) {
             ceronoceres::TsdfTile tile;

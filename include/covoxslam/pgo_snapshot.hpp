@@ -19,6 +19,8 @@ class solve_snapshot
         ceronoceres::PreparedProblem prepared, snapshot_extents extents)
         : input_(std::move(input)), prepared_(std::move(prepared)), extents_(extents) {}
     friend operation_result<solve_snapshot> freeze_graph(graph_snapshot graph);
+    friend operation_result<solve_snapshot> freeze_field_graph(graph_snapshot,
+        std::shared_ptr<const ceronoceres::field_snapshot>);
 public:
     const graph_snapshot& graph() const noexcept { return *input_; }
     const ceronoceres::PreparedProblem& prepared() const noexcept { return prepared_; }
@@ -27,6 +29,8 @@ public:
 };
 operation_result<snapshot_extents> measure_snapshot(const graph_snapshot& graph);
 operation_result<solve_snapshot> freeze_graph(graph_snapshot graph);
+operation_result<solve_snapshot> freeze_field_graph(graph_snapshot graph,
+    std::shared_ptr<const ceronoceres::field_snapshot> fields);
 operation_result<ceronoceres::SolveOptions> cuda_solve_options(
     const options& options, const ceronoceres::NativeLmOptions& lm = {});
 operation_result<ceronoceres::SolverTelemetry> cuda_telemetry(const ceronoceres::SolveResult& result);

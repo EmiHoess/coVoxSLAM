@@ -1,10 +1,24 @@
 #include <covoxslam/pgo_snapshot.hpp>
+#include <ceronoceres/field_views.hpp>
 #include <algorithm>
 #include <tuple>
 #include <limits>
 
 namespace covoxslam::pgo
 {
+operation_result<solve_snapshot> freeze_field_graph(graph_snapshot graph,
+    std::shared_ptr<const ceronoceres::field_snapshot> fields)
+{
+    auto extents = measure_snapshot(graph);
+    if (!extents) return std::unexpected(extents.error());
+    if (!fields || fields->device != -1)
+        return std::unexpected(operation_error{"publication verification requires host fields"});
+    auto prepared = ceronoceres::prepare_fields(graph.problem, std::move(fields));
+    if (const auto* error = std::get_if<std::string>(&prepared))
+        return std::unexpected(operation_error{*error});
+    return solve_snapshot{std::make_shared<const graph_snapshot>(std::move(graph)),
+        std::get<ceronoceres::PreparedProblem>(std::move(prepared)), *extents};
+}
 operation_result<ceronoceres::SolveOptions> cuda_solve_options(
     const options& options, const ceronoceres::NativeLmOptions& lm)
 {

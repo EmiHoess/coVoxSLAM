@@ -100,7 +100,7 @@ struct registration_options
     bool nearest_fallback{};
 };
 operation_status append_registration(graph_snapshot& graph, std::span<const submap> maps,
-    const candidate_set& candidates, registration_options options = {});
+    const candidate_set& candidates, registration_options options = {}, bool copy_fields = true);
 operation_result<ceronoceres::CostBreakdown> evaluate_graph(
     const ceronoceres::PreparedProblem& problem, std::span<const pose4> poses);
 struct equation_statistics
