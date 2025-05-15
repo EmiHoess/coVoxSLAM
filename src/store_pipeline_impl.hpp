@@ -20,7 +20,9 @@ template<storage::layout l> operation_result<stored_pipeline_result> stored_pipe
     policy.limits = {options.cpu_bytes, 128U * 1024U * 1024U, options.gpu_bytes};
     coordinated_store<l> retained(policy);
     std::vector<std::uint64_t> ids;
+#if defined(covoxslam_has_pgo)
     std::vector<pgo_field_binding> bindings;
+#endif
     bool has_esdf{};
 
     for (const auto& map : maps) {
