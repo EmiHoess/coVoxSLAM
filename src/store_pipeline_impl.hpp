@@ -137,12 +137,12 @@ template<storage::layout l> operation_result<stored_pipeline_result> stored_pipe
             const checkpoint_parameters parameters{config.voxel_size, config.truncation_distance,
                 config.maximum_weight, config.esdf_maximum_distance_m, std::uint64_t(config.esdf_generator)};
             auto checked = retained.save(map.frame.id, options.checkpoint_root / std::to_string(map.frame.id),
-                parameters, options.cpu_bytes, has_esdf ? 3U : 1U);
+                parameters, options.cpu_bytes);
             if (!checked) return std::unexpected(checked.error());
         }
     }
     const auto memory = retained.memory();
-    report << "store CPU payload bytes " << memory.current[0] << ", GPU allocation bytes " << memory.current[2] << '\n'
+    report << "store CPU payload bytes " << memory.used[0] << ", GPU allocation bytes " << memory.used[2] << '\n'
         << "store pipeline wall ms " << std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count() << '\n';
     output.report = std::move(report).str();
     return output;
