@@ -36,6 +36,11 @@ template<storage::layout l> operation_result<stored_pipeline_result> stored_pipe
     const auto imported = std::chrono::steady_clock::now();
     stored_pipeline_result output;
     std::ostringstream report;
+    constexpr const char* layouts[]{"aos", "aosoa", "soa"};
+    constexpr const char* field_modes[]{"copied", "borrowed", "resident"};
+    report << "store layout " << layouts[unsigned(options.layout)] << ", PGO fields "
+        << field_modes[unsigned(options.fields)] << ", checkpoint format 1, field view API 1\n"
+        << "mapping bridge finalized canonical staging, publication verification CPU\n";
     report << "store import ms " << std::chrono::duration<double, std::milli>(imported - started).count() << '\n';
 #if defined(covoxslam_has_pgo)
     if (solver.enabled) {
