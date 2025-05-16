@@ -118,7 +118,7 @@ operation_result<resident_pgo_problem> prepare_resident_snapshot(pgo::graph_snap
         const auto& node = graph.problem.nodes[volume.pose_node];
         const auto& pose = found->record.optimized_pose;
         if (node.id != binding.submap || node.initial.x != pose.x || node.initial.y != pose.y || node.initial.z != pose.z ||
-            ceronoceres::wrap_yaw(node.initial.yaw - pose.yaw) != 0 || volume.voxel_size != double(parameters.voxel_size) ||
+            std::abs(ceronoceres::wrap_yaw(node.initial.yaw - pose.yaw)) > 1e-12 || volume.voxel_size != double(parameters.voxel_size) ||
             (volume.has_tsdf && !found->tsdf) || (volume.has_esdf && !found->esdf))
             return std::unexpected(operation_error{"resident graph and map snapshot differ"});
     }

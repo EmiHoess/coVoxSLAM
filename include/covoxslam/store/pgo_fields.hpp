@@ -85,7 +85,7 @@ operation_status validate_pgo_bindings(const pgo::graph_snapshot& graph,
         auto pose = snapshot.pose(binding.submap);
         if (!pose) return std::unexpected(pose.error());
         if (node.id != binding.submap || node.initial.x != pose->x || node.initial.y != pose->y ||
-            node.initial.z != pose->z || ceronoceres::wrap_yaw(node.initial.yaw - pose->yaw) != 0 ||
+            node.initial.z != pose->z || std::abs(ceronoceres::wrap_yaw(node.initial.yaw - pose->yaw)) > 1e-12 ||
             volume.voxel_size != double(snapshot.parameters().voxel_size) ||
             (volume.has_tsdf && !map->tsdf) || (volume.has_esdf && !map->esdf))
             return std::unexpected(operation_error{"PGO graph and field snapshot differ"});
