@@ -328,8 +328,19 @@ inline int run_submap_cli(int argc, char** argv)
             return report_error("segment length requires a segmented backend");
         if (resident_options.selected && (cuda_options.ray_capacity_set || cuda_options.contribution_capacity_set))
             return report_error("use --resident-rays and --resident-contributions with resident mapping");
-        const auto loaded = load_dataset(root, input_options);
         pgo_settings.solver.device = cuda_options.mapper.device;
+        auto store_valid = validate_store_pipeline(store_settings, pgo_settings.solver);
+        if (!store_valid) return report_error(store_valid.error().message);
+        if (store_settings.enabled && !mapping_enabled) return report_error("map storage requires mapping");
+        if (!store_settings.checkpoint_root.empty() && !output.empty()) {
+            std::error_code error;
+            auto store_path = std::filesystem::weakly_canonical(store_settings.checkpoint_root, error);
+            if (error) return report_error("checkpoint path is invalid");
+            auto export_path = std::filesystem::weakly_canonical(output, error);
+            if (error) return report_error("export path is invalid");
+            if (store_path == export_path) return report_error("checkpoint and export paths must differ");
+        }
+        const auto loaded = load_dataset(root, input_options);
         if (pgo_settings.publication_selected && !pgo_settings.solver.enabled)
             return report_error("PGO publication requires an enabled solver");
         if (pgo_settings.solver.enabled && !mapping_enabled)

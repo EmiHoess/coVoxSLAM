@@ -31,10 +31,10 @@ template<storage::layout l> operation_status import_submap(coordinated_store<l>&
         }, s == storage::schema::tsdf ? 0 : 1);
     };
     checked = load.template operator()<storage::schema::tsdf>(source.tsdf);
-    if (!checked) { maps.retire(id); return checked; }
+    if (!checked) { static_cast<void>(maps.retire(id)); return checked; }
     if (!source.esdf.empty()) {
         checked = load.template operator()<storage::schema::esdf>(source.esdf);
-        if (!checked) { maps.retire(id); return checked; }
+        if (!checked) { static_cast<void>(maps.retire(id)); return checked; }
     }
     auto current = maps.snapshot(id, 1, std::numeric_limits<std::size_t>::max());
     if (!current) return std::unexpected(current.error());
