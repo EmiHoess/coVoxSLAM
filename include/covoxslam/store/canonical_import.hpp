@@ -11,24 +11,26 @@ template<storage::layout l> operation_status import_submap(coordinated_store<l>&
     auto checked = maps.create(id, {initial.x, initial.y, initial.z, initial.yaw});
     if (!checked) return checked;
     const auto load = [&]<storage::schema s>(const auto& tiles) -> operation_status {
-        return maps.template edit<s>(id, [&](auto& writer) -> operation_status {
+        using value_type = storage::value<s>;
+        if (tiles.size() > source.config.maximum_tiles ||
+            tiles.size() > std::numeric_limits<std::size_t>::max() / 512 / sizeof(value_type))
+            return std::unexpected(operation_error{"canonical field exceeds import bounds"});
+        std::vector<block_key> keys;
+        std::vector<value_type> values;
+        keys.reserve(tiles.size());
+        values.reserve(tiles.size() * 512);
 
-            for (const auto& [index, tile] : tiles) {
-                auto handle = writer.allocate({id, index.x, index.y, index.z});
-                if (!handle) return std::unexpected(handle.error());
+        for (const auto& [index, tile] : tiles) {
+            keys.push_back({id, index.x, index.y, index.z});
 
-                for (std::size_t i = 0; i < 512; ++i) {
-                    auto target = writer.voxel(*handle, i);
-                    if (!target) return std::unexpected(target.error());
-                    const auto& value = tile.voxels[i];
-                    if constexpr (s == storage::schema::tsdf)
-                        storage::scatter_record<s>(*target, {value.distance, value.weight, value.sample_count, value.flags});
-                    else storage::scatter_record<s>(*target, {value.signed_distance_m,
-                        value.parent_dx, value.parent_dy, value.parent_dz, value.flags});
-                }
+            for (const auto& value : tile.voxels) {
+                if constexpr (s == storage::schema::tsdf)
+                    values.push_back({value.distance, value.weight, value.sample_count, value.flags});
+                else values.push_back({value.signed_distance_m,
+                    value.parent_dx, value.parent_dy, value.parent_dz, value.flags});
             }
-            return {};
-        }, s == storage::schema::tsdf ? 0 : 1);
+        }
+        return maps.template import_field<s>(id, keys, values, s == storage::schema::tsdf ? 0 : 1);
     };
     checked = load.template operator()<storage::schema::tsdf>(source.tsdf);
     if (!checked) { static_cast<void>(maps.retire(id)); return checked; }
