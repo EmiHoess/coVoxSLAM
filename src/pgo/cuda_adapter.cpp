@@ -1,8 +1,10 @@
 #include <covoxslam/pgo_snapshot.hpp>
+#include <ceronoceres/field_views.hpp>
 #include <cmath>
 
 namespace covoxslam::pgo
 {
+
 operation_result<std::optional<optimization_result>> optimize_submaps(std::span<const submap> maps,
     const optimization_options& options, std::span<const absolute_measurement> measurements)
 {
