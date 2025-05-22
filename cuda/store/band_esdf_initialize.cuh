@@ -31,6 +31,21 @@ __global__ void initialize_band_fields(band_tsdf_view input, band_work_view outp
     if ((source.flags & 1U) && source.weight >= parameters.minimum_weight) {
         value.flags = detail::cuda_esdf_observed;
          if (source.distance <= 0) value.flags |= detail::cuda_esdf_inside;
+        const bool surface = source.distance <= 0 && fabsf(source.distance) <= parameters.site_band_m;
+        const bool negative_band = parameters.include_negative_truncation_band &&
+            source.distance <= -(parameters.truncation_distance - parameters.site_band_m);
+
+        if (surface || negative_band) value.flags |= detail::cuda_esdf_site;
+    }
+    else if (parameters.unobserved == detail::cuda_esdf_unobserved::free)
+        value.flags = detail::cuda_esdf_observed;
+    else if (parameters.unobserved == detail::cuda_esdf_unobserved::occupied)
+        value.flags = detail::cuda_esdf_observed | detail::cuda_esdf_inside | detail::cuda_esdf_site;
+
+    if (value.flags & detail::cuda_esdf_site)
+    {
+        value.squared_distance_voxels = 0;
+        value.flags |= detail::cuda_esdf_parent_assigned;
     }
     band_store(output, tile, local, value);
 }
