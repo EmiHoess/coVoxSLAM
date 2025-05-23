@@ -1,5 +1,6 @@
 #pragma once
 #include "band_esdf_index.cuh"
+#include "band_esdf_distance.cuh"
 
 namespace covoxslam::store
 {
@@ -42,11 +43,7 @@ __global__ void initialize_band_fields(band_tsdf_view input, band_work_view outp
     else if (parameters.unobserved == detail::cuda_esdf_unobserved::occupied)
         value.flags = detail::cuda_esdf_observed | detail::cuda_esdf_inside | detail::cuda_esdf_site;
 
-    if (value.flags & detail::cuda_esdf_site)
-    {
-        value.squared_distance_voxels = 0;
-        value.flags |= detail::cuda_esdf_parent_assigned;
-    }
+    assign_band_site(value);
     band_store(output, tile, local, value);
 }
 }
