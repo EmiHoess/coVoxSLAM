@@ -17,6 +17,8 @@ __global__ void relax_band_neighbors(const detail::cuda_tile_coordinate* keys, u
     int position[3];
     if (!detail::site_coordinate(keys[tile], local, position)) return;
     auto value = band_load(output, tile, unsigned(local));
+
+    if (!band_mutable(value)) return;
     bool modified{};
 
     for (int axis = 0; axis < 3; ++axis)

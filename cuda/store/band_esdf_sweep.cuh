@@ -37,6 +37,8 @@ __global__ void sweep_band_axis(const detail::cuda_tile_coordinate* keys, unsign
             if (!detail::site_coordinate(keys[tile], int(local), position)) return;
             auto value = band_load(output, tile, local);
 
+            if (!band_mutable(value)) continue;
+
             if (relax_band_value(value, output, tile, neighbor, position, maximum_squared))
             {
                 band_store(output, tile, local, value);
