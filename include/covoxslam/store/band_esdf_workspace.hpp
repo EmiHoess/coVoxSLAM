@@ -10,6 +10,13 @@ struct band_esdf_workspace
     storage::cuda_draft<storage::schema::projective_esdf, storage::layout::pool_soa> fields;
     esdf_scratch metadata;
      std::size_t reserved_bytes{};
+    band_esdf_workspace() = default;
+    band_esdf_workspace(const band_esdf_workspace&) = delete;
+    band_esdf_workspace& operator=(const band_esdf_workspace&) = delete;
+    operation_status complete()
+    {
+        return storage::cuda_storage_status(cudaStreamSynchronize(metadata.stream));
+    }
     operation_status initialize(std::size_t count, std::size_t maximum,
         memory_budget& budget, cudaStream_t stream)
     {

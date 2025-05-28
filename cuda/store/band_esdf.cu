@@ -5,6 +5,12 @@
 
 namespace covoxslam::store
 {
+cudaError_t read_band_status(unsigned* pointer, unsigned& value, cudaStream_t stream)
+{
+    const auto copied = cudaMemcpyAsync(&value, pointer, sizeof(value), cudaMemcpyDeviceToHost, stream);
+    const auto waited = cudaStreamSynchronize(stream);
+    return copied == cudaSuccess ? waited : copied;
+}
 int run_band_esdf(storage::device_descriptor source, device_index_view source_index,
     storage::device_descriptor target, device_index_view target_index,
     storage::device_descriptor work, const block_key* keys, unsigned count,
@@ -25,11 +31,6 @@ int run_band_esdf(storage::device_descriptor source, device_index_view source_in
     const band_work_view output{storage::device_accessor<storage::schema::projective_esdf>{work}};
     const float extent = options.field.maximum_distance_m / options.field.voxel_size;
     const float squared = extent * extent;
-    auto read = [&](unsigned* pointer, unsigned& value) {
-        const auto copied = cudaMemcpyAsync(&value, pointer, 4, cudaMemcpyDeviceToHost, stream);
-        const auto waited = cudaStreamSynchronize(stream);
-        return copied == cudaSuccess ? waited : copied;
-    };
     auto error = cudaMemsetAsync(status, 0, 8, stream);
     if (error) return int(error);
     index_band_tiles<<<(count + 127) / 128, 128, 0, stream>>>(keys, count, source_index,
@@ -38,14 +39,14 @@ int run_band_esdf(storage::device_descriptor source, device_index_view source_in
 
     if (error) return int(error);
     unsigned invalid{};
-    error = read(status, invalid);
+    error = read_band_status(status, invalid, stream);
     if (error || invalid) return int(error ? error : cudaErrorInvalidValue);
     initialize_band_fields<<<count * 4, 128, 0, stream>>>(input, output, slots, coordinates,
         count, options.field, squared, status);
     error = cudaGetLastError();
 
     if (error) return int(error);
-    error = read(status, invalid);
+    error = read_band_status(status, invalid, stream);
      if (error || invalid) return int(error ? error : cudaErrorInvalidValue);
     metrics->rounds = 0;
     unsigned changed{1};
@@ -69,7 +70,7 @@ int run_band_esdf(storage::device_descriptor source, device_index_view source_in
              error = cudaGetLastError();
             if (error) return int(error);
         }
-        error = read(status + 1, changed);
+        error = read_band_status(status + 1, changed, stream);
         if (error) return int(error);
         ++metrics->rounds;
     }
