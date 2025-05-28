@@ -2,6 +2,7 @@
 #include "band_esdf_initialize.cuh"
 #include "band_esdf_sweep.cuh"
 #include "band_esdf_neighbors.cuh"
+#include "band_esdf_publish.cuh"
 
 namespace covoxslam::store
 {
@@ -74,6 +75,18 @@ int run_band_esdf(storage::device_descriptor source, device_index_view source_in
         if (error) return int(error);
         ++metrics->rounds;
     }
-    return int(changed ? cudaErrorNotReady : cudaSuccess);
+    if (changed) return int(cudaErrorNotReady);
+    const band_output_view destination{storage::device_accessor<storage::schema::esdf>{target}};
+    if (target.size_tiles) {
+        clear_band_output<<<unsigned(target.size_tiles * 4), 128, 0, stream>>>(destination);
+        error = cudaGetLastError();
+        if (error) return int(error);
+    }
+    publish_band_fields<<<count * 4, 128, 0, stream>>>(output, destination, slots, coordinates,
+        count, options.field.voxel_size, options.field.maximum_distance_m, status);
+    error = cudaGetLastError();
+    if (error) return int(error);
+    error = read_band_status(status, invalid, stream);
+    return int(error ? error : invalid ? cudaErrorInvalidValue : cudaSuccess);
 }
 }

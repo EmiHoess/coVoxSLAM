@@ -1,0 +1,48 @@
+#pragma once
+#include "band_esdf_index.cuh"
+
+namespace covoxslam::store
+{
+__global__ void clear_band_output(band_output_view output)
+{
+    const auto i = std::size_t(blockIdx.x) * blockDim.x + threadIdx.x;
+
+    if (i < output.size() * 512)
+        storage::scatter_record<storage::schema::esdf>(output[i / 512].voxels[i % 512], {});
+}
+__global__ void publish_band_fields(band_work_view input, band_output_view output,
+    const band_tile_slot* slots, const detail::cuda_tile_coordinate* keys,
+    unsigned count, float voxel_size, float maximum, unsigned* status)
+{
+    const auto i = std::size_t(blockIdx.x) * blockDim.x + threadIdx.x;
+
+    if (i >= std::size_t(count) * 512) return;
+    const auto tile = i / 512;
+    const unsigned local = unsigned(i % 512);
+    const auto value = band_load(input, tile, local);
+    const float extent = maximum / voxel_size;
+    const bool clipped = value.squared_distance_voxels >= extent * extent;
+    const bool assigned = (value.flags & detail::cuda_esdf_parent_assigned) != 0;
+    storage::esdf_value result{};
+    const float distance = clipped ? maximum : fminf(maximum, voxel_size * sqrtf(value.squared_distance_voxels));
+    result.signed_distance_m = copysignf(distance, value.flags & detail::cuda_esdf_inside ? -1.f : 1.f);
+    result.flags = value.flags & 5U;
+    bool valid = isfinite(value.squared_distance_voxels) && value.squared_distance_voxels >= 0;
+
+    if (assigned && !clipped) {
+        int position[3];
+        valid = valid && detail::site_coordinate(keys[tile], int(local), position);
+        std::int32_t delta[3]{};
+
+        for (unsigned axis = 0; axis < 3; ++axis)
+        {
+            const auto wide = std::int64_t(value.parent[axis]) - position[axis];
+            if (wide < INT_MIN || wide > INT_MAX) valid = false;
+            else delta[axis] = int(wide);
+        }
+        result.parent_dx = delta[0]; result.parent_dy = delta[1]; result.parent_dz = delta[2];
+    }
+    if (!valid) { atomicOr(status, 2U); return; }
+    storage::scatter_record<storage::schema::esdf>(output[slots[tile].target].voxels[local], result);
+}
+}
