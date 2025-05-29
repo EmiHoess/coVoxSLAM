@@ -4,6 +4,37 @@
 
 namespace covoxslam::store
 {
+template<storage::layout l> operation_status import_band_topology(coordinated_store<l>& maps, const submap& source)
+{
+    const auto id = source.frame.id;
+    const auto& pose = source.frame.anchor;
+    auto checked = maps.create(id, {pose.x, pose.y, pose.z, pose.yaw});
+
+    if (!checked) return checked;
+    const auto load = [&]() -> operation_status {
+        if (source.tsdf.size() > source.config.maximum_tiles ||
+            source.tsdf.size() > std::numeric_limits<std::size_t>::max() / 512 / 20)
+            return std::unexpected(operation_error{"band topology exceeds import bounds"});
+        std::vector<block_key> keys;
+        std::vector<storage::tsdf_value> values;
+        keys.reserve(source.tsdf.size()); values.reserve(source.tsdf.size() * 512);
+
+        for (const auto& [index, tile] : source.tsdf) {
+            keys.push_back({id, index.x, index.y, index.z});
+
+            for (const auto& value : tile.voxels)
+                values.push_back({value.distance, value.weight, value.sample_count, value.flags});
+        }
+        auto imported = maps.template import_field<storage::schema::tsdf>(id, keys, values);
+        if (!imported) return imported;
+        std::vector<storage::esdf_value> empty(values.size());
+        return maps.template import_field<storage::schema::esdf>(id, keys, empty, 1);
+    };
+    checked = load();
+
+    if (!checked) static_cast<void>(maps.retire(id));
+    return checked;
+}
 template<storage::layout l> operation_status import_submap(coordinated_store<l>& maps, const submap& source)
 {
     const auto id = source.frame.id;
