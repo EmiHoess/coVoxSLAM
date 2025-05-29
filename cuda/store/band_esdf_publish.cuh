@@ -23,14 +23,17 @@ __global__ void publish_band_fields(band_work_view input, band_output_view outpu
     const float extent = maximum / voxel_size;
     const bool clipped = value.squared_distance_voxels >= extent * extent;
     const bool assigned = (value.flags & detail::cuda_esdf_parent_assigned) != 0;
+    const bool site = (value.flags & detail::cuda_esdf_site) != 0;
     storage::esdf_value result{};
     const float distance = clipped ? maximum : fminf(maximum, voxel_size * sqrtf(value.squared_distance_voxels));
     result.signed_distance_m = copysignf(distance, value.flags & detail::cuda_esdf_inside ? -1.f : 1.f);
     result.flags = value.flags & 5U;
-    bool valid = isfinite(value.squared_distance_voxels) && value.squared_distance_voxels >= 0;
+    bool valid = isfinite(value.squared_distance_voxels) && value.squared_distance_voxels >= 0 &&
+        !(value.flags & ~15U) && ((value.flags & 1U) || !(value.flags & ~1U)) &&
+        (assigned || clipped) && (!site || (assigned && (value.flags & 2U) && value.squared_distance_voxels == 0));
 
     if (assigned && !clipped) {
-        int position[3];
+        int position[3]{};
         valid = valid && detail::site_coordinate(keys[tile], int(local), position);
         std::int32_t delta[3]{};
 
@@ -41,6 +44,12 @@ __global__ void publish_band_fields(band_work_view input, band_output_view outpu
             else delta[axis] = int(wide);
         }
         result.parent_dx = delta[0]; result.parent_dy = delta[1]; result.parent_dz = delta[2];
+        valid = valid && (!site || !(delta[0] || delta[1] || delta[2]));
+    }
+    if (fabsf(result.signed_distance_m) >= maximum)
+    {
+        result.signed_distance_m = copysignf(maximum, result.signed_distance_m);
+        result.parent_dx = result.parent_dy = result.parent_dz = 0;
     }
     if (!valid) { atomicOr(status, 2U); return; }
     storage::scatter_record<storage::schema::esdf>(output[slots[tile].target].voxels[local], result);
