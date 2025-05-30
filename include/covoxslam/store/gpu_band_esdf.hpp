@@ -24,6 +24,7 @@ template<storage::layout l> operation_result<band_esdf_metrics> generate_band_es
         const auto allocated = std::chrono::steady_clock::now();
         result.allocation_ms = std::chrono::duration<double, std::milli>(allocated - started).count();
         result.scratch_bytes = workspace.reserved_bytes;
+        result.peak_device_bytes = budget.snapshot().peak[2];
         auto descriptor = workspace.fields.descriptor();
 
         if (!descriptor) return std::unexpected(descriptor.error());

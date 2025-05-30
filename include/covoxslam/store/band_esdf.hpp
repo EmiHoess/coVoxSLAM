@@ -29,7 +29,7 @@ struct band_esdf_options
     }
 };
 struct band_esdf_metrics {
-    std::uint64_t tiles{}, scratch_bytes{}, upload_bytes{}, download_bytes{};
+    std::uint64_t tiles{}, scratch_bytes{}, upload_bytes{}, download_bytes{}, peak_device_bytes{};
     std::uint32_t rounds{};
     double allocation_ms{}, upload_ms{}, propagation_ms{}, publication_ms{}, readback_ms{};
     double gpu_ms{}, wait_ms{}, total_ms{};

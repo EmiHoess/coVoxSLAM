@@ -4,6 +4,15 @@
 
 namespace covoxslam::store
 {
+inline operation_result<std::size_t> band_workspace_bytes(std::size_t count, std::size_t maximum)
+{
+    constexpr std::size_t per_tile = 512 * 20 + sizeof(block_key) +
+        sizeof(detail::cuda_tile_coordinate) + 2 * sizeof(unsigned);
+
+    if (!count || count > UINT32_MAX / 512 || maximum < 8 || count > (maximum - 8) / per_tile)
+        return std::unexpected(operation_error{"band ESDF workspace exceeds its limit"});
+    return count * per_tile + 8;
+}
 struct band_esdf_workspace
 {
     std::shared_ptr<budget_claim> field_memory;
@@ -20,12 +29,9 @@ struct band_esdf_workspace
     operation_status initialize(std::size_t count, std::size_t maximum,
         memory_budget& budget, cudaStream_t stream)
     {
-        constexpr std::size_t per_tile = 512 * 20 + sizeof(block_key) +
-            sizeof(detail::cuda_tile_coordinate) + 2 * sizeof(unsigned);
-
-        if (field_memory || !count || count > UINT32_MAX / 512 || maximum < 8 ||
-            count > (maximum - 8) / per_tile)
-            return std::unexpected(operation_error{"band ESDF workspace exceeds its limit"});
+        if (field_memory) return std::unexpected(operation_error{"band workspace is already allocated"});
+        auto total = band_workspace_bytes(count, maximum);
+        if (!total) return std::unexpected(total.error());
         const auto bytes = count * 512 * 20;
         auto claimed = budget.reserve({0, 0, bytes});
 
@@ -38,7 +44,7 @@ struct band_esdf_workspace
             count * sizeof(detail::cuda_tile_coordinate), count * 2 * sizeof(unsigned), 8};
         checked = metadata.initialize(sizes, maximum - bytes, budget, stream);
         if (!checked) return checked;
-        reserved_bytes = count * per_tile + 8;
+        reserved_bytes = *total;
         return {};
     }
 };
