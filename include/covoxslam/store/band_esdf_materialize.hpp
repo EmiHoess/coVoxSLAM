@@ -1,0 +1,28 @@
+#pragma once
+#include <covoxslam/store/geometry_capture.hpp>
+#include <covoxslam/store/band_esdf.hpp>
+#include <chrono>
+
+namespace covoxslam::store
+{
+template<storage::layout l> operation_result<geometry_snapshot<l, storage::schema::esdf>>
+download_band_fields(coordinated_store<l>& maps, std::uint64_t id,
+    geometry_parameters parameters, std::size_t maximum_bytes, band_esdf_metrics& metrics)
+{
+    const auto started = std::chrono::steady_clock::now();
+    auto before = maps.status(id);
+
+    if (!before) return std::unexpected(before.error());
+    auto fields = capture_geometry(maps, std::span<const std::uint64_t>(&id, 1), 2,
+        parameters, maximum_bytes, maximum_bytes);
+    if (!fields) return std::unexpected(fields.error());
+    const auto* map = fields->find(id);
+    if (!map || !map->esdf) return std::unexpected(operation_error{"generated ESDF capture is absent"});
+
+    if (before->cpu[1] != before->content[1])
+        metrics.download_bytes += map->esdf->payload.size() * 512 * sizeof(storage::esdf_value);
+    metrics.readback_ms += std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - started).count();
+    return fields;
+}
+}
