@@ -6,7 +6,7 @@
 
 namespace covoxslam::detail
 {
-__device__ bool relax_site_distance(cuda_site_esdf_voxel& target,
+__device__ inline bool relax_site_distance(cuda_site_esdf_voxel& target,
     const cuda_site_esdf_voxel& source, int x, int y, int z, float maximum_squared)
 {
     if (!(target.flags & cuda_esdf_observed) || (target.flags & cuda_esdf_site) ||
