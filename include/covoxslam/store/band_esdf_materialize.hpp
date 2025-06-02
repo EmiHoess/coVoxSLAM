@@ -24,6 +24,22 @@ public:
         return &*values_;
     }
     const auto& fields() const noexcept { return fields_; }
+    operation_status validate(const coordinated_store<l>& maps) const
+    {
+        const auto* captured = fields_.find(id_);
+        auto current = maps.status(id_);
+
+        if (!current) return std::unexpected(current.error());
+        if (!captured || !captured->esdf)
+            return std::unexpected(operation_error{"ESDF staging has no retained field"});
+        const auto& expected = captured->record.versions;
+
+        if (!expected.tsdf || expected.esdf_source != expected.tsdf ||
+            current->content[0] != expected.tsdf || current->content[1] != expected.esdf ||
+            current->esdf_source != expected.esdf_source)
+            return std::unexpected(operation_error{"ESDF staging source generation is stale"});
+        return {};
+    }
 };
 template<storage::layout l> operation_result<geometry_snapshot<l, storage::schema::esdf>>
 download_band_fields(coordinated_store<l>& maps, std::uint64_t id,
