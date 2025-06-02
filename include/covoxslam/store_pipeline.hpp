@@ -9,6 +9,8 @@ enum class stored_pgo_fields { copied, borrowed, resident };
 struct store_pipeline_options
 {
     bool enabled{};
+    esdf_backend esdf_generator{esdf_backend::none};
+    int device{};
     storage::layout layout{storage::layout::pooled_aos};
     stored_pgo_fields fields{stored_pgo_fields::copied};
     std::filesystem::path checkpoint_root;

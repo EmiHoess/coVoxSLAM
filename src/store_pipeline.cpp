@@ -4,6 +4,15 @@ namespace covoxslam
 {
 operation_status validate_store_pipeline(const store_pipeline_options& store, const pgo::options& solver)
 {
+    if (store.esdf_generator != esdf_backend::none && store.esdf_generator != esdf_backend::cuda_block_band_soa)
+        return std::unexpected(operation_error{"unsupported stored ESDF generator"});
+    if (store.esdf_generator == esdf_backend::cuda_block_band_soa) {
+        if (!store.enabled || store.layout != storage::layout::pool_soa || store.device < 0)
+            return std::unexpected(operation_error{"block band SoA requires map store soa and a valid CUDA device"});
+#if !defined(covoxslam_has_cuda)
+        return std::unexpected(operation_error{"block band SoA requires CUDA support"});
+#endif
+    }
     if (!store.enabled) {
         if (store.fields != stored_pgo_fields::copied || !store.checkpoint_root.empty())
             return std::unexpected(operation_error{"store field and checkpoint options require a map store"});

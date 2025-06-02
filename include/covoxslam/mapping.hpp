@@ -128,7 +128,7 @@ tsdf_voxel& allocate_voxel(tsdf_tiles& tiles, int3 voxel, std::size_t maximum_ti
 
 namespace covoxslam
 {
-enum class esdf_backend { none, cpu_blocks_batch, cuda_projective_block_band, cuda_blocks_batch };
+enum class esdf_backend { none, cpu_blocks_batch, cuda_projective_block_band, cuda_blocks_batch, cuda_block_band_soa };
 const char* esdf_backend_name(esdf_backend value) noexcept;
 
 struct mapping_config
