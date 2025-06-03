@@ -8,9 +8,57 @@
 #include <covoxslam/pgo_publication.hpp>
 #include <chrono>
 #include <sstream>
+#if defined(covoxslam_has_cuda) && defined(covoxslam_has_urd)
+#include <covoxslam/store/gpu_band_esdf.hpp>
+#include <covoxslam/store/band_esdf_materialize.hpp>
+#endif
 
 namespace covoxslam::detail
 {
+template<storage::layout l> operation_status generate_stored_band(store::coordinated_store<l>& retained,
+    submap& map, const store_pipeline_options& options)
+{
+#if defined(covoxslam_has_cuda) && defined(covoxslam_has_urd)
+    if constexpr (l == storage::layout::pool_soa)
+    {
+        using namespace store;
+        auto checked = storage::cuda_storage_status(cudaSetDevice(options.device));
+        if (!checked) return checked;
+        checked = import_band_topology(retained, map);
+        if (!checked) return checked;
+        const auto id = map.frame.id;
+        checked = retained.synchronize_gpu(id, 3, options.cpu_bytes);
+        if (!checked) return checked;
+        const auto& config = map.config;
+        band_esdf_options settings;
+        settings.field.voxel_size = config.voxel_size;
+        settings.field.truncation_distance = config.truncation_distance;
+        settings.field.minimum_weight = config.esdf_minimum_weight;
+        settings.field.site_band_m = config.esdf_site_band_m;
+        settings.field.maximum_distance_m = config.esdf_maximum_distance_m;
+        auto generated = generate_band_esdf(retained, id, settings);
+
+        if (!generated) return std::unexpected(generated.error());
+        auto downloaded = download_band_fields(retained, id,
+            {config.voxel_size, config.esdf_maximum_distance_m}, options.cpu_bytes, *generated);
+        if (!downloaded) return std::unexpected(downloaded.error());
+        band_field_staging<l> staging(std::move(*downloaded), id);
+        checked = staging.validate(retained);
+        if (!checked) return checked;
+        auto values = staging.values(options.cpu_bytes);
+        if (!values) return std::unexpected(values.error());
+        checked = retained.finalize(id, 3);
+        if (!checked) return checked;
+        map.esdf = **values;
+        map.config.esdf_generator = esdf_backend::cuda_block_band_soa;
+        map.statistics.esdf_ms = generated->total_ms + generated->readback_ms;
+        map.statistics.cuda_uploaded_bytes += generated->upload_bytes;
+        map.statistics.cuda_downloaded_bytes += generated->download_bytes;
+        return {};
+    }
+#endif
+    return std::unexpected(operation_error{"stored band ESDF requires CUDA SoA support"});
+}
 template<storage::layout l> operation_result<stored_pipeline_result> stored_pipeline(
     std::span<submap> maps, const store_pipeline_options& options, const pgo::options& solver, bool shadow)
 {
@@ -25,8 +73,9 @@ template<storage::layout l> operation_result<stored_pipeline_result> stored_pipe
 #endif
     bool has_esdf{};
 
-    for (const auto& map : maps) {
-        auto checked = import_submap(retained, map);
+    for (auto& map : maps) {
+        auto checked = options.esdf_generator == esdf_backend::cuda_block_band_soa ?
+            generate_stored_band(retained, map, options) : import_submap(retained, map);
         if (!checked) return std::unexpected(checked.error());
         ids.push_back(map.frame.id);
         if (ids.size() == 1) has_esdf = !map.esdf.empty();
