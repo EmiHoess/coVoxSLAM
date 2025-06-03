@@ -64,6 +64,7 @@ template<storage::layout l> operation_result<stored_pipeline_result> stored_pipe
 {
     using namespace store;
     const auto started = std::chrono::steady_clock::now();
+    const bool generated_fields = options.esdf_generator == esdf_backend::cuda_block_band_soa;
     residency_policy policy;
     policy.limits = {options.cpu_bytes, 128U * 1024U * 1024U, options.gpu_bytes};
     coordinated_store<l> retained(policy);
@@ -74,7 +75,7 @@ template<storage::layout l> operation_result<stored_pipeline_result> stored_pipe
     bool has_esdf{};
 
     for (auto& map : maps) {
-        auto checked = options.esdf_generator == esdf_backend::cuda_block_band_soa ?
+        auto checked = generated_fields ?
             generate_stored_band(retained, map, options) : import_submap(retained, map);
         if (!checked) return std::unexpected(checked.error());
         ids.push_back(map.frame.id);
@@ -91,6 +92,8 @@ template<storage::layout l> operation_result<stored_pipeline_result> stored_pipe
         << field_modes[unsigned(options.fields)] << ", checkpoint format 1, field view API 1\n"
         << "mapping bridge finalized canonical staging, publication verification CPU\n";
     report << "store import ms " << std::chrono::duration<double, std::milli>(imported - started).count() << '\n';
+    if (generated_fields)
+        report << "ESDF direct SoA generation, retained map store, canonical CPU mirror\n";
 #if defined(covoxslam_has_pgo)
     if (solver.enabled) {
         if (!has_esdf) return std::unexpected(operation_error{"stored PGO requires ESDF fields"});
@@ -134,8 +137,13 @@ template<storage::layout l> operation_result<stored_pipeline_result> stored_pipe
             if (!checked) return std::unexpected(checked.error());
 
             for (auto id : ids) {
-                checked = retained.synchronize_gpu(id, 3, options.cpu_bytes);
-                if (!checked) return std::unexpected(checked.error());
+                auto state = retained.status(id);
+                if (!state) return std::unexpected(state.error());
+
+                if (state->gpu != state->content) {
+                    checked = retained.synchronize_gpu(id, 3, options.cpu_bytes);
+                    if (!checked) return std::unexpected(checked.error());
+                }
             }
             auto resident = retained.lease_resident(ids, 3, options.gpu_bytes);
             if (!resident) return std::unexpected(resident.error());
