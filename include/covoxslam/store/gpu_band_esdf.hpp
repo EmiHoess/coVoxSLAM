@@ -1,5 +1,6 @@
 #pragma once
 #include <covoxslam/store/band_esdf_workspace.hpp>
+#include <covoxslam/store/band_esdf_generation.hpp>
 #include <chrono>
 
 namespace covoxslam::store
@@ -48,7 +49,9 @@ template<storage::layout l> operation_result<band_esdf_metrics> generate_band_es
     if (!checked) return std::unexpected(checked.error());
     const auto state = maps.status(id);
     if (!state) return std::unexpected(state.error());
-    if (state->content[0] != state->esdf_source || state->gpu[1] != state->content[1])
+    auto current = validate_band_generation(*state);
+    if (!current) return std::unexpected(current.error());
+    if (state->gpu[1] != state->content[1])
         return std::unexpected(operation_error{"ESDF completion generation is stale"});
     result.total_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
     return result;

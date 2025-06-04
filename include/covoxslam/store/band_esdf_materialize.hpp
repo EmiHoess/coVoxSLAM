@@ -1,6 +1,7 @@
 #pragma once
 #include <covoxslam/store/geometry_capture.hpp>
 #include <covoxslam/store/band_esdf.hpp>
+#include <covoxslam/store/band_esdf_generation.hpp>
 #include <chrono>
 
 namespace covoxslam::store
@@ -32,13 +33,7 @@ public:
         if (!current) return std::unexpected(current.error());
         if (!captured || !captured->esdf)
             return std::unexpected(operation_error{"ESDF staging has no retained field"});
-        const auto& expected = captured->record.versions;
-
-        if (!expected.tsdf || expected.esdf_source != expected.tsdf ||
-            current->content[0] != expected.tsdf || current->content[1] != expected.esdf ||
-            current->esdf_source != expected.esdf_source)
-            return std::unexpected(operation_error{"ESDF staging source generation is stale"});
-        return {};
+        return validate_band_generation(*current, captured->record.versions);
     }
 };
 template<storage::layout l> operation_result<geometry_snapshot<l, storage::schema::esdf>>
