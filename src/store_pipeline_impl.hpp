@@ -15,6 +15,28 @@
 
 namespace covoxslam::detail
 {
+#if defined(covoxslam_has_pgo)
+template<storage::layout l> operation_result<std::vector<store::pgo_field_binding>>
+bind_stored_fields(const store::geometry_snapshot<l, storage::schema::esdf>& captured,
+    std::span<const std::uint64_t> ids)
+{
+    std::vector<store::pgo_field_binding> result;
+    result.reserve(ids.size());
+
+    for (std::size_t i = 0; i < ids.size(); ++i)
+    {
+        const auto* map = captured.find(ids[i]);
+        if (!map || !map->tsdf || !map->esdf || map->record.state != store::lifecycle::finalized)
+            return std::unexpected(operation_error{"solver requires finalized canonical fields"});
+        const auto& version = map->record.versions;
+
+        if (!version.tsdf || !version.esdf || version.tsdf != version.esdf_source)
+            return std::unexpected(operation_error{"solver ESDF source differs from captured TSDF"});
+        result.push_back({ids[i], i, version});
+    }
+    return result;
+}
+#endif
 template<storage::layout l> operation_status generate_stored_band(store::coordinated_store<l>& retained,
     submap& map, const store_pipeline_options& options)
 {
@@ -110,8 +132,9 @@ template<storage::layout l> operation_result<stored_pipeline_result> stored_pipe
         auto counts = pgo::summarize_candidates(*candidates);
         if (!counts) return std::unexpected(counts.error());
 
-        for (std::size_t i = 0; i < ids.size(); ++i)
-            bindings.push_back({ids[i], i, host->find(ids[i])->record.versions});
+        auto selected = bind_stored_fields(*host, ids);
+        if (!selected) return std::unexpected(selected.error());
+        bindings = std::move(*selected);
         checked = validate_pgo_bindings(*graph, *host, bindings);
         if (!checked) return std::unexpected(checked.error());
         auto fields = borrow_pgo_fields(*host, bindings);
