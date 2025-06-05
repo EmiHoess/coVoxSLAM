@@ -36,6 +36,7 @@ template<storage::layout l> operation_result<band_esdf_metrics> generate_band_es
             keys.data(), keys.size_bytes(), cudaMemcpyHostToDevice, stream));
         if (!valid) return valid;
         result.upload_bytes = keys.size_bytes();
+        result.upload_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - allocated).count();
         const auto code = run_band_esdf(source.native_accessor().descriptor, source_index,
             target.native_accessor().descriptor, target_index, *descriptor,
             metadata.template get<block_key>(0), unsigned(keys.size()),

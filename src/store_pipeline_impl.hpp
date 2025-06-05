@@ -38,7 +38,7 @@ bind_stored_fields(const store::geometry_snapshot<l, storage::schema::esdf>& cap
 }
 #endif
 template<storage::layout l> operation_status generate_stored_band(store::coordinated_store<l>& retained,
-    submap& map, const store_pipeline_options& options)
+    submap& map, const store_pipeline_options& options, std::ostream& report)
 {
 #if defined(covoxslam_has_cuda) && defined(covoxslam_has_urd)
     if constexpr (l == storage::layout::pool_soa)
@@ -76,6 +76,16 @@ template<storage::layout l> operation_status generate_stored_band(store::coordin
         map.statistics.esdf_ms = generated->total_ms + generated->readback_ms;
         map.statistics.cuda_uploaded_bytes += generated->upload_bytes;
         map.statistics.cuda_downloaded_bytes += generated->download_bytes;
+        report << "SoA ESDF submap " << id << ", tiles " << generated->tiles << ", rounds " << generated->rounds
+            << ", allocation and replacement ms " << generated->allocation_ms
+            << ", upload submission ms " << generated->upload_ms
+            << ", propagation wall ms " << generated->propagation_ms
+            << ", publication wall ms " << generated->publication_ms
+            << ", GPU stage intervals ms " << generated->gpu_ms << ", host wait ms " << generated->wait_ms
+            << ", readback wall ms " << generated->readback_ms << ", derive wall ms " << generated->total_ms
+            << ", scratch bytes " << generated->scratch_bytes << ", peak GPU bytes " << generated->peak_device_bytes
+            << ", metadata upload bytes " << generated->upload_bytes << ", readback bytes " << generated->download_bytes
+            << " (nested intervals, not additive)\n";
         return {};
     }
 #endif
@@ -95,10 +105,11 @@ template<storage::layout l> operation_result<stored_pipeline_result> stored_pipe
     std::vector<pgo_field_binding> bindings;
 #endif
     bool has_esdf{};
+    std::ostringstream report;
 
     for (auto& map : maps) {
         auto checked = generated_fields ?
-            generate_stored_band(retained, map, options) : import_submap(retained, map);
+            generate_stored_band(retained, map, options, report) : import_submap(retained, map);
         if (!checked) return std::unexpected(checked.error());
         ids.push_back(map.frame.id);
         if (ids.size() == 1) has_esdf = !map.esdf.empty();
@@ -107,7 +118,6 @@ template<storage::layout l> operation_result<stored_pipeline_result> stored_pipe
     }
     const auto imported = std::chrono::steady_clock::now();
     stored_pipeline_result output;
-    std::ostringstream report;
     constexpr const char* layouts[]{"aos", "aosoa", "soa"};
     constexpr const char* field_modes[]{"copied", "borrowed", "resident"};
     report << "store layout " << layouts[unsigned(options.layout)] << ", PGO fields "
