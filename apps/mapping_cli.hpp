@@ -26,10 +26,11 @@ inline constexpr cli_option_entry<mapping_option> mapping_options[]{
     {"--maximum-ray-length", mapping_option::maximum_ray_length}, {"--maximum-weight", mapping_option::maximum_weight}
 };
 
-enum class esdf_value { unknown, none, cpu_blocks, projective_band, blocks_batch };
+enum class esdf_value { unknown, none, cpu_blocks, projective_band, blocks_batch, block_band_soa };
 inline constexpr cli_option_entry<esdf_value> esdf_values[]{
     {"none", esdf_value::none}, {"cpu-blocks-batch", esdf_value::cpu_blocks},
-     {"cuda-projective-block-band", esdf_value::projective_band}, {"cuda-blocks-batch", esdf_value::blocks_batch}
+     {"cuda-projective-block-band", esdf_value::projective_band}, {"cuda-blocks-batch", esdf_value::blocks_batch},
+    {"cuda-block-band-soa", esdf_value::block_band_soa}
 };
 
 inline float mapping_scalar(std::string_view text)
@@ -59,6 +60,7 @@ inline operation_result<bool> parse_mapping_option(std::string_view name, std::s
         case esdf_value::cpu_blocks: config.esdf_generator = esdf_backend::cpu_blocks_batch; break;
         case esdf_value::projective_band: config.esdf_generator = esdf_backend::cuda_projective_block_band; break;
          case esdf_value::blocks_batch: config.esdf_generator = esdf_backend::cuda_blocks_batch; break;
+        case esdf_value::block_band_soa: config.esdf_generator = esdf_backend::cuda_block_band_soa; break;
         case esdf_value::unknown: return std::unexpected(operation_error{"unsupported ESDF generator"});
         }
         return true;

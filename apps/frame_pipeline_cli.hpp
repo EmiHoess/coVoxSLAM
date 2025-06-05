@@ -329,6 +329,12 @@ inline int run_submap_cli(int argc, char** argv)
         if (resident_options.selected && (cuda_options.ray_capacity_set || cuda_options.contribution_capacity_set))
             return report_error("use --resident-rays and --resident-contributions with resident mapping");
         pgo_settings.solver.device = cuda_options.mapper.device;
+        const bool stored_band = mapping_options.esdf_generator == esdf_backend::cuda_block_band_soa;
+        store_settings.device = cuda_options.mapper.device;
+        if (stored_band) {
+            if (esdf_options.specified) return report_error("block band SoA does not accept blocks execution options");
+            store_settings.esdf_generator = esdf_backend::cuda_block_band_soa;
+        }
         auto store_valid = validate_store_pipeline(store_settings, pgo_settings.solver);
         if (!store_valid) return report_error(store_valid.error().message);
         if (store_settings.enabled && !mapping_enabled) return report_error("map storage requires mapping");
@@ -349,9 +355,10 @@ inline int run_submap_cli(int argc, char** argv)
         if (!pgo_valid) return report_error(pgo_valid.error().message);
         if (!loaded) return report_error(loaded.error().message);
         const auto& input = *loaded;
-        const auto finalize = cuda_esdf_finalizer(mapping_options, cuda_options.mapper.device, esdf_options);
+        const auto finalize = stored_band ? std::function<void(submap&)>{} :
+            cuda_esdf_finalizer(mapping_options, cuda_options.mapper.device, esdf_options);
         auto mapper_options = mapping_options;
-        if (finalize) mapper_options.esdf_generator = esdf_backend::none;
+        if (finalize || stored_band) mapper_options.esdf_generator = esdf_backend::none;
         std::unique_ptr<cpu_mapper> cpu;
         std::unique_ptr<cuda_mapper> gpu;
         std::unique_ptr<cuda_projective_mapper> projective;
