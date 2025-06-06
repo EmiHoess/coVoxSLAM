@@ -2,6 +2,20 @@
 
 namespace covoxslam
 {
+operation_status validate_stored_export(std::span<const submap> maps, const store_pipeline_options& store)
+{
+    for (const auto& map : maps) {
+        auto identity = detail::stored_field_parameters(map, store);
+        if (!identity) return std::unexpected(identity.error());
+
+        if (store.esdf_generator == esdf_backend::cuda_block_band_soa)
+
+            for (const auto& [key, tile] : map.tsdf)
+                if (!map.esdf.contains(key))
+                    return std::unexpected(operation_error{"generated ESDF export topology differs from TSDF"});
+    }
+    return {};
+}
 operation_status validate_store_pipeline(const store_pipeline_options& store, const pgo::options& solver)
 {
     if (store.esdf_generator != esdf_backend::none && store.esdf_generator != esdf_backend::cuda_block_band_soa)

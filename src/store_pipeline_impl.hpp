@@ -128,6 +128,8 @@ template<storage::layout l> operation_result<stored_pipeline_result> stored_pipe
             return std::unexpected(operation_error{"stored pipeline requires a consistent field selection"});
     }
     const auto imported = std::chrono::steady_clock::now();
+    auto export_ready = validate_stored_export(maps, options);
+    if (!export_ready) return std::unexpected(export_ready.error());
     stored_pipeline_result output;
     constexpr const char* layouts[]{"aos", "aosoa", "soa"};
     constexpr const char* field_modes[]{"copied", "borrowed", "resident"};

@@ -440,6 +440,8 @@ inline int run_submap_cli(int argc, char** argv)
                 if (!store_settings.enabled) return finish_pgo(pgo_maps, pgo_settings);
                 auto stored = finish_stored_pipeline(pgo_maps, store_settings, pgo_settings.solver, pgo_settings.shadow);
                 if (!stored) return std::unexpected(stored.error());
+                auto ready = validate_stored_export(pgo_maps, store_settings);
+                if (!ready) return std::unexpected(ready.error());
                 return pgo_cli_result{stored->backend, stored->hash, stored->publication, stored->report};
             }();
             if (!optimized) return report_error(optimized.error().message);
