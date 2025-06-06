@@ -15,6 +15,17 @@
 
 namespace covoxslam::detail
 {
+inline operation_result<store::checkpoint_parameters> stored_field_parameters(
+    const submap& map, const store_pipeline_options& options)
+{
+    const auto& config = map.config;
+
+    if (!config.valid() || (options.esdf_generator == esdf_backend::cuda_block_band_soa &&
+        (config.esdf_generator != options.esdf_generator || map.esdf.size() != map.tsdf.size())))
+        return std::unexpected(operation_error{"stored field identity does not match completed generation"});
+    return store::checkpoint_parameters{config.voxel_size, config.truncation_distance,
+        config.maximum_weight, config.esdf_maximum_distance_m, std::uint64_t(config.esdf_generator)};
+}
 #if defined(covoxslam_has_pgo)
 template<storage::layout l> operation_result<std::vector<store::pgo_field_binding>>
 bind_stored_fields(const store::geometry_snapshot<l, storage::schema::esdf>& captured,
@@ -230,11 +241,10 @@ template<storage::layout l> operation_result<stored_pipeline_result> stored_pipe
         if (error) return std::unexpected(operation_error{"cannot create checkpoint directory"});
 
         for (const auto& map : maps) {
-            const auto& config = map.config;
-            const checkpoint_parameters parameters{config.voxel_size, config.truncation_distance,
-                config.maximum_weight, config.esdf_maximum_distance_m, std::uint64_t(config.esdf_generator)};
+            auto parameters = stored_field_parameters(map, options);
+            if (!parameters) return std::unexpected(parameters.error());
             auto checked = retained.save(map.frame.id, options.checkpoint_root / std::to_string(map.frame.id),
-                parameters, options.cpu_bytes);
+                *parameters, options.cpu_bytes);
             if (!checked) return std::unexpected(checked.error());
         }
     }
