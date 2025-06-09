@@ -82,11 +82,11 @@ template<storage::layout l> operation_status generate_stored_band(store::coordin
         band_field_staging<l> staging(std::move(*downloaded), id);
         checked = staging.validate(retained);
         if (!checked) return checked;
-        auto values = staging.values(options.cpu_bytes);
+        auto values = staging.release_values(options.cpu_bytes);
         if (!values) return std::unexpected(values.error());
         checked = retained.finalize(id, 3);
         if (!checked) return checked;
-        map.esdf = **values;
+        map.esdf = std::move(*values);
         map.config.esdf_generator = esdf_backend::cuda_block_band_soa;
         map.statistics.esdf_ms = generated->total_ms + generated->readback_ms;
         map.statistics.cuda_uploaded_bytes += generated->upload_bytes;

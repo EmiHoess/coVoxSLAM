@@ -25,6 +25,14 @@ public:
         return &*values_;
     }
     const auto& fields() const noexcept { return fields_; }
+    operation_result<esdf_tiles> release_values(std::size_t maximum_bytes)
+    {
+        auto prepared = values(maximum_bytes);
+        if (!prepared) return std::unexpected(prepared.error());
+        auto result = std::move(*values_);
+        values_.reset();
+        return result;
+    }
     operation_status validate(const coordinated_store<l>& maps) const
     {
         const auto* captured = fields_.find(id_);
@@ -44,8 +52,9 @@ download_band_fields(coordinated_store<l>& maps, std::uint64_t id,
     auto before = maps.status(id);
 
     if (!before) return std::unexpected(before.error());
+    const bool current = before->cpu[1] == before->content[1];
     auto fields = capture_geometry(maps, std::span<const std::uint64_t>(&id, 1), 2,
-        parameters, maximum_bytes, maximum_bytes);
+        parameters, maximum_bytes, current ? std::optional<std::size_t>{} : maximum_bytes);
     if (!fields) return std::unexpected(fields.error());
     const auto* map = fields->find(id);
     if (!map || !map->esdf) return std::unexpected(operation_error{"generated ESDF capture is absent"});
