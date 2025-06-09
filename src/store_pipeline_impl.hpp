@@ -15,6 +15,10 @@
 
 namespace covoxslam::detail
 {
+inline operation_error stored_field_error(std::uint64_t id, const operation_error& error)
+{
+    return operation_error{"submap " + std::to_string(id) + " ESDF generation or publication: " + error.message};
+}
 inline operation_result<store::checkpoint_parameters> stored_field_parameters(
     const submap& map, const store_pipeline_options& options)
 {
@@ -121,7 +125,8 @@ template<storage::layout l> operation_result<stored_pipeline_result> stored_pipe
     for (auto& map : maps) {
         auto checked = generated_fields ?
             generate_stored_band(retained, map, options, report) : import_submap(retained, map);
-        if (!checked) return std::unexpected(checked.error());
+        if (!checked) return std::unexpected(generated_fields ?
+            stored_field_error(map.frame.id, checked.error()) : checked.error());
         ids.push_back(map.frame.id);
         if (ids.size() == 1) has_esdf = !map.esdf.empty();
         if (has_esdf != !map.esdf.empty())

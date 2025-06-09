@@ -439,7 +439,8 @@ inline int run_submap_cli(int argc, char** argv)
             auto optimized = [&]() -> operation_result<pgo_cli_result> {
                 if (!store_settings.enabled) return finish_pgo(pgo_maps, pgo_settings);
                 auto stored = finish_stored_pipeline(pgo_maps, store_settings, pgo_settings.solver, pgo_settings.shadow);
-                if (!stored) return std::unexpected(stored.error());
+                if (!stored) return std::unexpected(operation_error{
+                    "stored pipeline stopped before export: " + stored.error().message});
                 auto ready = validate_stored_export(pgo_maps, store_settings);
                 if (!ready) return std::unexpected(ready.error());
                 return pgo_cli_result{stored->backend, stored->hash, stored->publication, stored->report};
