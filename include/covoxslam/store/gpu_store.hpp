@@ -40,10 +40,13 @@ template<storage::layout l, storage::schema es = storage::schema::esdf> class gp
         return retired_allocation{field, payload_bytes + index_bytes};
     }
     template<storage::schema s> operation_result<std::shared_ptr<const gpu_field<s, l>>> upload(
-        const std::shared_ptr<const field_pool<s, l>>& source, std::uint64_t generation, bool copy_values = true)
+        const std::shared_ptr<const field_pool<s, l>>& source, std::uint64_t generation, bool copy_values = true,
+        const storage::cuda_draft<s, l>* device_source = nullptr)
     {
         if (!source || source->index.slot_count() != source->payload.size())
             return std::unexpected(operation_error{"resident field has invalid initialized slots"});
+        if (device_source && (copy_values || device_source->size() < source->payload.size()))
+            return std::unexpected(operation_error{"device source extent or transfer mode is invalid"});
         constexpr auto stride = storage::storage_traits<s, l>::tile_stride *
             (l == storage::layout::pool_soa ? storage::field_count<s> : 1);
         std::size_t buckets{2};
@@ -66,6 +69,9 @@ template<storage::layout l, storage::schema es = storage::schema::esdf> class gp
         storage::transfer_measurement measured;
         if (copy_values) checked = field->payload.upload_range(source->payload, 0, 0, source->payload.size() * 512,
             (1U << storage::field_count<s>) - 1, storage::transfer_method::bulk_same_layout, measured);
+        if (device_source)
+            checked = field->payload.copy_from(*device_source, 0, 0, source->payload.size() * 512,
+                (1U << storage::field_count<s>) - 1, storage::transfer_method::bulk_same_layout, measured);
         if (!checked) return std::unexpected(checked.error());
         checked = field->index.initialize(source->index, generation);
         if (!checked) return std::unexpected(checked.error());
