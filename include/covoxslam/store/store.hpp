@@ -180,6 +180,24 @@ public:
     explicit map_store(std::size_t maximum_tiles = 1000000, std::shared_ptr<memory_budget> budget = {})
         : maximum_tiles_(maximum_tiles), budget_(budget ? std::move(budget) : std::make_shared<memory_budget>(residency_policy{}.limits)) {}
     budget_snapshot memory() const { return budget_->snapshot(); }
+    template<storage::schema s> operation_status initialize_topology(std::uint64_t id,
+        std::span<const block_key> keys, std::uint64_t epoch, std::uint64_t esdf_source = 0)
+    {
+        auto found = maps_.find(id);
+
+        if (found == maps_.end() || found->second.record.state != lifecycle::active || !epoch ||
+            select_field<s>(found->second))
+            return std::unexpected(operation_error{"topology requires an empty active field"});
+        cpu_block_index index;
+        auto checked = index.initialize(id, s == storage::schema::tsdf ? field_kind::tsdf : field_kind::esdf, keys);
+        if (!checked) return checked;
+        auto field = allocate_field<s>(keys.size());
+
+        if (!field) return std::unexpected(field.error());
+        (*field)->index = std::move(index);
+         (*field)->content_epoch = epoch;
+        return install_mirror<s>(id, std::move(*field), esdf_source);
+    }
     template<storage::schema s> operation_status install_mirror(std::uint64_t id,
         std::shared_ptr<const field_pool<s, l>> replacement, std::uint64_t esdf_source)
     {
