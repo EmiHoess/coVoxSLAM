@@ -326,6 +326,41 @@ public:
         return map.authority.finalize(fields, [&] { return map.cpu.seal(id, fields, source); });
     }
 #if defined(covoxslam_has_cuda)
+    operation_status import_device_tsdf(std::uint64_t id, pose_record pose,
+        std::span<const block_key> keys, const storage::cuda_draft<storage::schema::tsdf, l>& source)
+    {
+        std::lock_guard lock(mutex_);
+
+        if (maps_.contains(id) || gpu_.maps_.contains(id) || keys.size() > policy_.maximum_tiles ||
+            keys.size() > source.size() || !finite_pose(pose))
+            return std::unexpected(operation_error{"resident submap admission is invalid"});
+        auto descriptor = source.descriptor();
+        if (!descriptor) return std::unexpected(descriptor.error());
+        auto replacement = std::make_shared<entry>(policy_.maximum_tiles, budget_);
+        auto checked = replacement->cpu.create(id, pose);
+        if (!checked) return checked;
+        checked = replacement->cpu.template initialize_topology<storage::schema::tsdf>(id, keys, 1);
+        if (!checked) return checked;
+        checked = replacement->cpu.template initialize_topology<es>(id, keys, 1, 1);
+        if (!checked) return checked;
+        const auto* metadata = replacement->cpu.find(id);
+        auto tsdf = gpu_.template upload<storage::schema::tsdf>(metadata->tsdf,
+            metadata->record.versions.allocation, false, &source);
+        if (!tsdf) return std::unexpected(tsdf.error());
+        auto esdf = gpu_.template upload<es>(metadata->esdf, metadata->record.versions.allocation, false);
+
+        if (!esdf) return std::unexpected(esdf.error());
+        auto writer = replacement->authority.acquire(writer_kind::gpu, 3);
+        if (!writer) return std::unexpected(writer.error());
+        checked = writer->publish(1, [](const auto&) -> operation_status { return {}; });
+        if (!checked) return checked;
+        resident_entry<l, es> resident{metadata->record, std::move(*tsdf), std::move(*esdf)};
+         resident.record.cpu = residency::absent;
+        resident.record.gpu = residency::resident;
+        maps_.emplace(id, std::move(replacement));
+        gpu_.maps_.emplace(id, std::move(resident));
+        return {};
+    }
     operation_result<std::vector<resident_entry<l, es>>> lease_resident(
         std::span<const std::uint64_t> ids, std::uint32_t fields, std::size_t budget) const
     {
