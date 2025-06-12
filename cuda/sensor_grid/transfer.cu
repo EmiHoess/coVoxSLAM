@@ -7,6 +7,7 @@
 #include "candidate_list.cuh"
 #include "coarse_mask.cuh"
 #include "resident.h"
+#include "tsdf_views.cuh"
 #include "../projective/geometry.cuh"
 
 namespace covoxslam::sensor_grid
@@ -49,9 +50,10 @@ __global__ void mask_cells(field_view source, unsigned n, std::uint8_t* flags)
     const auto any = __syncthreads_or(observed);
     if (!local) flags[block] = any ? 1 : 0;
 }
-template <bool fp32, bool masked = false, bool overflow_fallback = false, bool coarse = false, bool resident = false>
+template <bool fp32, bool masked = false, bool overflow_fallback = false, bool coarse = false,
+    bool resident = false, class tile_view = detail::cuda_tsdf_tile*>
 __global__ void transfer_cells(field_view source, interpolation mode, const std::uint32_t* slots,
-    const detail::cuda_tile_coordinate* keys, detail::cuda_tsdf_tile* tiles,
+    const detail::cuda_tile_coordinate* keys, tile_view tiles,
     detail::cuda_projective_pose transform, float size, float maximum_weight, float band,
     unsigned long long* count, float truncation, const std::uint32_t* masks = nullptr,
     unsigned long long* candidate_count = nullptr, const candidate_list_counters* list_state = nullptr,
@@ -94,7 +96,7 @@ __global__ void transfer_cells(field_view source, interpolation mode, const std:
 
     if (measured.valid)
     {
-        auto value = tiles[slot].voxels[local];
+        auto value = load_sensor_voxel(tiles, slot, local);
         const float old = value.flags & 1U ? value.weight : 0.f;
         bool use_wide = true;
         if constexpr (fp32) {
@@ -118,7 +120,7 @@ __global__ void transfer_cells(field_view source, interpolation mode, const std:
 
         value.flags = 1U | (fabsf(value.distance) <= band ? 2U : 0U);
         if (value.sample_count != UINT32_MAX) ++value.sample_count;
-         tiles[slot].voxels[local] = value;
+         store_sensor_voxel(tiles, slot, local, value);
         updated = true;
     }
     const unsigned updates = __syncthreads_count(updated);
