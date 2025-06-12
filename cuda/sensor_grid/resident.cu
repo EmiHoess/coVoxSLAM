@@ -124,6 +124,15 @@ int cuda_sensor_restore_tiles(resident_discovery_view view, std::uint32_t count,
     publish_resident_keys<<<1, 1, 0, stream>>>(view.scan.state);
     return int(cudaGetLastError());
 }
+int cuda_sensor_reset_soa(resident_discovery_view view, storage::device_descriptor tiles, void* stream)
+{
+    if (!valid_resident_discovery(view) || tiles.record_schema != storage::schema::tsdf ||
+        tiles.storage_layout != storage::layout::pool_soa || tiles.size_tiles != view.scan.capacity)
+        return int(cudaErrorInvalidValue);
+    auto error = cuda_sensor_restore_tiles(view, 0, stream);
+    if (!error) error = storage::initialize_device_fields(tiles, stream);
+    return error;
+}
 int cuda_sensor_allocate_tiles(resident_discovery_view view, void* opaque_stream)
 {
     if (!valid_resident_discovery(view)) return int(cudaErrorInvalidValue);
