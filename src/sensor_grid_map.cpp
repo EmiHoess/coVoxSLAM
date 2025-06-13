@@ -122,7 +122,7 @@ operation_result<tsdf_tiles> gpu_map::download()
 {
     auto& data = *state;
     if (data.failed) return std::unexpected(operation_error{"cannot publish failed sensor TSDF"});
-    if (data.soa_selected) return std::unexpected(operation_error{"SoA fields require resident publication"});
+    if (data.soa_selected) return data.download_soa();
     std::vector<detail::cuda_tsdf_tile> staging(data.indices.size());
     auto status = data.check(cudaSetDevice(data.device));
     if (status && !staging.empty()) status = data.check(cudaMemcpyAsync(staging.data(), data.tiles,

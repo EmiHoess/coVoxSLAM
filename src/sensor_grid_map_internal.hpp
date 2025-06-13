@@ -47,6 +47,7 @@ struct gpu_map::implementation
         detail::cuda_projective_pose transform, float& elapsed);
     operation_result<transfer_times> integrate_resident(field_view source,
         detail::cuda_projective_pose transform, interpolation mode);
+    operation_result<tsdf_tiles> download_soa();
     operation_status check(int code)
     {
         if (!code) return {};
