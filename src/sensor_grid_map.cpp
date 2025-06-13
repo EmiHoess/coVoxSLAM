@@ -5,7 +5,7 @@ namespace covoxslam::sensor_grid
 gpu_map::gpu_map() = default;
 gpu_map::~gpu_map() = default;
 operation_result<std::unique_ptr<gpu_map>> gpu_map::create(const lookup& table,
-    std::uint32_t capacity, int device, std::size_t maximum_bytes, transfer_options options)
+    std::uint32_t capacity, int device, std::size_t maximum_bytes, transfer_options options, bool resident_soa)
 {
     auto status = validate_lookup(table);
 
@@ -21,6 +21,12 @@ operation_result<std::unique_ptr<gpu_map>> gpu_map::create(const lookup& table,
     const bool listed = candidate_uses_list(options.candidates);
     const bool gpu_discovery = options.discovery != discovery_mode::cpu;
     const bool resident = options.discovery == discovery_mode::gpu_resident;
+    if (resident_soa && (!resident || masked || options.specialized ||
+        options.arithmetic != transfer_arithmetic::fp64))
+        return std::unexpected(operation_error{"SoA mapping requires resident reference transfer"});
+#if !defined(covoxslam_has_urd)
+    if (resident_soa) return std::unexpected(operation_error{"SoA mapping requires collection support"});
+#endif
     const auto hash_capacity = discovery_hash_size(capacity);
     const std::size_t discovery_bytes = gpu_discovery ? (std::size_t(hash_capacity) + capacity) * 8 + sizeof(discovery_state) : 0;
     const std::size_t resident_bytes = resident ? std::size_t(hash_capacity) * 16 +
@@ -42,6 +48,7 @@ operation_result<std::unique_ptr<gpu_map>> gpu_map::create(const lookup& table,
     auto& data = *owner->state;
     data.settings = table.settings;
     data.options = options;
+    data.soa_selected = resident_soa;
     data.active_count = static_cast<std::uint32_t>(table.active_voxels.size());
      data.grid = table.grid;
     data.capacity = capacity;
@@ -51,7 +58,13 @@ operation_result<std::unique_ptr<gpu_map>> gpu_map::create(const lookup& table,
     if (!status) return std::unexpected(status.error());
     data.selected = true;
     status = data.check(cudaStreamCreateWithFlags(&data.stream, cudaStreamNonBlocking));
-    if (status) status = data.allocate(data.tiles, capacity);
+    if (status && !resident_soa) status = data.allocate(data.tiles, capacity);
+#if defined(covoxslam_has_urd)
+    if (status && resident_soa) {
+        data.soa = std::make_unique<storage::cuda_draft<storage::schema::tsdf, storage::layout::pool_soa>>();
+        status = data.soa->initialize(capacity);
+    }
+#endif
     if (status) status = data.allocate(data.keys, capacity);
     if (status) status = data.allocate(data.slots, capacity);
     if (status) status = data.allocate(data.mask, count);
@@ -87,8 +100,7 @@ operation_result<std::unique_ptr<gpu_map>> gpu_map::create(const lookup& table,
 
     for (auto& event : data.events)
         if (status) status = data.check(cudaEventCreate(&event));
-    if (status) status = data.check(resident ? cuda_sensor_reset_tiles(data.resident, data.tiles, data.stream) :
-        cudaMemsetAsync(data.tiles, 0, std::size_t(capacity) * sizeof(*data.tiles), data.stream));
+    if (status) status = data.reset_payload();
     status = data.wait(status);
     if (!status) return std::unexpected(status.error());
     return owner;
@@ -99,9 +111,7 @@ operation_status gpu_map::reset()
 
     if (data.failed) return std::unexpected(operation_error{"sensor TSDF is in failed state"});
     auto status = data.check(cudaSetDevice(data.device));
-    if (status) status = data.check(data.options.discovery == discovery_mode::gpu_resident ?
-        cuda_sensor_reset_tiles(data.resident, data.tiles, data.stream) :
-        cudaMemsetAsync(data.tiles, 0, std::size_t(data.capacity) * sizeof(*data.tiles), data.stream));
+    if (status) status = data.reset_payload();
     status = data.wait(status);
     if (!status) return status;
     data.index.clear();
@@ -112,6 +122,7 @@ operation_result<tsdf_tiles> gpu_map::download()
 {
     auto& data = *state;
     if (data.failed) return std::unexpected(operation_error{"cannot publish failed sensor TSDF"});
+    if (data.soa_selected) return std::unexpected(operation_error{"SoA fields require resident publication"});
     std::vector<detail::cuda_tsdf_tile> staging(data.indices.size());
     auto status = data.check(cudaSetDevice(data.device));
     if (status && !staging.empty()) status = data.check(cudaMemcpyAsync(staging.data(), data.tiles,

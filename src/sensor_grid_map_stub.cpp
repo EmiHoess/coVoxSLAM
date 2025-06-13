@@ -4,7 +4,7 @@ namespace covoxslam::sensor_grid
 struct gpu_map::implementation {};
 gpu_map::gpu_map() = default;
 gpu_map::~gpu_map() = default;
-operation_result<std::unique_ptr<gpu_map>> gpu_map::create(const lookup&, std::uint32_t, int, std::size_t, transfer_options)
+operation_result<std::unique_ptr<gpu_map>> gpu_map::create(const lookup&, std::uint32_t, int, std::size_t, transfer_options, bool)
 {
     return std::unexpected(operation_error{"sensor TSDF requires CUDA support"});
 }

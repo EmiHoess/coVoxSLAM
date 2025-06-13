@@ -22,7 +22,7 @@ class gpu_map
 public:
     static operation_result<std::unique_ptr<gpu_map>> create(const lookup& table,
         std::uint32_t capacity = 32768, int device = 0, std::size_t maximum_bytes = 1073741824,
-        transfer_options options = {});
+        transfer_options options = {}, bool resident_soa = false);
     ~gpu_map();
     gpu_map(const gpu_map&) = delete;
     gpu_map& operator=(const gpu_map&) = delete;

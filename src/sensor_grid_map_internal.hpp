@@ -6,6 +6,9 @@
 #include "sensor_grid/resident.h"
 #include <cuda_runtime_api.h>
 #include <array>
+#if defined(covoxslam_has_urd)
+#include <covoxslam/storage/cuda_draft.hpp>
+#endif
 
 namespace covoxslam::sensor_grid
 {
@@ -16,6 +19,10 @@ struct gpu_map::implementation
     int device{};
      std::uint32_t capacity{};
     detail::cuda_tsdf_tile* tiles{};
+    bool soa_selected{};
+#if defined(covoxslam_has_urd)
+    std::unique_ptr<storage::cuda_draft<storage::schema::tsdf, storage::layout::pool_soa>> soa;
+#endif
     detail::cuda_tile_coordinate* keys{};
     std::uint32_t* slots{};
     std::uint8_t* mask{};
@@ -56,6 +63,19 @@ struct gpu_map::implementation
     {
         const auto result = check(cudaStreamSynchronize(stream));
         return status ? result : status;
+    }
+    operation_status reset_payload()
+    {
+#if defined(covoxslam_has_urd)
+        if (soa) {
+            auto descriptor = soa->descriptor();
+            if (!descriptor) return std::unexpected(descriptor.error());
+            return check(cuda_sensor_reset_soa(resident, *descriptor, stream));
+        }
+#endif
+        return check(options.discovery == discovery_mode::gpu_resident ?
+            cuda_sensor_reset_tiles(resident, tiles, stream) :
+            cudaMemsetAsync(tiles, 0, std::size_t(capacity) * sizeof(*tiles), stream));
     }
     ~implementation()
     {
