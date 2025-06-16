@@ -1,7 +1,33 @@
 #include "sensor_grid_map_internal.hpp"
+#if defined(covoxslam_has_urd)
+#include <covoxslam/store/coordinator.hpp>
+#endif
 
 namespace covoxslam::sensor_grid
 {
+operation_result<std::size_t> gpu_map::retain(
+    store::coordinated_store<storage::layout::pool_soa, storage::schema::esdf>& destination,
+    std::uint64_t id, pose4 anchor)
+{
+#if defined(covoxslam_has_urd)
+    auto& data = *state;
+
+    if (data.failed || !data.soa) return std::unexpected(operation_error{"resident retention requires a healthy SoA mapper"});
+    auto checked = data.check(cudaSetDevice(data.device));
+    if (checked) checked = data.wait(checked);
+    if (!checked) return std::unexpected(checked.error());
+    std::vector<store::block_key> keys;
+    keys.reserve(data.indices.size());
+
+    for (const auto key : data.indices)
+        keys.push_back({id, key.x, key.y, key.z});
+    checked = destination.import_device_tsdf(id, {anchor.x, anchor.y, anchor.z, anchor.yaw}, keys, *data.soa);
+    if (!checked) return std::unexpected(checked.error());
+    return keys.size();
+#else
+    return std::unexpected(operation_error{"resident retention requires collection support"});
+#endif
+}
 operation_result<tsdf_tiles> gpu_map::implementation::download_soa()
 {
 #if defined(covoxslam_has_urd)

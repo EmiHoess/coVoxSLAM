@@ -4,6 +4,12 @@
 #include <covoxslam/sensor_grid_sampling.h>
 #include <covoxslam/sensor_grid_masks.hpp>
 #include <covoxslam/mapping.hpp>
+#include <covoxslam/storage/schema.hpp>
+
+namespace covoxslam::store
+{
+template<storage::layout, storage::schema> class coordinated_store;
+}
 
 namespace covoxslam::sensor_grid
 {
@@ -29,6 +35,9 @@ public:
     operation_result<transfer_times> integrate(const gpu_grid& source, pose local_from_sensor,
         interpolation mode = interpolation::trilinear);
     operation_result<tsdf_tiles> download();
+    operation_result<std::size_t> retain(
+        store::coordinated_store<storage::layout::pool_soa, storage::schema::esdf>& destination,
+        std::uint64_t id, pose4 anchor);
     operation_status reset();
 };
 operation_result<std::vector<int3>> destination_tiles(geometry grid, float size,

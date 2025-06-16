@@ -19,4 +19,10 @@ operation_status gpu_map::reset()
 {
     return std::unexpected(operation_error{"sensor TSDF requires CUDA support"});
 }
+operation_result<std::size_t> gpu_map::retain(
+    store::coordinated_store<storage::layout::pool_soa, storage::schema::esdf>&,
+    std::uint64_t, pose4)
+{
+    return std::unexpected(operation_error{"resident retention requires CUDA support"});
+}
 }
