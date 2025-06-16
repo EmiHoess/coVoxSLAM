@@ -16,6 +16,7 @@ operation_result<transfer_times> gpu_map::integrate(const gpu_grid& source, pose
     const double norm = double(q.x) * q.x + double(q.y) * q.y + double(q.z) * q.z + double(q.w) * q.w;
 
     if (data.failed || !field.voxels || source.device_index() != data.device || unsigned(mode) > 5 ||
+        (data.soa_selected && mode != interpolation::nearest) ||
         (masked && unsigned(mode) > 2) ||
         (data.options.arithmetic == transfer_arithmetic::fp32 && unsigned(mode) > 2) ||
         (data.options.specialized && (data.options.arithmetic != transfer_arithmetic::fp64 || mode != interpolation::trilinear)) ||
