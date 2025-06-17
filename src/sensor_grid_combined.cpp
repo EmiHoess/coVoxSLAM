@@ -37,14 +37,15 @@ operation_result<mapping_preset> combined_nearest_preset()
     return result;
 }
 operation_result<std::unique_ptr<combined_map>> combined_map::create(const lookup& table,
-    std::uint32_t capacity, int device, std::size_t maximum_bytes, gather_options options, transfer_options transfer)
+    std::uint32_t capacity, int device, std::size_t maximum_bytes, gather_options options, transfer_options transfer,
+    bool resident_soa)
 {
     if (!combined_gather(options.backend))
         return std::unexpected(operation_error{"combined mapping requires combined gathering"});
     auto grid = gpu_grid::create(table, device, maximum_bytes, options);
 
     if (!grid) return std::unexpected(grid.error());
-    auto map = gpu_map::create(table, capacity, device, maximum_bytes - (*grid)->device_bytes(), transfer);
+    auto map = gpu_map::create(table, capacity, device, maximum_bytes - (*grid)->device_bytes(), transfer, resident_soa);
 
     if (!map) return std::unexpected(map.error());
     auto result = std::unique_ptr<combined_map>(new combined_map);
@@ -94,6 +95,13 @@ operation_result<combined_times> combined_map::integrate(std::span<const float> 
     totals.transfer.kernel_launches += transferred->kernel_launches;
     totals.kernel_launches += result.kernel_launches;
      return result;
+}
+operation_result<std::size_t> combined_map::retain(
+    store::coordinated_store<storage::layout::pool_soa, storage::schema::esdf>& destination,
+    std::uint64_t id, pose4 anchor)
+{
+    if (failed) return std::unexpected(operation_error{"cannot retain failed combined mapping"});
+    return map->retain(destination, id, anchor);
 }
 operation_result<tsdf_tiles> combined_map::download()
 {
