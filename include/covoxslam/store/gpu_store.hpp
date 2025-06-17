@@ -47,6 +47,13 @@ template<storage::layout l, storage::schema es = storage::schema::esdf> class gp
             return std::unexpected(operation_error{"resident field has invalid initialized slots"});
         if (device_source && (copy_values || device_source->size() < source->payload.size()))
             return std::unexpected(operation_error{"device source extent or transfer mode is invalid"});
+        if (device_source) {
+            auto descriptor = device_source->descriptor();
+            if (!descriptor) return std::unexpected(descriptor.error());
+
+            if (descriptor->record_schema != s || descriptor->storage_layout != l)
+                return std::unexpected(operation_error{"device source schema differs from destination"});
+        }
         constexpr auto stride = storage::storage_traits<s, l>::tile_stride *
             (l == storage::layout::pool_soa ? storage::field_count<s> : 1);
         std::size_t buckets{2};

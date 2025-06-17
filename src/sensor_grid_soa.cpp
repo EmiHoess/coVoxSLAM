@@ -16,11 +16,20 @@ operation_result<std::size_t> gpu_map::retain(
     auto checked = data.check(cudaSetDevice(data.device));
     if (checked) checked = data.wait(checked);
     if (!checked) return std::unexpected(checked.error());
+    if (data.indices.size() > data.capacity || data.indices.size() != data.index.size())
+        return std::unexpected(operation_error{"resident mapper topology is inconsistent"});
     std::vector<store::block_key> keys;
     keys.reserve(data.indices.size());
 
-    for (const auto key : data.indices)
+    for (std::size_t slot = 0; slot < data.indices.size(); ++slot)
+    {
+        const auto key = data.indices[slot];
+        const auto found = data.index.find(key);
+
+        if (found == data.index.end() || found->second != slot)
+            return std::unexpected(operation_error{"resident mapper slot ordering is invalid"});
         keys.push_back({id, key.x, key.y, key.z});
+    }
     checked = destination.import_device_tsdf(id, {anchor.x, anchor.y, anchor.z, anchor.yaw}, keys, *data.soa);
     if (!checked) return std::unexpected(checked.error());
     return keys.size();
