@@ -107,14 +107,17 @@ template<storage::layout l> operation_status generate_stored_band(store::coordin
     return std::unexpected(operation_error{"stored band ESDF requires CUDA SoA support"});
 }
 template<storage::layout l> operation_result<stored_pipeline_result> stored_pipeline(
-    std::span<submap> maps, const store_pipeline_options& options, const pgo::options& solver, bool shadow)
+    std::span<submap> maps, const store_pipeline_options& options, const pgo::options& solver, bool shadow,
+    store::coordinated_store<l>* existing = nullptr)
 {
     using namespace store;
     const auto started = std::chrono::steady_clock::now();
     const bool generated_fields = options.esdf_generator == esdf_backend::cuda_block_band_soa;
     residency_policy policy;
     policy.limits = {options.cpu_bytes, 128U * 1024U * 1024U, options.gpu_bytes};
-    coordinated_store<l> retained(policy);
+    auto owner = existing ? std::unique_ptr<coordinated_store<l>>{} :
+        std::make_unique<coordinated_store<l>>(policy);
+    auto& retained = existing ? *existing : *owner;
     std::vector<std::uint64_t> ids;
 #if defined(covoxslam_has_pgo)
     std::vector<pgo_field_binding> bindings;
@@ -123,8 +126,17 @@ template<storage::layout l> operation_result<stored_pipeline_result> stored_pipe
     std::ostringstream report;
 
     for (auto& map : maps) {
-        auto checked = generated_fields ?
-            generate_stored_band(retained, map, options, report) : import_submap(retained, map);
+        auto checked = [&]() -> operation_status {
+            if (!existing) return generated_fields ?
+                generate_stored_band(retained, map, options, report) : import_submap(retained, map);
+            auto state = retained.status(map.frame.id);
+            if (!state) return std::unexpected(state.error());
+
+            if (state->state != lifecycle::finalized || state->cpu != state->content ||
+                !state->content[0] || !state->content[1] || state->esdf_source != state->content[0])
+                return std::unexpected(operation_error{"retained completion requires finalized current fields"});
+            return {};
+        }();
         if (!checked) return std::unexpected(generated_fields ?
             stored_field_error(map.frame.id, checked.error()) : checked.error());
         ids.push_back(map.frame.id);
@@ -140,7 +152,8 @@ template<storage::layout l> operation_result<stored_pipeline_result> stored_pipe
     constexpr const char* field_modes[]{"copied", "borrowed", "resident"};
     report << "store layout " << layouts[unsigned(options.layout)] << ", PGO fields "
         << field_modes[unsigned(options.fields)] << ", checkpoint format 1, field view API 1\n"
-        << "mapping bridge finalized canonical staging, publication verification CPU\n";
+        << (existing ? "mapping resident fields, deferred canonical readback, publication verification CPU\n" :
+            "mapping bridge finalized canonical staging, publication verification CPU\n");
     report << "store import ms " << std::chrono::duration<double, std::milli>(imported - started).count() << '\n';
     if (generated_fields)
         report << "ESDF direct SoA generation, retained map store, canonical CPU mirror\n";
