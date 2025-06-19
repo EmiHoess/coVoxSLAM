@@ -79,4 +79,48 @@ operation_status resident_pipeline::close(sensor_grid::combined_map& mapper, sub
     return std::unexpected(operation_error{"resident closure requires CUDA and collection support"});
 #endif
 }
+operation_result<stored_pipeline_result> resident_pipeline::finish(std::span<submap> maps,
+    const pgo::options& solver, bool shadow)
+{
+    if (state_->failed || state_->finished || maps.empty())
+        return std::unexpected(operation_error{"resident completion is unavailable"});
+#if defined(covoxslam_has_cuda) && defined(covoxslam_has_urd)
+    state_->failed = true;
+    auto checked = storage::cuda_storage_status(cudaSetDevice(state_->options.device));
+    if (!checked) return std::unexpected(checked.error());
+
+    for (auto& map : maps)
+    {
+        const auto id = map.frame.id;
+        const auto started = std::chrono::steady_clock::now();
+        auto captured = store::capture_geometry(*state_->maps, std::span(&id, 1), 3,
+            {map.config.voxel_size, map.config.esdf_maximum_distance_m},
+            state_->options.cpu_bytes, state_->options.cpu_bytes);
+        if (!captured) return std::unexpected(captured.error());
+        const auto copied = std::chrono::steady_clock::now();
+        state_->metrics.readback_ms += std::chrono::duration<double, std::milli>(copied - started).count();
+        auto tsdf = store::geometry_volume<storage::schema::tsdf>(*captured, id, state_->options.cpu_bytes);
+        if (!tsdf) return std::unexpected(tsdf.error());
+        auto esdf = store::geometry_volume<storage::schema::esdf>(*captured, id, state_->options.cpu_bytes);
+
+        if (!esdf) return std::unexpected(esdf.error());
+        const auto bytes = tsdf->tsdf.size() * 512 * sizeof(storage::tsdf_value) +
+            esdf->esdf.size() * 512 * sizeof(storage::esdf_value);
+        map.tsdf = std::move(tsdf->tsdf);
+         map.esdf = std::move(esdf->esdf);
+        map.statistics.cuda_downloaded_bytes += bytes;
+        state_->metrics.downloaded_bytes += bytes;
+        state_->metrics.materialize_ms += std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - copied).count();
+    }
+    auto completed = detail::stored_pipeline<storage::layout::pool_soa>(maps, state_->options, solver,
+        shadow, state_->maps.get());
+    if (!completed) return std::unexpected(completed.error());
+    state_->finished = true;
+    state_->failed = false;
+    return completed;
+#else
+    return std::unexpected(operation_error{"resident completion requires CUDA and collection support"});
+#endif
+}
 }
