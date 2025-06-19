@@ -40,4 +40,43 @@ operation_result<std::unique_ptr<resident_pipeline>> resident_pipeline::create(
     return std::unexpected(operation_error{"resident mapping requires CUDA and collection support"});
 #endif
 }
+operation_status resident_pipeline::close(sensor_grid::combined_map& mapper, submap& metadata)
+{
+    if (state_->failed || state_->finished || !metadata.config.valid() ||
+        !metadata.tsdf.empty() || !metadata.esdf.empty())
+        return std::unexpected(operation_error{"resident closure requires healthy device mapping"});
+#if defined(covoxslam_has_cuda) && defined(covoxslam_has_urd)
+    state_->failed = true;
+    auto checked = storage::cuda_storage_status(cudaSetDevice(state_->options.device));
+    if (!checked) return checked;
+    const auto started = std::chrono::steady_clock::now();
+    auto count = mapper.retain(*state_->maps, metadata.frame.id, metadata.frame.anchor);
+    if (!count) return std::unexpected(count.error());
+    const auto copied = std::chrono::steady_clock::now();
+    state_->metrics.handoff_ms += std::chrono::duration<double, std::milli>(copied - started).count();
+    state_->metrics.retained_tiles += *count;
+     state_->metrics.copied_device_bytes += *count * 512 * sizeof(storage::tsdf_value);
+    store::band_esdf_options settings;
+    settings.field.voxel_size = metadata.config.voxel_size;
+    settings.field.truncation_distance = metadata.config.truncation_distance;
+    settings.field.minimum_weight = metadata.config.esdf_minimum_weight;
+    settings.field.site_band_m = metadata.config.esdf_site_band_m;
+    settings.field.maximum_distance_m = metadata.config.esdf_maximum_distance_m;
+    auto generated = store::generate_band_esdf(*state_->maps, metadata.frame.id, settings);
+
+    if (!generated) return std::unexpected(generated.error());
+    checked = state_->maps->finalize(metadata.frame.id, 3);
+    if (!checked) return checked;
+    state_->metrics.esdf_ms += generated->total_ms;
+    metadata.statistics.allocated_tiles = *count;
+    metadata.statistics.esdf_ms = generated->total_ms;
+    metadata.statistics.cuda_uploaded_bytes += generated->upload_bytes;
+    metadata.config.esdf_generator = esdf_backend::cuda_block_band_soa;
+    state_->maps->collect();
+    state_->failed = false;
+    return {};
+#else
+    return std::unexpected(operation_error{"resident closure requires CUDA and collection support"});
+#endif
+}
 }
