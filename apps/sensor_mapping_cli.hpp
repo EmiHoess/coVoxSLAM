@@ -3,6 +3,7 @@
 #include <covoxslam/sensor_grid_combined.hpp>
 #include <covoxslam/sensor_grid_calibration.hpp>
 #include <covoxslam/sensor_grid_precision.h>
+#include <covoxslam/resident_pipeline.hpp>
 #include "cli_lookup.hpp"
 #include "sensor_gather_cli.hpp"
 #include <algorithm>
@@ -75,8 +76,10 @@ inline const char* sensor_sampling_name(sensor_grid::interpolation mode)
 inline operation_result<pipeline_callbacks> sensor_mapping_callbacks(const sensor& model, mapping_config config,
     int device, std::optional<operation_error>& failure, std::function<void(const submap&)> publish,
     std::function<void(submap&)> finalize, sensor_grid::interpolation mode, sensor_grid::gather_options gather,
-    std::size_t maximum_bytes, sensor_grid::transfer_options transfer = {})
+    std::size_t maximum_bytes, sensor_grid::transfer_options transfer = {}, resident_pipeline* retained = nullptr)
 {
+    if (retained && (!sensor_grid::combined_gather(gather.backend) || mode != sensor_grid::interpolation::nearest || finalize))
+        return std::unexpected(operation_error{"resident mapping requires combined nearest without a host finalizer"});
     if (!config.valid() || config.maximum_tiles > 1048576)
         return std::unexpected(operation_error{"invalid sensor mapping configuration"});
     auto directions = sensor_grid::calibrated_directions(model);
@@ -100,7 +103,7 @@ inline operation_result<pipeline_callbacks> sensor_mapping_callbacks(const senso
     auto state = std::make_shared<context>();
     if (sensor_grid::combined_gather(gather.backend)) {
         auto combined = sensor_grid::combined_map::create(*table,
-            static_cast<std::uint32_t>(config.maximum_tiles), device, maximum_bytes, gather, transfer);
+            static_cast<std::uint32_t>(config.maximum_tiles), device, maximum_bytes, gather, transfer, retained != nullptr);
         if (!combined) return std::unexpected(combined.error());
         state->combined = std::move(*combined);
     } else {
@@ -151,11 +154,14 @@ inline operation_result<pipeline_callbacks> sensor_mapping_callbacks(const senso
         state->statistics.voxel_updates += updates;
         state->statistics.integration_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
     };
-    callbacks.finish = [state, &failure, config, publish, finalize](const submap_frame& frame)
+    callbacks.finish = [state, &failure, config, publish, finalize, retained](const submap_frame& frame)
     {
         if (failure) return;
-        auto tiles = state->combined ? state->combined->download() : state->map->download();
-        if (!tiles) { failure = tiles.error(); return; }
+        operation_result<tsdf_tiles> tiles = tsdf_tiles{};
+        if (!retained) {
+            tiles = state->combined ? state->combined->download() : state->map->download();
+            if (!tiles) { failure = tiles.error(); return; }
+        }
         submap completed;
         completed.frame = frame; completed.optimized_world_pose = frame.anchor;
         completed.config = config; completed.statistics = state->statistics;
@@ -175,6 +181,12 @@ inline operation_result<pipeline_callbacks> sensor_mapping_callbacks(const senso
             completed.statistics.sensor_readback_ms = timing.readback_ms;
             completed.statistics.sensor_candidate_voxels = timing.transfer.candidate_voxels;
             completed.statistics.sensor_kernel_launches = timing.kernel_launches;
+        }
+        if (retained) {
+            const auto closed = retained->close(*state->combined, completed);
+            if (!closed) { failure = closed.error(); return; }
+            if (publish) publish(completed);
+            return;
         }
         completed.tsdf = std::move(*tiles);
         completed.statistics.allocated_tiles = completed.tsdf.size();
