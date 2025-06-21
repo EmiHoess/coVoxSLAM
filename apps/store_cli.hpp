@@ -6,19 +6,28 @@
 
 namespace covoxslam
 {
-enum class store_option { unknown, layout, fields, output, memory };
-enum class store_value { unknown, none, aos, soa, aosoa, copied, borrowed, resident };
+enum class store_option { unknown, layout, fields, output, memory, mapping };
+enum class store_value { unknown, none, aos, soa, aosoa, copied, borrowed, resident, packed, resident_soa };
 inline constexpr cli_option_entry<store_option> store_options[]{
     {"--map-store", store_option::layout}, {"--pgo-fields", store_option::fields},
-    {"--store-output", store_option::output}, {"--store-memory-mib", store_option::memory}
+    {"--store-output", store_option::output}, {"--store-memory-mib", store_option::memory},
+    {"--mapping-storage", store_option::mapping}
 };
 inline constexpr cli_option_entry<store_value> store_values[]{
     {"none", store_value::none}, {"aos", store_value::aos}, {"soa", store_value::soa}, {"aosoa", store_value::aosoa},
-    {"copied", store_value::copied}, {"borrowed", store_value::borrowed}, {"resident", store_value::resident}
+    {"copied", store_value::copied}, {"borrowed", store_value::borrowed}, {"resident", store_value::resident},
+    {"packed", store_value::packed}, {"resident-soa", store_value::resident_soa}
 };
 inline operation_result<bool> parse_store_option(std::string_view key, std::string_view value, store_pipeline_options& result)
 {
     switch (lookup_cli_option(key, store_options)) {
+    case store_option::mapping:
+        switch (lookup_cli_option(value, store_values)) {
+        case store_value::packed: result.resident_mapping = false; break;
+        case store_value::resident_soa: result.resident_mapping = true; break;
+        default: return std::unexpected(operation_error{"mapping storage must be packed or resident-soa"});
+        }
+        return true;
     case store_option::layout:
         result.enabled = true;
         switch (lookup_cli_option(value, store_values)) {

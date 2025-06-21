@@ -18,6 +18,9 @@ operation_status validate_stored_export(std::span<const submap> maps, const stor
 }
 operation_status validate_store_pipeline(const store_pipeline_options& store, const pgo::options& solver)
 {
+    if (store.resident_mapping && (!store.enabled || store.layout != storage::layout::pool_soa ||
+        store.esdf_generator != esdf_backend::cuda_block_band_soa))
+        return std::unexpected(operation_error{"resident mapping requires SoA storage and band ESDF"});
     if (store.esdf_generator != esdf_backend::none && store.esdf_generator != esdf_backend::cuda_block_band_soa)
         return std::unexpected(operation_error{"unsupported stored ESDF generator"});
     if (store.esdf_generator == esdf_backend::cuda_block_band_soa) {

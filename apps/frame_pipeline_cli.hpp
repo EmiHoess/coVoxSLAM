@@ -337,6 +337,10 @@ inline int run_submap_cli(int argc, char** argv)
         }
         auto store_valid = validate_store_pipeline(store_settings, pgo_settings.solver);
         if (!store_valid) return report_error(store_valid.error().message);
+        if (store_settings.resident_mapping && (!sensor_selected ||
+            !sensor_grid::combined_gather(sensor_gather.backend) || sensor_mode != sensor_grid::interpolation::nearest ||
+            sensor_transfer.discovery != sensor_grid::discovery_mode::gpu_resident))
+            return report_error("resident mapping storage requires combined nearest with resident discovery");
         if (store_settings.enabled && !mapping_enabled) return report_error("map storage requires mapping");
         if (!store_settings.checkpoint_root.empty() && !output.empty()) {
             std::error_code error;
@@ -417,6 +421,13 @@ inline int run_submap_cli(int argc, char** argv)
         auto exporter = pgo_settings.solver.enabled || store_settings.enabled ? std::unique_ptr<map_exporter>{} :
             open_map_export(output, input, mapping_options, backend_label.c_str(), fusion_label);
         std::vector<submap> pgo_maps;
+        std::unique_ptr<resident_pipeline> resident_maps;
+        if (store_settings.resident_mapping) {
+            auto created = resident_pipeline::create(store_settings, pgo_settings.solver);
+            if (!created) return report_error(created.error().message);
+            resident_maps = std::move(*created);
+            std::cout << "mapping storage resident-soa, device handoff, deferred canonical readback\n";
+        }
         const auto publish = [&](const submap& completed) {
             if (pgo_settings.solver.enabled || store_settings.enabled) pgo_maps.push_back(completed);
             else if (exporter) exporter->write(completed);
@@ -427,7 +438,8 @@ inline int run_submap_cli(int argc, char** argv)
             cpu ? mapping_callbacks(*cpu, publish, finalize) : pipeline_callbacks{};
         if (sensor_selected) {
             auto selected = sensor_mapping_callbacks(input.sensor, mapper_options, cuda_options.mapper.device,
-                resident_failure, publish, finalize, sensor_mode, sensor_gather, cuda_options.mapper.maximum_device_bytes, sensor_transfer);
+                resident_failure, publish, finalize, sensor_mode, sensor_gather, cuda_options.mapper.maximum_device_bytes,
+                sensor_transfer, resident_maps.get());
             if (!selected) return report_error(selected.error().message);
             callbacks = std::move(*selected);
             std::cout << "sensor field uses calibrated ranges and scan start poses\n";
@@ -438,7 +450,8 @@ inline int run_submap_cli(int argc, char** argv)
         if (pgo_settings.solver.enabled || store_settings.enabled) {
             auto optimized = [&]() -> operation_result<pgo_cli_result> {
                 if (!store_settings.enabled) return finish_pgo(pgo_maps, pgo_settings);
-                auto stored = finish_stored_pipeline(pgo_maps, store_settings, pgo_settings.solver, pgo_settings.shadow);
+                auto stored = resident_maps ? resident_maps->finish(pgo_maps, pgo_settings.solver, pgo_settings.shadow) :
+                    finish_stored_pipeline(pgo_maps, store_settings, pgo_settings.solver, pgo_settings.shadow);
                 if (!stored) return std::unexpected(operation_error{
                     "stored pipeline stopped before export: " + stored.error().message});
                 auto ready = validate_stored_export(pgo_maps, store_settings);
