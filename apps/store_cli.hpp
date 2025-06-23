@@ -6,12 +6,12 @@
 
 namespace covoxslam
 {
-enum class store_option { unknown, layout, fields, output, memory, mapping };
+enum class store_option { unknown, layout, fields, output, memory, mapping, negative_band };
 enum class store_value { unknown, none, aos, soa, aosoa, copied, borrowed, resident, packed, resident_soa };
 inline constexpr cli_option_entry<store_option> store_options[]{
     {"--map-store", store_option::layout}, {"--pgo-fields", store_option::fields},
     {"--store-output", store_option::output}, {"--store-memory-mib", store_option::memory},
-    {"--mapping-storage", store_option::mapping}
+    {"--mapping-storage", store_option::mapping}, {"--store-negative-band", store_option::negative_band}
 };
 inline constexpr cli_option_entry<store_value> store_values[]{
     {"none", store_value::none}, {"aos", store_value::aos}, {"soa", store_value::soa}, {"aosoa", store_value::aosoa},
@@ -21,6 +21,11 @@ inline constexpr cli_option_entry<store_value> store_values[]{
 inline operation_result<bool> parse_store_option(std::string_view key, std::string_view value, store_pipeline_options& result)
 {
     switch (lookup_cli_option(key, store_options)) {
+    case store_option::negative_band:
+        if (value != "true" && value != "false")
+            return std::unexpected(operation_error{"store negative band must be true or false"});
+        result.negative_band = value == "true";
+        return true;
     case store_option::mapping:
         switch (lookup_cli_option(value, store_values)) {
         case store_value::packed: result.resident_mapping = false; break;

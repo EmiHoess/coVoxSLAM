@@ -10,6 +10,7 @@ struct store_pipeline_options
 {
     bool enabled{};
     bool resident_mapping{};
+    bool negative_band{};
     esdf_backend esdf_generator{esdf_backend::none};
     int device{};
     storage::layout layout{storage::layout::pooled_aos};

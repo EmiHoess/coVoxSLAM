@@ -73,6 +73,7 @@ template<storage::layout l> operation_status generate_stored_band(store::coordin
         settings.field.minimum_weight = config.esdf_minimum_weight;
         settings.field.site_band_m = config.esdf_site_band_m;
         settings.field.maximum_distance_m = config.esdf_maximum_distance_m;
+        settings.field.include_negative_truncation_band = options.negative_band;
         auto generated = generate_band_esdf(retained, id, settings);
 
         if (!generated) return std::unexpected(generated.error());

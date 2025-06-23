@@ -62,6 +62,7 @@ operation_status resident_pipeline::close(sensor_grid::combined_map& mapper, sub
     settings.field.minimum_weight = metadata.config.esdf_minimum_weight;
     settings.field.site_band_m = metadata.config.esdf_site_band_m;
     settings.field.maximum_distance_m = metadata.config.esdf_maximum_distance_m;
+    settings.field.include_negative_truncation_band = state_->options.negative_band;
     auto generated = store::generate_band_esdf(*state_->maps, metadata.frame.id, settings);
 
     if (!generated) return std::unexpected(generated.error());
