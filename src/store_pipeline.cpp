@@ -69,6 +69,8 @@ operation_result<stored_pipeline_result> finish_stored_pipeline(std::span<submap
 {
     auto valid = validate_store_pipeline(store, solver);
     if (!valid) return std::unexpected(valid.error());
+    if (store.resident_mapping)
+        return std::unexpected(operation_error{"resident mapping must finish through its retained session"});
     if (!store.enabled || maps.empty()) return std::unexpected(operation_error{"stored pipeline requires completed maps"});
     const auto& first = maps.front().config;
     for (const auto& map : maps)

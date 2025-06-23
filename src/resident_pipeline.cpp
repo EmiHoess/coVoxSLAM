@@ -85,6 +85,8 @@ operation_result<stored_pipeline_result> resident_pipeline::finish(std::span<sub
 {
     if (state_->failed || state_->finished || maps.empty())
         return std::unexpected(operation_error{"resident completion is unavailable"});
+    auto valid = validate_store_pipeline(state_->options, solver);
+    if (!valid) return std::unexpected(valid.error());
 #if defined(covoxslam_has_cuda) && defined(covoxslam_has_urd)
     state_->failed = true;
     auto checked = storage::cuda_storage_status(cudaSetDevice(state_->options.device));

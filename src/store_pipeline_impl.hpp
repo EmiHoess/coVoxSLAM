@@ -136,6 +136,8 @@ template<storage::layout l> operation_result<stored_pipeline_result> stored_pipe
             if (state->state != lifecycle::finalized || state->cpu != state->content ||
                 !state->content[0] || !state->content[1] || state->esdf_source != state->content[0])
                 return std::unexpected(operation_error{"retained completion requires finalized current fields"});
+            if (options.fields == stored_pgo_fields::resident && state->gpu != state->content)
+                return std::unexpected(operation_error{"resident solver fields became stale before completion"});
             return {};
         }();
         if (!checked) return std::unexpected(generated_fields ?
@@ -214,6 +216,7 @@ template<storage::layout l> operation_result<stored_pipeline_result> stored_pipe
             if (!resident) return std::unexpected(resident.error());
             auto gpu_fields = resident_pgo_fields<l, storage::schema::esdf>(*resident, bindings, geometry);
             if (!gpu_fields) return std::unexpected(gpu_fields.error());
+            if (existing) report << "PGO uses retained device fields without TSDF or ESDF upload\n";
             auto prepared = cache.prepare(*graph, *gpu_fields);
             if (!prepared) return std::unexpected(prepared.error());
             solved = solve_prepared_fields(*prepared, solver);
