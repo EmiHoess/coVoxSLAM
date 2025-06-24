@@ -9,6 +9,7 @@ struct resident_pipeline::implementation
 {
     store_pipeline_options options;
     resident_pipeline_metrics metrics;
+    std::unordered_map<std::uint64_t, mapping_config> configurations;
     bool failed{}, finished{};
 #if defined(covoxslam_has_cuda) && defined(covoxslam_has_urd)
     std::unique_ptr<store::coordinated_store<storage::layout::pool_soa>> maps;
@@ -43,7 +44,7 @@ operation_result<std::unique_ptr<resident_pipeline>> resident_pipeline::create(
 operation_status resident_pipeline::close(sensor_grid::combined_map& mapper, submap& metadata)
 {
     if (state_->failed || state_->finished || !metadata.config.valid() ||
-        !metadata.tsdf.empty() || !metadata.esdf.empty())
+        !metadata.tsdf.empty() || !metadata.esdf.empty() || state_->configurations.contains(metadata.frame.id))
         return std::unexpected(operation_error{"resident closure requires healthy device mapping"});
 #if defined(covoxslam_has_cuda) && defined(covoxslam_has_urd)
     state_->failed = true;
@@ -74,6 +75,7 @@ operation_status resident_pipeline::close(sensor_grid::combined_map& mapper, sub
     metadata.statistics.esdf_ms = generated->total_ms;
     metadata.statistics.cuda_uploaded_bytes += generated->upload_bytes;
     metadata.config.esdf_generator = esdf_backend::cuda_block_band_soa;
+    state_->configurations.emplace(metadata.frame.id, metadata.config);
     state_->maps->collect();
     state_->failed = false;
     return {};
@@ -88,6 +90,23 @@ operation_result<stored_pipeline_result> resident_pipeline::finish(std::span<sub
         return std::unexpected(operation_error{"resident completion is unavailable"});
     auto valid = validate_store_pipeline(state_->options, solver);
     if (!valid) return std::unexpected(valid.error());
+    std::unordered_set<std::uint64_t> identities;
+
+    for (const auto& map : maps) {
+        auto found = state_->configurations.find(map.frame.id);
+        if (found == state_->configurations.end() || !identities.insert(map.frame.id).second ||
+            !map.tsdf.empty() || !map.esdf.empty())
+            return std::unexpected(operation_error{"resident completion identities or staging conflict"});
+        const auto& config = found->second;
+
+        if (!map.config.valid() || map.config.voxel_size != config.voxel_size ||
+            map.config.truncation_distance != config.truncation_distance ||
+            map.config.esdf_site_band_m != config.esdf_site_band_m ||
+            map.config.esdf_minimum_weight != config.esdf_minimum_weight ||
+            map.config.esdf_maximum_distance_m != config.esdf_maximum_distance_m ||
+            map.config.esdf_generator != config.esdf_generator)
+            return std::unexpected(operation_error{"resident field configuration changed before completion"});
+    }
 #if defined(covoxslam_has_cuda) && defined(covoxslam_has_urd)
     state_->failed = true;
     const auto completion_started = std::chrono::steady_clock::now();
