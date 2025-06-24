@@ -7,6 +7,7 @@ namespace covoxslam
 struct resident_pipeline_metrics
 {
     double handoff_ms{}, esdf_ms{}, readback_ms{}, materialize_ms{};
+    double esdf_gpu_ms{}, completion_ms{};
     std::uint64_t retained_tiles{}, copied_device_bytes{}, downloaded_bytes{};
 };
 class resident_pipeline

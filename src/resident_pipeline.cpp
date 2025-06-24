@@ -69,6 +69,7 @@ operation_status resident_pipeline::close(sensor_grid::combined_map& mapper, sub
     checked = state_->maps->finalize(metadata.frame.id, 3);
     if (!checked) return checked;
     state_->metrics.esdf_ms += generated->total_ms;
+    state_->metrics.esdf_gpu_ms += generated->gpu_ms;
     metadata.statistics.allocated_tiles = *count;
     metadata.statistics.esdf_ms = generated->total_ms;
     metadata.statistics.cuda_uploaded_bytes += generated->upload_bytes;
@@ -89,6 +90,7 @@ operation_result<stored_pipeline_result> resident_pipeline::finish(std::span<sub
     if (!valid) return std::unexpected(valid.error());
 #if defined(covoxslam_has_cuda) && defined(covoxslam_has_urd)
     state_->failed = true;
+    const auto completion_started = std::chrono::steady_clock::now();
     auto checked = storage::cuda_storage_status(cudaSetDevice(state_->options.device));
     if (!checked) return std::unexpected(checked.error());
 
@@ -119,6 +121,18 @@ operation_result<stored_pipeline_result> resident_pipeline::finish(std::span<sub
     auto completed = detail::stored_pipeline<storage::layout::pool_soa>(maps, state_->options, solver,
         shadow, state_->maps.get());
     if (!completed) return std::unexpected(completed.error());
+    state_->metrics.completion_ms = std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - completion_started).count();
+    const auto& metrics = state_->metrics;
+    std::ostringstream report;
+    report << "resident handoff ms " << metrics.handoff_ms << ", ESDF derive ms " << metrics.esdf_ms
+        << ", ESDF GPU intervals ms " << metrics.esdf_gpu_ms << ", readback ms " << metrics.readback_ms
+        << ", canonical materialization ms " << metrics.materialize_ms << '\n'
+        << "resident TSDF device copy bytes " << metrics.copied_device_bytes
+        << ", canonical download bytes " << metrics.downloaded_bytes
+        << ", TSDF host staging upload bytes 0, negative band " << state_->options.negative_band << '\n'
+        << "resident completion wall ms " << metrics.completion_ms << " (includes readback, materialization and PGO)\n";
+    completed->report = report.str() + completed->report;
     state_->finished = true;
     state_->failed = false;
     return completed;
