@@ -1,4 +1,6 @@
 #include <covoxslam/resident_pipeline.hpp>
+#include <unordered_map>
+#include <unordered_set>
 #if defined(covoxslam_has_cuda) && defined(covoxslam_has_urd)
 #include "store_pipeline_impl.hpp"
 #endif
@@ -90,6 +92,11 @@ operation_result<stored_pipeline_result> resident_pipeline::finish(std::span<sub
         return std::unexpected(operation_error{"resident completion is unavailable"});
     auto valid = validate_store_pipeline(state_->options, solver);
     if (!valid) return std::unexpected(valid.error());
+    constexpr auto canonical_tile_bytes = 512 * (sizeof(storage::tsdf_value) + sizeof(storage::esdf_value));
+
+    if (maps.size() != state_->configurations.size() ||
+        state_->metrics.retained_tiles > state_->options.cpu_bytes / canonical_tile_bytes)
+        return std::unexpected(operation_error{"resident export selection or payload budget is invalid"});
     std::unordered_set<std::uint64_t> identities;
 
     for (const auto& map : maps) {
@@ -128,6 +135,8 @@ operation_result<stored_pipeline_result> resident_pipeline::finish(std::span<sub
         auto esdf = store::geometry_volume<storage::schema::esdf>(*captured, id, state_->options.cpu_bytes);
 
         if (!esdf) return std::unexpected(esdf.error());
+        if (tsdf->tsdf.size() != esdf->esdf.size())
+            return std::unexpected(operation_error{"resident output field topology differs"});
         const auto bytes = tsdf->tsdf.size() * 512 * sizeof(storage::tsdf_value) +
             esdf->esdf.size() * 512 * sizeof(storage::esdf_value);
         map.tsdf = std::move(tsdf->tsdf);
