@@ -139,7 +139,7 @@ public:
         return candidate;
     }
     template<storage::schema s, class function> operation_status edit(std::uint64_t id,
-        std::uint64_t content_epoch, std::uint64_t esdf_source, function&& consumer)
+        std::uint64_t content_epoch, std::uint64_t esdf_source, function&& consumer, bool preserve_values = true)
     {
         auto previous = field<s>(id);
         if (!previous) return std::unexpected(previous.error());
@@ -154,8 +154,10 @@ public:
         if (!replacement) return std::unexpected(replacement.error());
         auto candidate = std::const_pointer_cast<gpu_field<s, l>>(*replacement);
         storage::transfer_measurement copied;
-        auto checked = candidate->payload.copy_from((*previous)->payload, 0, 0, source->payload.size() * 512,
-            (1U << storage::field_count<s>) - 1, storage::transfer_method::bulk_same_layout, copied);
+        operation_status checked;
+        if (preserve_values)
+            checked = candidate->payload.copy_from((*previous)->payload, 0, 0, source->payload.size() * 512,
+                (1U << storage::field_count<s>) - 1, storage::transfer_method::bulk_same_layout, copied);
         if (!checked) return checked;
         auto view = candidate->payload.view();
         auto index = candidate->index.view();

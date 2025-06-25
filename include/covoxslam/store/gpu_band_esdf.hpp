@@ -46,7 +46,7 @@ template<storage::layout l> operation_result<band_esdf_metrics> generate_band_es
 
         if (!valid) return valid;
         return workspace.complete();
-    });
+    }, false);
     if (!checked) return std::unexpected(checked.error());
     const auto state = maps.status(id);
     if (!state) return std::unexpected(state.error());

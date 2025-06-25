@@ -406,7 +406,7 @@ public:
         }
         return result;
     }
-    template<class function> operation_status derive_gpu(std::uint64_t id, function&& consumer)
+    template<class function> operation_status derive_gpu(std::uint64_t id, function&& consumer, bool preserve_values = true)
     {
         std::lock_guard lock(mutex_);
         auto found = maps_.find(id);
@@ -436,7 +436,7 @@ public:
         return writer->publish(state.content[0], [&](const auto& versions) {
             return gpu_.template edit<es>(id, versions[1], state.content[0], [&](auto target, auto index, auto stream) {
                 return consumer(*read_view, *read_index, target, index, stream, std::span<const block_key>(keys), *budget_);
-            });
+            }, preserve_values);
         });
     }
     template<storage::schema s, class function> operation_status edit_gpu(std::uint64_t id, function&& consumer,
