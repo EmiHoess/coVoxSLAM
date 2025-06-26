@@ -417,6 +417,7 @@ inline int run_submap_cli(int argc, char** argv)
         if (sensor_selected && sensor_transfer.candidates == sensor_grid::candidate_mode::whole_tile_control) backend_label += "-whole-tile-control";
         if (sensor_selected && sensor_transfer.discovery == sensor_grid::discovery_mode::gpu_host) backend_label += "-gpu-discovery";
         if (sensor_selected && sensor_transfer.discovery == sensor_grid::discovery_mode::gpu_resident) backend_label += "-gpu-resident";
+        if (store_settings.resident_mapping) backend_label += "-soa";
         const auto fusion_label = sensor_selected ? sensor_sampling_name(sensor_mode) : resident ? resident_fusion_name(resident->fusion_order(), resident->reduction_mode(), resident->uses_step_tasks(), resident->warp_configuration().mode, resident->free_space_configuration().enabled, resident->segment_length() != 0, resident->uses_compact(), resident->uses_compact_batched(), resident->uses_fp32()) : "unspecified";
         auto exporter = pgo_settings.solver.enabled || store_settings.enabled ? std::unique_ptr<map_exporter>{} :
             open_map_export(output, input, mapping_options, backend_label.c_str(), fusion_label);
