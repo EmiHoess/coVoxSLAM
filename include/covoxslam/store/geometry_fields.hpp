@@ -84,6 +84,8 @@ operation_result<geometry_volume_data> geometry_volume(const geometry_snapshot<l
         return std::unexpected(operation_error{"geometry payload limit exceeded"});
     geometry_volume_data result;
     const auto records = field->index.records();
+    const auto view = field->payload.view();
+    std::array<storage::value<s>, 512> packed;
 
     for (std::size_t i = 0; i < records.size(); ++i) {
         if (!records[i].occupied) continue;
@@ -93,9 +95,11 @@ operation_result<geometry_volume_data> geometry_volume(const geometry_snapshot<l
         for (auto base : bases)
             if (base < INT32_MIN || base + 7 > INT32_MAX) return std::unexpected(operation_error{"geometry tile overflows"});
         std::conditional_t<s == storage::schema::tsdf, tsdf_tile, esdf_tile> tile;
+        auto copied = storage::pack_records(view, i * 512, 512, std::span<storage::value<s>>(packed), {512});
+        if (!copied) return std::unexpected(copied.error());
 
         for (unsigned j = 0; j < 512; ++j) {
-            const auto value = storage::gather_record(field->payload.view()[i].voxels[j]);
+            const auto& value = packed[j];
             if constexpr (s == storage::schema::tsdf) {
                 if (!std::isfinite(value.distance) || !std::isfinite(value.weight) || value.weight < 0 || (value.flags & ~3U))
                     return std::unexpected(operation_error{"invalid TSDF geometry value"});
