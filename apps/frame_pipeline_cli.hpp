@@ -60,25 +60,30 @@ inline int run_submap_cli(int argc, char** argv)
         dataset_load_options input_options;
         std::filesystem::path root;
         std::filesystem::path output;
-        bool nearest_preset{};
+        bool nearest_preset{true};
+        bool preset_specified{};
         pgo_cli_options pgo_settings;
         store_pipeline_options store_settings;
+
+        auto preset = sensor_grid::combined_nearest_preset();
+
+        if (!preset) return report_error(preset.error().message);
+        mapping_options = preset->mapping;
+        mapping_options.esdf_generator = esdf_backend::cuda_block_band_soa;
+         sensor_gather = preset->gather;
+        sensor_transfer = preset->transfer;
+        sensor_mode = preset->sampling;
+        options.ring_stride = preset->ring_stride;
+        options.column_stride = preset->column_stride;
+        sensor_selected = mapping_enabled = true;
 
         for (int index = 2; index < argc; index += 2) {
             if (index + 1 >= argc) return report_error("missing submap option value");
             if (lookup_cli_option(argv[index], submap_cli_options) != submap_cli_option::preset) continue;
 
-            if (nearest_preset || std::string_view(argv[index + 1]) != "combined-nearest")
+            if (preset_specified || std::string_view(argv[index + 1]) != "combined-nearest")
                 return report_error("expected one combined-nearest preset");
-            auto preset = sensor_grid::combined_nearest_preset();
-            if (!preset) return report_error(preset.error().message);
-            mapping_options = preset->mapping;
-             sensor_gather = preset->gather;
-            sensor_transfer = preset->transfer;
-            sensor_mode = preset->sampling;
-            options.ring_stride = preset->ring_stride;
-            options.column_stride = preset->column_stride;
-            nearest_preset = sensor_selected = mapping_enabled = true;
+            preset_specified = true;
         }
         for (int index = 2; index < argc; index += 2)
         {

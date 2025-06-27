@@ -8,12 +8,12 @@ namespace covoxslam
 enum class stored_pgo_fields { copied, borrowed, resident };
 struct store_pipeline_options
 {
-    bool enabled{};
-    bool resident_mapping{};
+    bool enabled{true};
+    bool resident_mapping{true};
     bool negative_band{};
-    esdf_backend esdf_generator{esdf_backend::none};
+    esdf_backend esdf_generator{esdf_backend::cuda_block_band_soa};
     int device{};
-    storage::layout layout{storage::layout::pooled_aos};
+    storage::layout layout{storage::layout::pool_soa};
     stored_pgo_fields fields{stored_pgo_fields::copied};
     std::filesystem::path checkpoint_root;
     std::size_t cpu_bytes{1073741824}, gpu_bytes{1073741824};
