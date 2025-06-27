@@ -7,16 +7,16 @@
 namespace covoxslam
 {
 enum class store_option { unknown, layout, fields, output, memory, mapping, negative_band };
-enum class store_value { unknown, none, aos, soa, aosoa, copied, borrowed, resident, packed, resident_soa };
+enum class store_value { unknown, soa, copied, borrowed, resident, resident_soa };
 inline constexpr cli_option_entry<store_option> store_options[]{
     {"--map-store", store_option::layout}, {"--pgo-fields", store_option::fields},
     {"--store-output", store_option::output}, {"--store-memory-mib", store_option::memory},
     {"--mapping-storage", store_option::mapping}, {"--store-negative-band", store_option::negative_band}
 };
 inline constexpr cli_option_entry<store_value> store_values[]{
-    {"none", store_value::none}, {"aos", store_value::aos}, {"soa", store_value::soa}, {"aosoa", store_value::aosoa},
+    {"soa", store_value::soa},
     {"copied", store_value::copied}, {"borrowed", store_value::borrowed}, {"resident", store_value::resident},
-    {"packed", store_value::packed}, {"resident-soa", store_value::resident_soa}
+    {"resident-soa", store_value::resident_soa}
 };
 inline operation_result<bool> parse_store_option(std::string_view key, std::string_view value, store_pipeline_options& result)
 {
@@ -28,19 +28,15 @@ inline operation_result<bool> parse_store_option(std::string_view key, std::stri
         return true;
     case store_option::mapping:
         switch (lookup_cli_option(value, store_values)) {
-        case store_value::packed: result.resident_mapping = false; break;
         case store_value::resident_soa: result.resident_mapping = true; break;
-        default: return std::unexpected(operation_error{"mapping storage must be packed or resident-soa"});
+        default: return std::unexpected(operation_error{"coVoxSLAM requires resident-soa mapping storage"});
         }
         return true;
     case store_option::layout:
         result.enabled = true;
         switch (lookup_cli_option(value, store_values)) {
-        case store_value::none: result.enabled = false; break;
-        case store_value::aos: result.layout = storage::layout::pooled_aos; break;
         case store_value::soa: result.layout = storage::layout::pool_soa; break;
-        case store_value::aosoa: result.layout = storage::layout::tile_aosoa; break;
-        default: return std::unexpected(operation_error{"map store must be none, aos, soa or aosoa"});
+        default: return std::unexpected(operation_error{"coVoxSLAM requires soa map storage"});
         }
         return true;
     case store_option::fields:

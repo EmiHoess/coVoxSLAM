@@ -62,6 +62,7 @@ inline int run_submap_cli(int argc, char** argv)
         std::filesystem::path output;
         bool nearest_preset{true};
         bool preset_specified{};
+        unsigned selectors_seen{};
         pgo_cli_options pgo_settings;
         store_pipeline_options store_settings;
 
@@ -79,6 +80,25 @@ inline int run_submap_cli(int argc, char** argv)
 
         for (int index = 2; index < argc; index += 2) {
             if (index + 1 >= argc) return report_error("missing submap option value");
+            unsigned selector{};
+            std::string_view required;
+            switch (lookup_cli_option(argv[index], store_options)) {
+            case store_option::mapping: selector = 1; required = "resident-soa"; break;
+            case store_option::layout: selector = 2; required = "soa"; break;
+            default: break;
+            }
+
+            if (lookup_cli_option(argv[index], covoxslam::mapping_options) == mapping_option::esdf_generator) {
+                selector = 4;
+                 required = "cuda-block-band-soa";
+            }
+            if (selector)
+            {
+                if (selectors_seen & selector) return report_error("repeated mapping selector");
+                if (std::string_view(argv[index + 1]) != required)
+                    return report_error("mapping selector is not applicable to coVoxSLAM");
+                selectors_seen |= selector;
+            }
             if (lookup_cli_option(argv[index], submap_cli_options) != submap_cli_option::preset) continue;
 
             if (preset_specified || std::string_view(argv[index + 1]) != "combined-nearest")
