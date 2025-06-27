@@ -13,7 +13,6 @@ namespace covoxslam
 {
 enum class sensor_backend_choice { unknown, sensor, combined };
 inline constexpr cli_option_entry<sensor_backend_choice> sensor_backend_choices[]{
-    {"cuda-sensor-grid", sensor_backend_choice::sensor},
     {"cuda-sensor-grid-combined", sensor_backend_choice::combined}
 };
 enum class sensor_mapping_option { unknown, backend, interpolation, gather, threshold, block_threshold, execution, source_mask, transfer_precision, transfer_kernel, candidates, candidate_capacity, discovery };
@@ -32,34 +31,27 @@ inline constexpr cli_option_entry<sensor_mapping_option> sensor_mapping_options[
 };
 enum class discovery_choice { unknown, cpu, gpu_host, gpu_resident };
 inline constexpr cli_option_entry<discovery_choice> discovery_choices[]{
-    {"cpu", discovery_choice::cpu}, {"gpu-host", discovery_choice::gpu_host},
     {"gpu-resident", discovery_choice::gpu_resident}
 };
 enum class candidate_choice { unknown, whole_tiles, voxel_mask, compacted_control, compact_fp32, append_fp32, compact_fp64, append_fp64, coarse_mask, whole_tile_control };
 inline constexpr cli_option_entry<candidate_choice> candidate_choices[]{
-    {"whole-tiles", candidate_choice::whole_tiles}, {"voxel-mask", candidate_choice::voxel_mask},
-    {"compacted-control", candidate_choice::compacted_control}, {"compact-fp32", candidate_choice::compact_fp32},
-    {"append-fp32", candidate_choice::append_fp32}, {"compact-fp64", candidate_choice::compact_fp64},
-    {"append-fp64", candidate_choice::append_fp64}, {"coarse-mask", candidate_choice::coarse_mask},
-    {"whole-tile-control", candidate_choice::whole_tile_control}
+    {"whole-tiles", candidate_choice::whole_tiles}
 };
 enum class source_mask_choice { unknown, dense, compact };
 inline constexpr cli_option_entry<source_mask_choice> source_mask_choices[]{
-    {"dense", source_mask_choice::dense}, {"compact", source_mask_choice::compact}
+    {"dense", source_mask_choice::dense}
 };
 enum class transfer_precision_choice { unknown, fp32, fp64 };
 enum class transfer_kernel_choice { unknown, reference, specialized };
 inline constexpr cli_option_entry<transfer_kernel_choice> transfer_kernel_choices[]{
-    {"reference", transfer_kernel_choice::reference}, {"specialized", transfer_kernel_choice::specialized}
+    {"reference", transfer_kernel_choice::reference}
 };
 inline constexpr cli_option_entry<transfer_precision_choice> transfer_precision_choices[]{
-    {"32", transfer_precision_choice::fp32}, {"64", transfer_precision_choice::fp64}
+    {"64", transfer_precision_choice::fp64}
 };
 enum class sensor_sampling_value { unknown, nearest, tetrahedral, trilinear, overlap, neighborhood8, neighborhood27 };
 inline constexpr cli_option_entry<sensor_sampling_value> sensor_sampling_values[]{
-    {"nearest", sensor_sampling_value::nearest}, {"tetrahedral", sensor_sampling_value::tetrahedral},
-    {"trilinear", sensor_sampling_value::trilinear}, {"exact-overlap", sensor_sampling_value::overlap},
-    {"neighborhood8", sensor_sampling_value::neighborhood8}, {"neighborhood27", sensor_sampling_value::neighborhood27}
+    {"nearest", sensor_sampling_value::nearest}
 };
 inline const char* sensor_sampling_name(sensor_grid::interpolation mode)
 {

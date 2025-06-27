@@ -7,46 +7,25 @@ namespace covoxslam
 {
 enum class execution_choice { unknown, stream, graph };
 inline constexpr cli_option_entry<execution_choice> execution_choices[]{
-    {"stream", execution_choice::stream}, {"cuda-graph", execution_choice::graph}
+    {"stream", execution_choice::stream}
 };
 inline operation_status select_sensor_execution(std::string_view text, sensor_grid::gather_options& options)
 {
     switch (lookup_cli_option(text, execution_choices)) {
     case execution_choice::stream: options.execution = sensor_grid::execution_mode::stream; break;
-    case execution_choice::graph: options.execution = sensor_grid::execution_mode::cuda_graph; break;
-    default: return std::unexpected(operation_error{"sensor execution must be stream or cuda-graph"});
+    default: return std::unexpected(operation_error{"coVoxSLAM requires stream sensor execution"});
     }
     return {};
 }
 enum class gather_choice { unknown, csr, warp, interleaved, hybrid, subwarp, short_interleaved, aligned, ray16, compact, pipelined, block_long, combined, uncapped };
 inline constexpr cli_option_entry<gather_choice> gather_choices[]{
-    {"csr", gather_choice::csr}, {"warp-soa-prepared", gather_choice::warp},
-    {"thread-interleaved-prepared", gather_choice::interleaved},
-    {"warp-soa-hybrid-prepared", gather_choice::hybrid},
-    {"warp-soa-subwarp-prepared", gather_choice::subwarp},
-    {"hybrid-short-interleaved", gather_choice::short_interleaved},
-    {"hybrid-aligned", gather_choice::aligned}, {"hybrid-ray16", gather_choice::ray16},
-    {"hybrid-compact", gather_choice::compact}, {"hybrid-pipelined", gather_choice::pipelined},
-    {"hybrid-block-long", gather_choice::block_long}, {"hybrid-combined", gather_choice::combined},
-    {"hybrid-combined-uncapped", gather_choice::uncapped}
+    {"hybrid-combined", gather_choice::combined}
 };
 inline operation_status select_sensor_gather(std::string_view text, sensor_grid::gather_options& options)
 {
     switch (lookup_cli_option(text, gather_choices)) {
-    case gather_choice::csr: options.backend = sensor_grid::gather_backend::csr; break;
-    case gather_choice::warp: options.backend = sensor_grid::gather_backend::warp_soa_prepared; break;
-    case gather_choice::interleaved: options.backend = sensor_grid::gather_backend::thread_interleaved_prepared; break;
-    case gather_choice::hybrid: options.backend = sensor_grid::gather_backend::warp_soa_hybrid_prepared; break;
-    case gather_choice::subwarp: options.backend = sensor_grid::gather_backend::warp_soa_subwarp_prepared; break;
-    case gather_choice::short_interleaved: options.backend = sensor_grid::gather_backend::hybrid_short_interleaved; break;
-    case gather_choice::aligned: options.backend = sensor_grid::gather_backend::hybrid_aligned; break;
-    case gather_choice::ray16: options.backend = sensor_grid::gather_backend::hybrid_ray16; break;
-    case gather_choice::compact: options.backend = sensor_grid::gather_backend::hybrid_compact; break;
-    case gather_choice::pipelined: options.backend = sensor_grid::gather_backend::hybrid_pipelined; break;
-    case gather_choice::block_long: options.backend = sensor_grid::gather_backend::hybrid_block_long; break;
     case gather_choice::combined: options.backend = sensor_grid::gather_backend::hybrid_combined; break;
-    case gather_choice::uncapped: options.backend = sensor_grid::gather_backend::hybrid_combined_uncapped; break;
-    default: return std::unexpected(operation_error{"unsupported sensor gather backend"});
+    default: return std::unexpected(operation_error{"coVoxSLAM requires hybrid-combined gathering"});
     }
     return {};
 }

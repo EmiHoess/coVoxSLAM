@@ -30,7 +30,16 @@ inline constexpr cli_option_entry<retired_option> retired_options[]{
     {"--resident-tiles", retired_option::unavailable},
     {"--warp-cache-entries", retired_option::unavailable},
     {"--warp-count", retired_option::unavailable},
-    {"--warp-ray-order", retired_option::unavailable}
+    {"--warp-ray-order", retired_option::unavailable},
+    {"--sensor-grid-candidate-capacity", retired_option::unavailable},
+    {"--sensor-grid-backend", retired_option::unavailable},
+    {"--sensor-grid-factor", retired_option::unavailable},
+    {"--sensor-grid-first-entry", retired_option::unavailable},
+    {"--sensor-grid-frames", retired_option::unavailable},
+    {"--sensor-grid-radius", retired_option::unavailable},
+    {"--sensor-grid-ray-cap", retired_option::unavailable},
+    {"--sensor-grid-truncation", retired_option::unavailable},
+    {"--sensor-grid-voxel-size", retired_option::unavailable}
 };
 
 inline operation_status validate_active_option(std::string_view name)
