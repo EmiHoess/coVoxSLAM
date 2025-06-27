@@ -9,6 +9,7 @@
 #include "sensor_mapping_cli.hpp"
 #include "pgo_cli.hpp"
 #include "store_cli.hpp"
+#include "retired_options.hpp"
 
 #include <charconv>
 #include <iomanip>
@@ -110,6 +111,9 @@ inline int run_submap_cli(int argc, char** argv)
             const std::string_view option(argv[index]);
             if (index + 1 >= argc) return report_error("missing submap option value");
             const std::string_view value(argv[index + 1]);
+            const auto active = validate_active_option(option);
+
+            if (!active) return report_error(active.error().message);
             const auto store_parsed = parse_store_option(option, value, store_settings);
             if (!store_parsed) return report_error(store_parsed.error().message);
             if (*store_parsed) continue;
@@ -225,28 +229,6 @@ inline int run_submap_cli(int argc, char** argv)
                 continue;
             }
             default: break;
-            }
-            const auto resident_parsed = parse_resident_option(option, value, resident_options);
-
-            if (!resident_parsed) return report_error(resident_parsed.error().message);
-            if (*resident_parsed) {
-                if (lookup_cli_option(option, covoxslam::resident_options) == resident_option::backend) {
-                    mapping_enabled = true;
-                    cuda_options.enabled = cuda_options.projective = cuda_options.calibrated_policy = false;
-                }
-                continue;
-            }
-            const auto policy_parsed = parse_projective_policy_option(option, value, projective_options, projective_policy_option_set);
-            if (!policy_parsed) return report_error(policy_parsed.error().message);
-            if (*policy_parsed) continue;
-            const auto fusion_parsed = parse_ray_fusion_option(option, value, fusion_options);
-            if (!fusion_parsed) { std::cerr << fusion_parsed.error().message << '\n'; return 2; }
-            if (*fusion_parsed) continue;
-            const auto projective_parsed = parse_projective_option(option, value, projective_options, projective_option_set);
-            if (!projective_parsed) return report_error(projective_parsed.error().message);
-            if (*projective_parsed) {
-                if (lookup_cli_option(option, covoxslam::projective_options) != projective_option::candidate_capacity) projective_control_set = true;
-                continue;
             }
             switch (lookup_cli_option(option, submap_cli_options))
             {
