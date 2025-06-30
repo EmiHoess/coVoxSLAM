@@ -1,11 +1,8 @@
 #pragma once
 
 #include <covoxslam/mapping.hpp>
-#include "projective_policy_cli.hpp"
-#include "ray_fusion_cli.hpp"
-#include "cuda_esdf_cli.hpp"
+#include "mapping_cli.hpp"
 #include "map_export_cli.hpp"
-#include "resident_cli.hpp"
 #include "sensor_mapping_cli.hpp"
 #include "pgo_cli.hpp"
 #include "store_cli.hpp"
@@ -50,14 +47,7 @@ inline int run_submap_cli(int argc, char** argv)
         sensor_grid::gather_options sensor_gather;
         sensor_grid::transfer_options sensor_transfer;
         auto sensor_mode = sensor_grid::interpolation::trilinear;
-        cuda_mapping_cli_options cuda_options;
-        resident_cli_options resident_options;
-        ray_fusion_cli_options fusion_options;
-        cuda_projective_options projective_options;
-        bool projective_option_set{};
-        bool projective_policy_option_set{};
-         bool projective_control_set{};
-        cuda_blocks_cli_options esdf_options;
+        mapping_device_options cuda_options;
         dataset_load_options input_options;
         std::filesystem::path root;
         std::filesystem::path output;
@@ -283,7 +273,7 @@ inline int run_submap_cli(int argc, char** argv)
             }
             {
                 const auto cuda_parsed = parse_mapping_device(option, value, mapping_options,
-                    cuda_options.mapper.device, cuda_options.mapper.maximum_device_bytes);
+                    cuda_options.device, cuda_options.maximum_device_bytes);
 
                 if (!cuda_parsed) return report_error(cuda_parsed.error().message);
                 if (*cuda_parsed) continue;
@@ -294,9 +284,8 @@ inline int run_submap_cli(int argc, char** argv)
             }
         }
          if (root.empty()) return report_error("--submaps requires --dataset directory");
-        if (nearest_preset && (!sensor_selected || resident_options.selected || cuda_options.enabled ||
-            cuda_options.projective || !sensor_grid::matches_combined_nearest({mapping_options, sensor_gather,
-                sensor_transfer, sensor_mode, options.ring_stride, options.column_stride})))
+        if (!sensor_selected || !sensor_grid::matches_combined_nearest({mapping_options, sensor_gather,
+                sensor_transfer, sensor_mode, options.ring_stride, options.column_stride}))
             return report_error("explicit options conflict with combined-nearest preset");
         if (sensor_options_set && !sensor_selected) return report_error("sensor options require cuda-sensor-grid");
         if (sensor_selected && sensor_grid::candidate_uses_mask(sensor_transfer.candidates) &&
@@ -311,34 +300,9 @@ inline int run_submap_cli(int argc, char** argv)
             return report_error("duration and sampling strides must be positive");
         if (!output.empty() && !mapping_enabled)
             return report_error("--output requires --backend cpu-ray, cuda-ray or cuda-projective");
-        if (projective_option_set && !cuda_options.projective)
-            return report_error("projective options require --backend cuda-projective");
-        if (projective_policy_option_set && !cuda_options.calibrated_policy)
-            return report_error("projective raycast factor requires --backend cuda-projective-calibrated");
-        if (cuda_options.calibrated_policy && projective_control_set)
-            return report_error("calibrated policy uses fixed sampling and weighting controls");
-        if (cuda_options.projective && cuda_options.contribution_capacity_set)
-            return report_error("projective mapping uses --projective-candidate-capacity");
-        const auto fusion_selection = validate_ray_fusion_selection(cuda_options.enabled, mapping_enabled, fusion_options);
-        if (!fusion_selection) { std::cerr << fusion_selection.error().message << '\n'; return 2; }
-
-        if (resident_options.specified && !resident_options.selected)
-            return report_error("resident capacities require a resident backend");
-        if (resident_options.warp_specified && (!resident_options.selected || resident_options.mapper.warp.mode == cuda_resident_warp::none))
-            return report_error("warp options require a warp backend");
-        if (resident_options.free_space_specified && (!resident_options.selected || !resident_options.mapper.free_space.enabled))
-            return report_error("free space options require a free space backend");
-        if (resident_options.segment_specified && (!resident_options.selected || !resident_options.mapper.segment_length))
-            return report_error("segment length requires a segmented backend");
-        if (resident_options.selected && (cuda_options.ray_capacity_set || cuda_options.contribution_capacity_set))
-            return report_error("use --resident-rays and --resident-contributions with resident mapping");
-        pgo_settings.solver.device = cuda_options.mapper.device;
-        const bool stored_band = mapping_options.esdf_generator == esdf_backend::cuda_block_band_soa;
-        store_settings.device = cuda_options.mapper.device;
-        if (stored_band) {
-            if (esdf_options.specified) return report_error("block band SoA does not accept blocks execution options");
-            store_settings.esdf_generator = esdf_backend::cuda_block_band_soa;
-        }
+        pgo_settings.solver.device = cuda_options.device;
+        store_settings.device = cuda_options.device;
+        store_settings.esdf_generator = mapping_options.esdf_generator;
         auto store_valid = validate_store_pipeline(store_settings, pgo_settings.solver);
         if (!store_valid) return report_error(store_valid.error().message);
         if (store_settings.resident_mapping && (!sensor_selected ||
@@ -363,47 +327,10 @@ inline int run_submap_cli(int argc, char** argv)
         if (!pgo_valid) return report_error(pgo_valid.error().message);
         if (!loaded) return report_error(loaded.error().message);
         const auto& input = *loaded;
-        const auto finalize = stored_band ? std::function<void(submap&)>{} :
-            cuda_esdf_finalizer(mapping_options, cuda_options.mapper.device, esdf_options);
         auto mapper_options = mapping_options;
-        if (finalize || stored_band) mapper_options.esdf_generator = esdf_backend::none;
-        std::unique_ptr<cpu_mapper> cpu;
-        std::unique_ptr<cuda_mapper> gpu;
-        std::unique_ptr<cuda_projective_mapper> projective;
-        std::unique_ptr<cuda_resident_context> resident;
+        mapper_options.esdf_generator = esdf_backend::none;
         std::optional<operation_error> resident_failure;
-        if (mapping_enabled && !sensor_selected) {
-            if (resident_options.selected)
-            {
-                resident_options.mapper.device = cuda_options.mapper.device;
-                resident_options.mapper.maximum_device_bytes = cuda_options.mapper.maximum_device_bytes;
-                auto created = cuda_resident_context::create(mapper_options, resident_options.mapper);
-
-                if (!created) return report_error(created.error().message);
-                resident = std::move(*created);
-            }
-            else if (cuda_options.projective) {
-                projective_options.calibrated_policy = cuda_options.calibrated_policy;
-                projective_options.device = cuda_options.mapper.device;
-                projective_options.maximum_device_bytes = cuda_options.mapper.maximum_device_bytes;
-                if (cuda_options.ray_capacity_set) projective_options.ray_capacity = cuda_options.mapper.ray_capacity;
-                projective = std::make_unique<cuda_projective_mapper>(input.sensor, mapper_options, projective_options);
-            }
-            else if (cuda_options.enabled) gpu = std::make_unique<cuda_mapper>(mapper_options, cuda_options.mapper);
-            else cpu = std::make_unique<cpu_mapper>(mapper_options);
-        }
-        if (gpu) {
-            const auto configured = gpu->configure_fusion(fusion_options.mode, fusion_options.short_segment_threshold);
-            if (!configured) { std::cerr << configured.error().message << '\n'; return 2; }
-        }
-        const char* backend = projective ? "cuda-projective" : gpu ? "cuda-ray" : "cpu-ray";
-        if (resident) backend = resident_backend_name(resident->fusion_order(), resident->reduction_mode(), resident->uses_step_tasks(), resident->warp_configuration().mode, resident->free_space_configuration().enabled, resident->segment_length() != 0, resident->uses_compact(), resident->uses_compact_batched(), resident->uses_fp32());
-        if (cuda_options.calibrated_policy) backend = "cuda-projective-calibrated";
-        if (sensor_selected) backend = sensor_gather_name(sensor_gather.backend);
-        if (cuda_options.calibrated_policy) std::cout << "projective raycast factor " << projective_options.raycast_subsampling_factor << '\n';
-        if (gpu) std::cout << "ray fusion " << cuda_ray_fusion_name(fusion_options.mode)
-                           << ", short threshold " << fusion_options.short_segment_threshold
-                           << ", maximum rays per batch " << cuda_options.mapper.ray_capacity << '\n';
+        const char* backend = sensor_gather_name(sensor_gather.backend);
         std::string backend_label = backend;
         if (nearest_preset) std::cout << "preset combined-nearest, nearest cell only, unknown cells rejected\n";
         if (sensor_selected && sensor_transfer.source_mask == sensor_grid::source_mask_mode::compact)
@@ -422,9 +349,8 @@ inline int run_submap_cli(int argc, char** argv)
         if (sensor_selected && sensor_transfer.discovery == sensor_grid::discovery_mode::gpu_host) backend_label += "-gpu-discovery";
         if (sensor_selected && sensor_transfer.discovery == sensor_grid::discovery_mode::gpu_resident) backend_label += "-gpu-resident";
         if (store_settings.resident_mapping) backend_label += "-soa";
-        const auto fusion_label = sensor_selected ? sensor_sampling_name(sensor_mode) : resident ? resident_fusion_name(resident->fusion_order(), resident->reduction_mode(), resident->uses_step_tasks(), resident->warp_configuration().mode, resident->free_space_configuration().enabled, resident->segment_length() != 0, resident->uses_compact(), resident->uses_compact_batched(), resident->uses_fp32()) : "unspecified";
-        auto exporter = pgo_settings.solver.enabled || store_settings.enabled ? std::unique_ptr<map_exporter>{} :
-            open_map_export(output, input, mapping_options, backend_label.c_str(), fusion_label);
+        const auto fusion_label = sensor_sampling_name(sensor_mode);
+        std::unique_ptr<map_exporter> exporter;
         std::vector<submap> pgo_maps;
         std::unique_ptr<resident_pipeline> resident_maps;
         if (store_settings.resident_mapping) {
@@ -433,30 +359,20 @@ inline int run_submap_cli(int argc, char** argv)
             resident_maps = std::move(*created);
             std::cout << "mapping storage resident-soa, device handoff, deferred canonical readback\n";
         }
-        const auto publish = [&](const submap& completed) {
-            if (pgo_settings.solver.enabled || store_settings.enabled) pgo_maps.push_back(completed);
-            else if (exporter) exporter->write(completed);
-        };
-        auto callbacks = resident ? resident_callbacks(*resident, mapping_options, resident_failure, publish, finalize) :
-            projective ? mapping_callbacks(*projective, publish, finalize) :
-            gpu ? mapping_callbacks(*gpu, publish, finalize) :
-            cpu ? mapping_callbacks(*cpu, publish, finalize) : pipeline_callbacks{};
-        if (sensor_selected) {
-            auto selected = sensor_mapping_callbacks(input.sensor, mapper_options, cuda_options.mapper.device,
-                resident_failure, publish, finalize, sensor_mode, sensor_gather, cuda_options.mapper.maximum_device_bytes,
-                sensor_transfer, resident_maps.get());
-            if (!selected) return report_error(selected.error().message);
-            callbacks = std::move(*selected);
-            std::cout << "sensor field uses calibrated ranges and scan start poses\n";
-        }
+        const auto publish = [&](const submap& completed) { pgo_maps.push_back(completed); };
+        auto selected = sensor_mapping_callbacks(input.sensor, mapper_options, cuda_options.device,
+            resident_failure, publish, {}, sensor_mode, sensor_gather, cuda_options.maximum_device_bytes,
+            sensor_transfer, resident_maps.get());
+
+        if (!selected) return report_error(selected.error().message);
+        auto callbacks = std::move(*selected);
+        std::cout << "sensor field uses calibrated ranges and scan start poses\n";
         const auto result = run_frame_pipeline(input, options, callbacks);
 
         if (result.cancelled) return report_error(resident_failure ? resident_failure->message : "mapping cancelled");
         if (pgo_settings.solver.enabled || store_settings.enabled) {
             auto optimized = [&]() -> operation_result<pgo_cli_result> {
-                if (!store_settings.enabled) return finish_pgo(pgo_maps, pgo_settings);
-                auto stored = resident_maps ? resident_maps->finish(pgo_maps, pgo_settings.solver, pgo_settings.shadow) :
-                    finish_stored_pipeline(pgo_maps, store_settings, pgo_settings.solver, pgo_settings.shadow);
+                auto stored = resident_maps->finish(pgo_maps, pgo_settings.solver, pgo_settings.shadow);
                 if (!stored) return std::unexpected(operation_error{
                     "stored pipeline stopped before export: " + stored.error().message});
                 auto ready = validate_stored_export(pgo_maps, store_settings);

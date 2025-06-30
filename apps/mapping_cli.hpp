@@ -34,7 +34,7 @@ inline constexpr cli_option_entry<esdf_value> esdf_values[]{
 struct mapping_device_options
 {
     int device{};
-    std::size_t maximum_device_bytes{1073741824};
+    std::size_t maximum_device_bytes{2ULL << 30};
 };
 enum class mapping_device_option { unknown, device, bytes, tiles };
 inline constexpr cli_option_entry<mapping_device_option> mapping_device_options_table[]{
