@@ -70,7 +70,7 @@ inline operation_result<pipeline_callbacks> sensor_mapping_callbacks(const senso
     std::function<void(submap&)> finalize, sensor_grid::interpolation mode, sensor_grid::gather_options gather,
     std::size_t maximum_bytes, sensor_grid::transfer_options transfer = {}, resident_pipeline* retained = nullptr)
 {
-    if (retained && (!sensor_grid::combined_gather(gather.backend) || mode != sensor_grid::interpolation::nearest || finalize))
+    if (!retained || !sensor_grid::combined_gather(gather.backend) || mode != sensor_grid::interpolation::nearest || finalize)
         return std::unexpected(operation_error{"resident mapping requires combined nearest without a host finalizer"});
     if (!config.valid() || config.maximum_tiles > 1048576)
         return std::unexpected(operation_error{"invalid sensor mapping configuration"});
@@ -86,33 +86,23 @@ inline operation_result<pipeline_callbacks> sensor_mapping_callbacks(const senso
     if (!table) return std::unexpected(table.error());
     struct context
     {
-        std::unique_ptr<sensor_grid::gpu_grid> grid;
-        std::unique_ptr<sensor_grid::gpu_map> map;
         std::unique_ptr<sensor_grid::combined_map> combined;
         std::vector<float> ranges;
         mapping_statistics statistics;
     };
     auto state = std::make_shared<context>();
-    if (sensor_grid::combined_gather(gather.backend)) {
-        auto combined = sensor_grid::combined_map::create(*table,
-            static_cast<std::uint32_t>(config.maximum_tiles), device, maximum_bytes, gather, transfer, retained != nullptr);
-        if (!combined) return std::unexpected(combined.error());
-        state->combined = std::move(*combined);
-    } else {
-        auto grid = sensor_grid::gpu_grid::create(*table, device, maximum_bytes, gather);
-        if (!grid) return std::unexpected(grid.error());
-        auto map = sensor_grid::gpu_map::create(*table, static_cast<std::uint32_t>(config.maximum_tiles),
-            device, maximum_bytes - (*grid)->device_bytes(), transfer);
-        if (!map) return std::unexpected(map.error());
-        state->grid = std::move(*grid); state->map = std::move(*map);
-    }
+    auto combined = sensor_grid::combined_map::create(*table,
+        static_cast<std::uint32_t>(config.maximum_tiles), device, maximum_bytes, gather, transfer, true);
+
+    if (!combined) return std::unexpected(combined.error());
+    state->combined = std::move(*combined);
     state->ranges.resize(directions->size());
     pipeline_callbacks callbacks;
     callbacks.begin = [state, &failure, transfer](const submap_frame&) {
         state->statistics = {};
         state->statistics.cuda_accumulator_bits = sensor_grid::accumulation_bits;
         state->statistics.sensor_transfer_bits = transfer.arithmetic == sensor_grid::transfer_arithmetic::fp32 ? 32 : 64;
-        const auto result = state->combined ? state->combined->reset() : state->map->reset();
+        const auto result = state->combined->reset();
         if (!result) failure = result.error();
     };
     callbacks.cancelled = [&failure] { return failure.has_value(); };
@@ -128,36 +118,23 @@ inline operation_result<pipeline_callbacks> sensor_mapping_callbacks(const senso
             state->ranges[ray.ring * columns + ray.column] = ray.measured_range_m;
             accepted += std::isfinite(ray.measured_range_m) && ray.measured_range_m >= minimum && ray.measured_range_m > 0;
         }
-        std::uint64_t updates{};
-        if (state->combined) {
-            const auto result = state->combined->integrate(state->ranges, transform, mode);
-            if (!result) { failure = result.error(); return; }
-            updates = result->transfer.updates;
-        } else {
-            const auto updated = state->grid->update(state->ranges);
-            if (!updated) { failure = updated.error(); return; }
-            const auto transferred = state->map->integrate(*state->grid, transform, mode);
-            if (!transferred) { failure = transferred.error(); return; }
-            updates = transferred->updates;
-        }
+        const auto result = state->combined->integrate(state->ranges, transform, mode);
+
+        if (!result) { failure = result.error(); return; }
+        const auto updates = result->transfer.updates;
         state->statistics.rays_submitted += rays.size();
         state->statistics.rays_integrated += accepted;
         state->statistics.rays_rejected += rays.size() - accepted;
         state->statistics.voxel_updates += updates;
         state->statistics.integration_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
     };
-    callbacks.finish = [state, &failure, config, publish, finalize, retained](const submap_frame& frame)
+    callbacks.finish = [state, &failure, config, publish, retained](const submap_frame& frame)
     {
         if (failure) return;
-        operation_result<tsdf_tiles> tiles = tsdf_tiles{};
-        if (!retained) {
-            tiles = state->combined ? state->combined->download() : state->map->download();
-            if (!tiles) { failure = tiles.error(); return; }
-        }
         submap completed;
         completed.frame = frame; completed.optimized_world_pose = frame.anchor;
         completed.config = config; completed.statistics = state->statistics;
-        if (state->combined) {
+        {
             const auto timing = state->combined->statistics();
             completed.statistics.sensor_gather_ms = timing.gather.gather_ms;
             completed.statistics.sensor_upload_ms = timing.gather.upload_ms;
@@ -174,17 +151,9 @@ inline operation_result<pipeline_callbacks> sensor_mapping_callbacks(const senso
             completed.statistics.sensor_candidate_voxels = timing.transfer.candidate_voxels;
             completed.statistics.sensor_kernel_launches = timing.kernel_launches;
         }
-        if (retained) {
-            const auto closed = retained->close(*state->combined, completed);
-            if (!closed) { failure = closed.error(); return; }
-            if (publish) publish(completed);
-            return;
-        }
-        completed.tsdf = std::move(*tiles);
-        completed.statistics.allocated_tiles = completed.tsdf.size();
-        if (config.esdf_generator == esdf_backend::cpu_blocks_batch)
-            build_cpu_esdf(completed.tsdf, completed.esdf, config);
-        if (finalize) finalize(completed);
+        const auto closed = retained->close(*state->combined, completed);
+
+        if (!closed) { failure = closed.error(); return; }
         if (publish) publish(completed);
     };
     return callbacks;
