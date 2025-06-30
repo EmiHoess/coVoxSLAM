@@ -7,7 +7,7 @@
 #include <charconv>
 #include <cmath>
 #include <iostream>
-#include <stdexcept>
+#include <limits>
 #include <string_view>
 
 namespace covoxslam
@@ -26,20 +26,51 @@ inline constexpr cli_option_entry<mapping_option> mapping_options[]{
     {"--maximum-ray-length", mapping_option::maximum_ray_length}, {"--maximum-weight", mapping_option::maximum_weight}
 };
 
-enum class esdf_value { unknown, none, cpu_blocks, projective_band, blocks_batch, block_band_soa };
+enum class esdf_value { unknown, block_band_soa };
 inline constexpr cli_option_entry<esdf_value> esdf_values[]{
-    {"none", esdf_value::none}, {"cpu-blocks-batch", esdf_value::cpu_blocks},
-     {"cuda-projective-block-band", esdf_value::projective_band}, {"cuda-blocks-batch", esdf_value::blocks_batch},
     {"cuda-block-band-soa", esdf_value::block_band_soa}
 };
 
-inline float mapping_scalar(std::string_view text)
+struct mapping_device_options
 {
-    float result{};
-    const auto parsed = std::from_chars(text.data(), text.data() + text.size(), result);
-     if (parsed.ec != std::errc{} || parsed.ptr != text.data() + text.size() || !std::isfinite(result))
-        throw std::invalid_argument("expected a finite mapping scalar");
-    return result;
+    int device{};
+    std::size_t maximum_device_bytes{1073741824};
+};
+enum class mapping_device_option { unknown, device, bytes, tiles };
+inline constexpr cli_option_entry<mapping_device_option> mapping_device_options_table[]{
+    {"--cuda-device", mapping_device_option::device},
+    {"--cuda-device-bytes", mapping_device_option::bytes},
+    {"--maximum-tiles", mapping_device_option::tiles}
+};
+
+inline operation_result<bool> parse_mapping_device(std::string_view name, std::string_view value,
+    mapping_config& config, int& device, std::size_t& bytes)
+{
+    const auto id = lookup_cli_option(name, mapping_device_options_table);
+
+    if (id == mapping_device_option::unknown) return false;
+    std::size_t count{};
+    const auto parsed = std::from_chars(value.data(), value.data() + value.size(), count);
+
+    if (parsed.ec != std::errc{} || parsed.ptr != value.data() + value.size())
+        return std::unexpected(operation_error{"expected an unsigned CUDA capacity or device index"});
+    switch (id) {
+    case mapping_device_option::device:
+        if (count > std::numeric_limits<int>::max())
+            return std::unexpected(operation_error{"CUDA device index out of range"});
+        device = static_cast<int>(count);
+         return true;
+    case mapping_device_option::bytes:
+        if (!count) return std::unexpected(operation_error{"CUDA memory budget must be positive"});
+        bytes = count;
+        return true;
+    case mapping_device_option::tiles:
+        if (!count || count > 1048576)
+            return std::unexpected(operation_error{"mapping tile capacity is out of range"});
+        config.maximum_tiles = count;
+        return true;
+    default: return false;
+    }
 }
 
 inline operation_result<bool> parse_mapping_option(std::string_view name, std::string_view value,
@@ -50,16 +81,13 @@ inline operation_result<bool> parse_mapping_option(std::string_view name, std::s
     {
     case mapping_option::backend:
 
-        if (value != "cpu-ray") return std::unexpected(operation_error{"unsupported mapping backend"});
+        if (value != "cuda-sensor-grid-combined")
+            return std::unexpected(operation_error{"mapping backend is not applicable to coVoxSLAM"});
         enabled = true;
         return true;
     case mapping_option::esdf_generator:
         switch (lookup_cli_option(value, esdf_values))
         {
-        case esdf_value::none: config.esdf_generator = esdf_backend::none; break;
-        case esdf_value::cpu_blocks: config.esdf_generator = esdf_backend::cpu_blocks_batch; break;
-        case esdf_value::projective_band: config.esdf_generator = esdf_backend::cuda_projective_block_band; break;
-         case esdf_value::blocks_batch: config.esdf_generator = esdf_backend::cuda_blocks_batch; break;
         case esdf_value::block_band_soa: config.esdf_generator = esdf_backend::cuda_block_band_soa; break;
         case esdf_value::unknown: return std::unexpected(operation_error{"unsupported ESDF generator"});
         }

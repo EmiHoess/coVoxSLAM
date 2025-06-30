@@ -9,6 +9,8 @@ enum class retired_option { unknown, unavailable };
 inline constexpr cli_option_entry<retired_option> retired_options[]{
     {"--cuda-contribution-capacity", retired_option::unavailable},
     {"--cuda-ray-capacity", retired_option::unavailable},
+    {"--esdf-distance", retired_option::unavailable},
+    {"--esdf-executor", retired_option::unavailable},
     {"--free-space-min-weight", retired_option::unavailable},
     {"--free-space-refresh-scans", retired_option::unavailable},
     {"--projective-allow-clear", retired_option::unavailable},

@@ -282,11 +282,8 @@ inline int run_submap_cli(int argc, char** argv)
             default: break;
             }
             {
-                const auto esdf_parsed = parse_cuda_esdf_option(option, value, esdf_options);
-
-                if (!esdf_parsed) return report_error(esdf_parsed.error().message);
-                if (*esdf_parsed) continue;
-                const auto cuda_parsed = parse_cuda_mapping_option(option, value, mapping_options, mapping_enabled, cuda_options);
+                const auto cuda_parsed = parse_mapping_device(option, value, mapping_options,
+                    cuda_options.mapper.device, cuda_options.mapper.maximum_device_bytes);
 
                 if (!cuda_parsed) return report_error(cuda_parsed.error().message);
                 if (*cuda_parsed) continue;
