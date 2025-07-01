@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../sparse_mapping.h"
+#include "../common/tile_key.h"
 
 namespace covoxslam::detail
 {
@@ -12,12 +13,6 @@ enum cuda_resident_error : std::uint32_t {
     resident_scatter_error = 16U,
     resident_traversal_error = 32U,
     resident_numeric_error = 64U
-};
-
-struct cuda_resident_hash_entry
-{
-    std::uint64_t key{UINT64_MAX};
-    std::uint32_t slot{UINT32_MAX}, reserved{};
 };
 
 struct cuda_resident_contribution {
@@ -55,7 +50,6 @@ struct cuda_resident_view
      std::uint64_t contribution_capacity{};
 };
 
-static_assert(sizeof(cuda_resident_hash_entry) == 16);
 static_assert(sizeof(cuda_resident_contribution) == 24);
 inline bool valid_resident_view(cuda_resident_view view) noexcept
 {
