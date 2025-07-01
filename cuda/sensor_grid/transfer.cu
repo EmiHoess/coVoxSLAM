@@ -8,7 +8,7 @@
 #include "coarse_mask.cuh"
 #include "resident.h"
 #include "tsdf_views.cuh"
-#include "../projective/geometry.cuh"
+#include "../common/geometry.cuh"
 
 namespace covoxslam::sensor_grid
 {

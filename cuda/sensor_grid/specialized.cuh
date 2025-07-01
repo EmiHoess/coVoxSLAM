@@ -1,5 +1,5 @@
 #pragma once
-#include "../projective/geometry.cuh"
+#include "../common/geometry.cuh"
 #include <covoxslam/sensor_grid_sampling.h>
 
 namespace covoxslam::sensor_grid

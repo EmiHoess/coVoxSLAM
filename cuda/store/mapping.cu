@@ -1,6 +1,6 @@
 #include "mapping.h"
 #include "../ray_fusion/serial/fuse.cuh"
-#include "../projective/geometry.cuh"
+#include "../common/geometry.cuh"
 
 namespace covoxslam::store
 {

@@ -1,6 +1,6 @@
 #pragma once
 #include "candidate_bounds.cuh"
-#include "../projective/geometry.cuh"
+#include "../common/geometry.cuh"
 
 namespace covoxslam::sensor_grid
 {
