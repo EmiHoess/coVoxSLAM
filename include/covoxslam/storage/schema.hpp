@@ -7,8 +7,8 @@
 namespace covoxslam::storage
 {
 inline constexpr std::size_t voxels_per_tile = 512;
-enum class schema { tsdf, esdf, blocks_esdf, projective_esdf };
-enum class layout { pooled_aos, tile_aosoa, pool_soa };
+enum class schema { tsdf = 0, esdf = 1, blocks_esdf = 2, projective_esdf = 3 };
+enum class layout { pooled_aos = 0, tile_aosoa = 1, pool_soa = 2 };
 struct tsdf_value
 {
     float distance{}, weight{};
