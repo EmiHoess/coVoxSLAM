@@ -1,6 +1,5 @@
 #pragma once
 #include <covoxslam/store_pipeline.hpp>
-#include <covoxslam/store/canonical_import.hpp>
 #include <covoxslam/store/geometry_capture.hpp>
 #include <covoxslam/store/pgo_cpu.hpp>
 #include <covoxslam/store/pgo_cuda.hpp>
@@ -52,73 +51,16 @@ bind_stored_fields(const store::geometry_snapshot<l, storage::schema::esdf>& cap
     return result;
 }
 #endif
-template<storage::layout l> operation_status generate_stored_band(store::coordinated_store<l>& retained,
-    submap& map, const store_pipeline_options& options, std::ostream& report)
-{
-#if defined(covoxslam_has_cuda) && defined(covoxslam_has_urd)
-    if constexpr (l == storage::layout::pool_soa)
-    {
-        using namespace store;
-        auto checked = storage::cuda_storage_status(cudaSetDevice(options.device));
-        if (!checked) return checked;
-        checked = import_band_topology(retained, map);
-        if (!checked) return checked;
-        const auto id = map.frame.id;
-        checked = retained.synchronize_gpu(id, 3, options.cpu_bytes);
-        if (!checked) return checked;
-        const auto& config = map.config;
-        band_esdf_options settings;
-        settings.field.voxel_size = config.voxel_size;
-        settings.field.truncation_distance = config.truncation_distance;
-        settings.field.minimum_weight = config.esdf_minimum_weight;
-        settings.field.site_band_m = config.esdf_site_band_m;
-        settings.field.maximum_distance_m = config.esdf_maximum_distance_m;
-        settings.field.include_negative_truncation_band = options.negative_band;
-        auto generated = generate_band_esdf(retained, id, settings);
-
-        if (!generated) return std::unexpected(generated.error());
-        auto downloaded = download_band_fields(retained, id,
-            {config.voxel_size, config.esdf_maximum_distance_m}, options.cpu_bytes, *generated);
-        if (!downloaded) return std::unexpected(downloaded.error());
-        band_field_staging<l> staging(std::move(*downloaded), id);
-        checked = staging.validate(retained);
-        if (!checked) return checked;
-        auto values = staging.release_values(options.cpu_bytes);
-        if (!values) return std::unexpected(values.error());
-        checked = retained.finalize(id, 3);
-        if (!checked) return checked;
-        map.esdf = std::move(*values);
-        map.config.esdf_generator = esdf_backend::cuda_block_band_soa;
-        map.statistics.esdf_ms = generated->total_ms + generated->readback_ms;
-        map.statistics.cuda_uploaded_bytes += generated->upload_bytes;
-        map.statistics.cuda_downloaded_bytes += generated->download_bytes;
-        report << "SoA ESDF submap " << id << ", tiles " << generated->tiles << ", rounds " << generated->rounds
-            << ", allocation and replacement ms " << generated->allocation_ms
-            << ", upload submission ms " << generated->upload_ms
-            << ", propagation wall ms " << generated->propagation_ms
-            << ", publication wall ms " << generated->publication_ms
-            << ", GPU stage intervals ms " << generated->gpu_ms << ", host wait ms " << generated->wait_ms
-            << ", readback wall ms " << generated->readback_ms << ", derive wall ms " << generated->total_ms
-            << ", scratch bytes " << generated->scratch_bytes << ", peak GPU bytes " << generated->peak_device_bytes
-            << ", metadata upload bytes " << generated->upload_bytes << ", readback bytes " << generated->download_bytes
-            << " (nested intervals, not additive)\n";
-        return {};
-    }
-#endif
-    return std::unexpected(operation_error{"stored band ESDF requires CUDA SoA support"});
-}
 template<storage::layout l> operation_result<stored_pipeline_result> stored_pipeline(
     std::span<submap> maps, const store_pipeline_options& options, const pgo::options& solver, bool shadow,
-    store::coordinated_store<l>* existing = nullptr)
+    store::coordinated_store<l>* existing)
 {
     using namespace store;
     const auto started = std::chrono::steady_clock::now();
-    const bool generated_fields = options.esdf_generator == esdf_backend::cuda_block_band_soa;
-    residency_policy policy;
-    policy.limits = {options.cpu_bytes, 128U * 1024U * 1024U, options.gpu_bytes};
-    auto owner = existing ? std::unique_ptr<coordinated_store<l>>{} :
-        std::make_unique<coordinated_store<l>>(policy);
-    auto& retained = existing ? *existing : *owner;
+    if (!existing || maps.empty() || l != storage::layout::pool_soa ||
+        options.esdf_generator != esdf_backend::cuda_block_band_soa)
+        return std::unexpected(operation_error{"completion requires retained SoA band fields"});
+    auto& retained = *existing;
     std::vector<std::uint64_t> ids;
 #if defined(covoxslam_has_pgo)
     std::vector<pgo_field_binding> bindings;
@@ -128,8 +70,6 @@ template<storage::layout l> operation_result<stored_pipeline_result> stored_pipe
 
     for (auto& map : maps) {
         auto checked = [&]() -> operation_status {
-            if (!existing) return generated_fields ?
-                generate_stored_band(retained, map, options, report) : import_submap(retained, map);
             auto state = retained.status(map.frame.id);
             if (!state) return std::unexpected(state.error());
 
@@ -140,8 +80,7 @@ template<storage::layout l> operation_result<stored_pipeline_result> stored_pipe
                 return std::unexpected(operation_error{"resident solver fields became stale before completion"});
             return {};
         }();
-        if (!checked) return std::unexpected(generated_fields ?
-            stored_field_error(map.frame.id, checked.error()) : checked.error());
+        if (!checked) return std::unexpected(stored_field_error(map.frame.id, checked.error()));
         ids.push_back(map.frame.id);
         if (ids.size() == 1) has_esdf = !map.esdf.empty();
         if (has_esdf != !map.esdf.empty())
@@ -155,11 +94,9 @@ template<storage::layout l> operation_result<stored_pipeline_result> stored_pipe
     constexpr const char* field_modes[]{"copied", "borrowed", "resident"};
     report << "store layout " << layouts[unsigned(options.layout)] << ", PGO fields "
         << field_modes[unsigned(options.fields)] << ", checkpoint format 1, field view API 1\n"
-        << (existing ? "mapping resident fields, deferred canonical readback, publication verification CPU\n" :
-            "mapping bridge finalized canonical staging, publication verification CPU\n");
+        << "mapping resident fields, deferred canonical readback, publication verification CPU\n";
     report << "store import ms " << std::chrono::duration<double, std::milli>(imported - started).count() << '\n';
-    if (generated_fields)
-        report << "ESDF direct SoA generation, retained map store, canonical CPU mirror\n";
+    report << "ESDF direct SoA generation, retained map store, canonical CPU mirror\n";
 #if defined(covoxslam_has_pgo)
     if (solver.enabled) {
         if (!has_esdf) return std::unexpected(operation_error{"stored PGO requires ESDF fields"});

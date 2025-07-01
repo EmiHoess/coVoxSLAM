@@ -69,22 +69,6 @@ operation_result<stored_pipeline_result> finish_stored_pipeline(std::span<submap
 {
     auto valid = validate_store_pipeline(store, solver);
     if (!valid) return std::unexpected(valid.error());
-    if (store.resident_mapping)
-        return std::unexpected(operation_error{"resident mapping must finish through its retained session"});
-    if (!store.enabled || maps.empty()) return std::unexpected(operation_error{"stored pipeline requires completed maps"});
-    const auto& first = maps.front().config;
-    for (const auto& map : maps)
-        if (!map.config.valid() || map.config.voxel_size != first.voxel_size ||
-            map.config.esdf_maximum_distance_m != first.esdf_maximum_distance_m)
-            return std::unexpected(operation_error{"stored submap scalar field parameters differ"});
-
-    switch (store.layout) {
-    case storage::layout::pooled_aos: return detail::stored_pipeline<storage::layout::pooled_aos>(maps, store, solver, shadow);
-#if defined(covoxslam_has_urd)
-    case storage::layout::pool_soa: return detail::stored_pipeline<storage::layout::pool_soa>(maps, store, solver, shadow);
-    case storage::layout::tile_aosoa: return detail::stored_pipeline<storage::layout::tile_aosoa>(maps, store, solver, shadow);
-#endif
-    default: return std::unexpected(operation_error{"requested store layout was not built"});
-    }
+    return std::unexpected(operation_error{"mapping must finish through its retained SoA session"});
 }
 }
