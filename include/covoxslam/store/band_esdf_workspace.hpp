@@ -1,6 +1,6 @@
 #pragma once
 #include <covoxslam/store/band_esdf.hpp>
-#include <covoxslam/store/gpu_esdf.hpp>
+#include <covoxslam/store/esdf_resources.hpp>
 
 namespace covoxslam::store
 {
