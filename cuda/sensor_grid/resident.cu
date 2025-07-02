@@ -1,5 +1,5 @@
 #include "resident.h"
-#include "../ray_resident/hash.cuh"
+#include "../common/tile_hash.cuh"
 #include "../primitives/key_sort.cuh"
 
 namespace covoxslam::sensor_grid

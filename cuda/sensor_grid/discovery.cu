@@ -1,5 +1,5 @@
 #include "discovery.h"
-#include "../ray_resident/hash.cuh"
+#include "../common/tile_hash.cuh"
 #include <cmath>
 #include <climits>
 #include <math_constants.h>
