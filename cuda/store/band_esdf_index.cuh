@@ -1,6 +1,6 @@
 #pragma once
 #include "band_esdf_views.cuh"
-#include "../esdf_site/coordinates.cuh"
+#include "../common/esdf_geometry.cuh"
 
 namespace covoxslam::store
 {
