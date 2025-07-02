@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include "common/mapping_types.h"
 
 namespace covoxslam::detail
 {
@@ -18,8 +19,6 @@ struct cuda_device_ray {
     std::uint32_t ordinal{};
 };
 
-int cuda_scan_counts(const std::uint32_t* counts, std::uint64_t* offsets,
-                     std::uint64_t* block_sums, std::size_t count, void* stream) noexcept;
 }
 
 namespace covoxslam::detail
@@ -79,20 +78,6 @@ int cuda_summarize_ray_contributions(const std::uint32_t* counts, const std::uin
 
 namespace covoxslam::detail
 {
-struct cuda_tile_coordinate
-{
-    std::int32_t x{}, y{}, z{};
-};
-
-struct cuda_tsdf_voxel {
-    float distance{}, weight{};
-     std::uint32_t sample_count{}, flags{};
-};
-
-struct cuda_tsdf_tile
-{
-    cuda_tsdf_voxel voxels[512]{};
-};
 
 struct cuda_voxel_segment {
     std::int32_t voxel[3]{};
@@ -127,30 +112,6 @@ int cuda_fuse_voxel_segments(const cuda_ray_contribution* values, std::size_t co
 
 namespace covoxslam::detail
 {
-enum class cuda_esdf_unobserved : std::uint32_t { unknown, free, occupied };
-
-struct cuda_site_esdf_parameters
-{
-    float voxel_size{0.20F};
-    float truncation_distance{0.60F};
-     float site_band_m{0.20F};
-    float minimum_weight{1.0F};
-    float maximum_distance_m{8.0F};
-    cuda_esdf_unobserved unobserved{cuda_esdf_unobserved::unknown};
-    bool include_negative_truncation_band{};
-};
-
-struct cuda_site_esdf_voxel {
-    float squared_distance_voxels{};
-    std::int32_t parent[3]{};
-     std::uint32_t flags{};
-}
-;
-
-inline constexpr std::uint32_t cuda_esdf_observed = 1;
-inline constexpr std::uint32_t cuda_esdf_inside = 2;
-inline constexpr std::uint32_t cuda_esdf_site = 4;
-inline constexpr std::uint32_t cuda_esdf_parent_assigned = 8;
 
 int cuda_initialize_site_esdf(const cuda_tile_coordinate* keys, const cuda_tsdf_tile* tsdf,
     std::size_t tile_count, cuda_site_esdf_parameters parameters, cuda_site_esdf_voxel* output,
@@ -222,11 +183,6 @@ int cuda_validate_blocks(const cuda_tile_coordinate* keys, const cuda_tsdf_tile*
 
 namespace covoxslam::detail
 {
-struct cuda_projective_pose
-{
-    float translation[3]{};
-    float rotation_xyzw[4]{0, 0, 0, 1};
-};
 
 struct cuda_projective_calibration {
     std::uint32_t rings{};

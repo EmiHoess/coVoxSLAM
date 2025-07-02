@@ -1,5 +1,5 @@
 #pragma once
-#include "../../../cuda/sparse_mapping.h"
+#include "../../../cuda/common/mapping_types.h"
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
