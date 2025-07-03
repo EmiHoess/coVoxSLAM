@@ -13,29 +13,6 @@
 
 #include <type_traits>
 
-namespace covoxslam
-{
-namespace
-{
-static_assert(sizeof(float) == 4 && std::numeric_limits<float>::is_iec559);
-static_assert(std::is_standard_layout_v<detail::cuda_device_ray>);
-static_assert(std::is_trivially_copyable_v<detail::cuda_device_ray>);
-static_assert(sizeof(detail::cuda_device_ray) == 56);
-static_assert(alignof(detail::cuda_device_ray) == 8);
-static_assert(offsetof(detail::cuda_device_ray, stamp_ns) == 32);
-
-operation_result<std::size_t> checked_cuda_storage_bytes(std::size_t capacity)
-{
-    if (!capacity || capacity > std::numeric_limits<std::uint32_t>::max())
-        return std::unexpected(operation_error{"CUDA scan capacity is unsupported"});
-     const auto blocks = 1 + (capacity - 1) / 256;
-    if (blocks > std::numeric_limits<std::size_t>::max() / 8 ||
-        capacity > (std::numeric_limits<std::size_t>::max() - blocks * 8) / 12)
-        return std::unexpected(operation_error{"CUDA scan byte count overflows addressable size"});
-    return capacity * 12 + blocks * 8;
-}
-}
-}
 
 namespace covoxslam
 {
@@ -145,40 +122,6 @@ std::size_t cuda_scan_context::capacity() const noexcept { return state->capacit
 #include <chrono>
 #include <cmath>
 
-namespace covoxslam
-{
-struct cuda_mapper::implementation
-{
-    mapping_config config;
-    cuda_mapper_options options;
-    detail::cuda_ray_fusion_options fusion;
-    std::unique_ptr<cuda_ray_context> rays;
-    std::array<void*, 8> buffers{};
-     std::optional<submap_frame> active;
-    mapping_statistics statistics;
-    std::vector<detail::cuda_tile_coordinate> keys;
-    std::unordered_map<int3, std::uint32_t, int3_hash> slots;
-    std::vector<detail::cuda_voxel_segment> segments;
-    bool failed{};
-    template<class value_type> value_type* buffer(std::size_t index) const noexcept
-    {
-        return static_cast<value_type*>(buffers[index]);
-    }
-    std::uint32_t prepare_segments(detail::cuda_ray_device_view view);
-    ~implementation()
-    {
-        if (!rays) return;
-        cudaSetDevice(options.device);
-        cudaStreamSynchronize(static_cast<cudaStream_t>(rays->device_view().stream));
-         for (auto buffer : buffers) if (buffer) cudaFree(buffer);
-    }
-};
-
-
-cuda_mapper::~cuda_mapper() = default;
-
-
-}
 
 
 namespace covoxslam
@@ -383,138 +326,6 @@ cuda_blocks_statistics build_cuda_blocks_esdf(const tsdf_tiles& tsdf, esdf_tiles
 }
 }
 
-#include "cuda_projective_internal.hpp"
-
-namespace covoxslam
-{
-cuda_projective_mapper::cuda_projective_mapper(const sensor& sensor, mapping_config config, cuda_projective_options options)
-    : state(std::make_unique<implementation>())
-{
-    static_cast<void>(cpu_mapper(config));
-    const auto finite_nonnegative = [](float value) { return std::isfinite(value) && value >= 0; };
-    if (!options.raycast_subsampling_factor || (options.interpolation != cuda_projective_interpolation::nearest &&
-         options.interpolation != cuda_projective_interpolation::linear_nearest) ||
-        !finite_nonnegative(options.depth_discontinuity_voxels) || !finite_nonnegative(options.nearest_ray_distance_voxels) ||
-        !std::isfinite(options.depth_discontinuity_voxels * config.voxel_size) ||
-        !std::isfinite(options.nearest_ray_distance_voxels * config.voxel_size) ||
-        !std::isfinite(options.sparsity_compensation_factor) || options.sparsity_compensation_factor <= 0 ||
-        (options.weight_dropoff && config.truncation_distance <= config.voxel_size) ||
-        (double(config.maximum_ray_length_m) + config.truncation_distance) / config.voxel_size >= 10000000)
-        throw std::invalid_argument("invalid projective interpolation or weighting controls");
-    if (sensor.rings > INT32_MAX || sensor.columns > INT32_MAX)
-        throw std::length_error("projective calibration exceeds index capacity");
-    state->calibration = {static_cast<std::uint32_t>(sensor.rings), static_cast<std::uint32_t>(sensor.columns),
-        static_cast<float>(sensor.azimuth_start_rad), static_cast<float>(sensor.azimuth_coverage_rad), sensor.counter_clockwise};
-    if (!detail::valid_projective_calibration(state->calibration, sensor.vertical_angles_rad.data(), sensor.vertical_angles_rad.size()))
-        throw std::invalid_argument("invalid projective sensor calibration");
-    state->pixels = sensor.rings * sensor.columns;
-    if (!options.ray_capacity) options.ray_capacity = state->pixels;
-    if (state->pixels > UINT32_MAX || options.ray_capacity > UINT32_MAX || !options.candidate_tile_capacity ||
-        options.candidate_tile_capacity > UINT32_MAX || config.maximum_tiles > INT32_MAX)
-        throw std::length_error("projective capacities exceed native limits");
-    state->projection = {static_cast<detail::cuda_projective_interpolation>(options.interpolation),
-        options.depth_discontinuity_voxels, options.nearest_ray_distance_voxels, options.constant_weight,
-        options.weight_dropoff, options.sparsity_compensation, options.sparsity_compensation_factor, options.calibrated_policy};
-    state->tracing = {config.voxel_size, config.truncation_distance, config.minimum_ray_length_m,
-        config.maximum_ray_length_m, options.voxel_carving, options.allow_clear};
-    const auto pixels = state->pixels;
-    const std::array<std::size_t, 12> bytes{options.ray_capacity * sizeof(detail::cuda_device_ray), sensor.rings * 4,
-        pixels * 8, pixels * 4, pixels * 8, (1 + (pixels - 1) / 256) * 8,
-        options.candidate_tile_capacity * sizeof(detail::cuda_tile_coordinate), config.maximum_tiles * sizeof(detail::cuda_tile_coordinate),
-        config.maximum_tiles * 4, config.maximum_tiles * sizeof(detail::cuda_tsdf_tile), sizeof(detail::cuda_ray_summary), 8};
-    std::size_t total{};
-    for (const auto size : bytes) {
-        if (size > options.maximum_device_bytes - total) throw std::length_error("projective device budget exceeded");
-         total += size;
-    }
-    if (total > query_cuda_device(options.device).total_memory_bytes) throw std::length_error("projective device memory exceeded");
-    state->config = config;
-    state->options = options;
-    auto metadata_config = config;
-    metadata_config.esdf_generator = esdf_backend::none;
-    state->metadata = std::make_unique<cpu_mapper>(metadata_config);
-    check_cuda(cudaSetDevice(options.device));
-    check_cuda(cudaStreamCreateWithFlags(&state->stream, cudaStreamNonBlocking));
-    for (std::size_t index = 0; index < bytes.size(); ++index) check_cuda(cudaMalloc(&state->buffers[index], bytes[index]));
-    check_cuda(cudaMemcpyAsync(state->buffers[1], sensor.vertical_angles_rad.data(), bytes[1], cudaMemcpyHostToDevice, state->stream));
-    check_cuda(cudaStreamSynchronize(state->stream));
-    state->setup_uploaded_bytes = bytes[1];
-}
-
-cuda_projective_mapper::~cuda_projective_mapper() = default;
-}
-
-namespace covoxslam
-{
-void cuda_projective_mapper::begin(const submap_frame& frame)
-{
-    state->metadata->begin(frame);
-    state->keys.clear();
-    state->slots.clear();
-    state->statistics = {};
-    state->statistics.cuda_uploaded_bytes = state->setup_uploaded_bytes;
-    state->setup_uploaded_bytes = 0;
-    state->failed = false;
-}
-
-bool cuda_projective_mapper::is_active() const noexcept { return state->metadata->is_active(); }
-
-detail::cuda_ray_summary cuda_projective_mapper::implementation::checked_summary()
-{
-    detail::cuda_ray_summary completed;
-    check_cuda(cudaMemcpyAsync(&completed, buffers[10], sizeof(completed), cudaMemcpyDeviceToHost, stream));
-    check_cuda(cudaStreamSynchronize(stream));
-    statistics.cuda_downloaded_bytes += sizeof(completed);
-    if (completed.status) throw std::runtime_error("projective device operation failed");
-    return completed;
-}
-
-std::size_t cuda_projective_mapper::implementation::prepare_tiles(std::uint64_t count)
-{
-    if (!count) return 0;
-    std::vector<detail::cuda_tile_coordinate> candidates(static_cast<std::size_t>(count));
-    const auto bytes = candidates.size() * sizeof(candidates[0]);
-    check_cuda(cudaMemcpyAsync(candidates.data(), buffers[6], bytes, cudaMemcpyDeviceToHost, stream));
-    check_cuda(cudaStreamSynchronize(stream));
-    statistics.cuda_downloaded_bytes += bytes;
-    const auto less = [](const auto& left, const auto& right) {
-        return block_index_less({left.x, left.y, left.z}, {right.x, right.y, right.z});
-    };
-    std::sort(candidates.begin(), candidates.end(), less);
-    candidates.erase(std::unique(candidates.begin(), candidates.end(), [&](const auto& left, const auto& right) {
-        return !less(left, right) && !less(right, left);
-    }), candidates.end());
-    auto proposed_keys = keys;
-    auto proposed_slots = slots;
-    std::vector<std::uint32_t> selected;
-    for (const auto& candidate : candidates) {
-        const int3 key{candidate.x, candidate.y, candidate.z};
-        auto found = proposed_slots.find(key);
-        if (found == proposed_slots.end()) {
-            if (proposed_keys.size() >= config.maximum_tiles) throw std::length_error("projective map tile limit exceeded");
-            const auto slot = static_cast<std::uint32_t>(proposed_keys.size());
-            proposed_keys.push_back(candidate);
-            found = proposed_slots.emplace(key, slot).first;
-        }
-        selected.push_back(found->second);
-    }
-    std::sort(selected.begin(), selected.end());
-    const auto previous = keys.size();
-    keys = std::move(proposed_keys);
-    slots = std::move(proposed_slots);
-    const auto added = keys.size() - previous;
-    if (added) {
-        check_cuda(cudaMemcpyAsync(buffer<detail::cuda_tile_coordinate>(7) + previous, keys.data() + previous,
-            added * sizeof(keys[0]), cudaMemcpyHostToDevice, stream));
-        check_cuda(cudaMemsetAsync(buffer<detail::cuda_tsdf_tile>(9) + previous, 0, added * sizeof(detail::cuda_tsdf_tile), stream));
-        statistics.cuda_uploaded_bytes += added * sizeof(keys[0]);
-    }
-    check_cuda(cudaMemcpyAsync(buffers[8], selected.data(), selected.size() * sizeof(selected[0]), cudaMemcpyHostToDevice, stream));
-    check_cuda(cudaStreamSynchronize(stream));
-    statistics.cuda_uploaded_bytes += selected.size() * sizeof(selected[0]);
-    return selected.size();
-}
-}
 
 namespace covoxslam
 {
