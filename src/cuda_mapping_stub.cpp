@@ -1,144 +1,15 @@
 #include <covoxslam/cuda.hpp>
 
-#include <stdexcept>
-
 namespace covoxslam
 {
-struct cuda_scan_context::implementation
-{};
-
 bool cuda_mapping_available(std::string* diagnostic)
 {
     if (diagnostic) *diagnostic = "covoxslam was built without CUDA support";
     return false;
 }
 
-cuda_device_info query_cuda_device(int)
-{
-     throw std::runtime_error("covoxslam was built without CUDA support");
-}
-
 operation_result<cuda_device_info> query_cuda_device_checked(int)
 {
     return std::unexpected(operation_error{"covoxslam was built without CUDA support"});
-}
-
-cuda_scan_context::cuda_scan_context() = default;
-operation_result<std::unique_ptr<cuda_scan_context>> cuda_scan_context::create(int, std::size_t)
-{
-    return std::unexpected(operation_error{"covoxslam was built without CUDA support"});
-}
-
-cuda_scan_context::~cuda_scan_context() = default;
-
-std::size_t cuda_scan_context::capacity() const noexcept
-{
-    return 0;
-}
-
-operation_result<cuda_operation_times> cuda_scan_context::exclusive_scan(
-    std::span<const std::uint32_t>, std::span<std::uint64_t>)
-{
-     return std::unexpected(operation_error{"covoxslam was built without CUDA support"});
-}
-}
-
-#include "sparse_mapping.h"
-
-namespace covoxslam
-{
-struct cuda_ray_context::implementation
-{};
-
-cuda_ray_context::cuda_ray_context(int, std::size_t, std::uint64_t, cuda_ray_config)
-{
-    throw std::runtime_error("covoxslam was built without CUDA support");
-}
-
-cuda_ray_context::~cuda_ray_context() = default;
-std::size_t cuda_ray_context::ray_capacity() const noexcept { return 0; }
-std::uint64_t cuda_ray_context::contribution_capacity() const noexcept { return 0; }
-detail::cuda_ray_device_view cuda_ray_context::device_view() const noexcept { return {}; }
-
-void cuda_ray_context::copy_contributions(std::span<detail::cuda_ray_contribution>)
-{
-    throw std::runtime_error("covoxslam was built without CUDA support");
-}
-}
-
-#include <covoxslam/mapping.hpp>
-
-namespace covoxslam
-{
-cuda_contribution_statistics cuda_ray_context::generate(std::span<const ray>)
-{
-    throw std::runtime_error("covoxslam was built without CUDA support");
-}
-}
-
-namespace covoxslam
-{
-struct cuda_mapper::implementation
-{};
-
-cuda_mapper::cuda_mapper(mapping_config, cuda_mapper_options)
-{
-    throw std::runtime_error("covoxslam was built without CUDA support");
-}
-
-cuda_mapper::~cuda_mapper() = default;
-operation_status cuda_mapper::configure_fusion(cuda_ray_fusion_mode, std::uint32_t)
-{
-    return std::unexpected(operation_error{"CUDA ray fusion is unavailable in this build"});
-}
-bool cuda_mapper::is_active() const noexcept { return false; }
-void cuda_mapper::begin(const submap_frame&)
-{
-    throw std::runtime_error("covoxslam was built without CUDA support");
-}
-}
-
-namespace covoxslam
-{
-void cuda_mapper::integrate_scan(std::span<const ray>)
-{
-    throw std::runtime_error("covoxslam was built without CUDA support");
-}
-
-submap cuda_mapper::finish(const submap_frame&)
-{
-    throw std::runtime_error("covoxslam was built without CUDA support");
-}
-}
-
-
-namespace covoxslam
-{
-struct cuda_projective_mapper::implementation {};
-cuda_projective_mapper::cuda_projective_mapper(const sensor&, mapping_config, cuda_projective_options)
-{
-    throw std::runtime_error("CUDA projective mapping is unavailable in this build");
-}
-cuda_projective_mapper::~cuda_projective_mapper() = default;
-}
-
-namespace covoxslam
-{
-void cuda_projective_mapper::begin(const submap_frame&)
-{
-    throw std::runtime_error("CUDA projective mapping is unavailable in this build");
-}
-void cuda_projective_mapper::integrate_scan(std::span<const ray>, const pose&)
-{
-    throw std::runtime_error("CUDA projective mapping is unavailable in this build");
-}
-bool cuda_projective_mapper::is_active() const noexcept { return false; }
-}
-
-namespace covoxslam
-{
-submap cuda_projective_mapper::finish(const submap_frame&)
-{
-    throw std::runtime_error("CUDA projective mapping is unavailable in this build");
 }
 }
