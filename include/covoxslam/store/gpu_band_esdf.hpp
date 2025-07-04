@@ -1,6 +1,7 @@
 #pragma once
 #include <covoxslam/store/band_esdf_workspace.hpp>
 #include <covoxslam/store/band_esdf_generation.hpp>
+#include "../../../cuda/store/mapping.h"
 #include <chrono>
 
 namespace covoxslam::store
