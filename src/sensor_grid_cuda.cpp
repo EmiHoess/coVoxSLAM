@@ -6,7 +6,6 @@
 #include <array>
 #include <algorithm>
 #include <chrono>
-#include "sensor_grid_graph.hpp"
 
 namespace covoxslam::sensor_grid
 {
@@ -27,61 +26,10 @@ struct gpu_grid::implementation
     std::array<void*, 14> allocations{};
     std::size_t count{}, bytes{};
     bool selected{}, failed{}, ready{};
-    std::array<graph_plan, 4> graphs{};
-    std::uint64_t generation{1};
-    unsigned next_graph{};
     execution_statistics execution_stats{};
     int launch(gather_policy policy)
     {
-        switch (options.backend)
-        {
-        case gather_backend::csr: return cuda_sensor_gather(table, ranges, output, policy, stream);
-        case gather_backend::hybrid_compact:
-            return cuda_sensor_compact(layout, ranges, compact, output, table.settings, table.ray_count, policy, stream);
-        case gather_backend::hybrid_combined:
-            return cuda_sensor_combined(layout, ranges, compact, output, table.settings, table.ray_count, policy, stream);
-        case gather_backend::hybrid_combined_uncapped:
-            return cuda_sensor_combined_uncapped(layout, ranges, compact, output, table.settings, table.ray_count, policy, stream);
-        case gather_backend::hybrid_pipelined:
-            return cuda_sensor_pipelined(layout, ranges, prepared, output, table.settings, table.ray_count, policy, stream);
-        case gather_backend::hybrid_block_long:
-            return cuda_sensor_block_long(layout, ranges, prepared, output, table.settings, table.ray_count, policy, stream);
-        default: return cuda_sensor_prepared(layout, ranges, prepared, output, table.settings, table.ray_count,
-            options.backend, policy, stream, bin_events[0] ? bin_events.data() : nullptr, options.execution == execution_mode::cuda_graph);
-        }
-    }
-    operation_result<cudaGraphExec_t> prepare_graph(gather_policy policy)
-    {
-        if (options.execution == execution_mode::stream) return nullptr;
-        const graph_key key{options.backend, policy.max_rays, accumulation_bits, generation,
-            policy.first_entry_only, bin_events[0] != nullptr,
-            {ranges, output, prepared ? static_cast<void*>(prepared) : static_cast<void*>(compact), table.offsets, layout.row_ids}};
-
-        for (auto& plan : graphs)
-            if (plan.executable && plan.key == key) { ++execution_stats.graph_hits; return plan.executable; }
-        const auto start = std::chrono::steady_clock::now();
-        graph_plan plan;
-        plan.key = key;
-        auto status = check(cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal));
-        if (!status) return std::unexpected(status.error());
-        status = check(launch(policy));
-        const auto ended = check(cudaStreamEndCapture(stream, &plan.graph));
-        if (status) status = ended;
-        if (status) status = check(cudaGraphInstantiate(&plan.executable, plan.graph, 0));
-        if (status) status = check(cudaGraphUpload(plan.executable, stream));
-        const auto waited = check(cudaStreamSynchronize(stream));
-        if (status) status = waited;
-
-        if (!status) {
-            plan.release();
-            return std::unexpected(status.error());
-        }
-        auto& slot = graphs[next_graph++ % graphs.size()];
-        slot.release();
-        slot = plan;
-        ++execution_stats.graph_builds;
-        execution_stats.setup_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
-        return slot.executable;
+        return cuda_sensor_combined(layout, ranges, compact, output, table.settings, table.ray_count, policy, stream);
     }
     operation_status check(int code)
     {
@@ -115,7 +63,6 @@ struct gpu_grid::implementation
         cudaSetDevice(device);
         if (stream) cudaStreamSynchronize(stream);
 
-        for (auto& plan : graphs) plan.release();
 
         for (auto event : events)
             if (event) cudaEventDestroy(event);
@@ -140,20 +87,7 @@ gather_statistics gpu_grid::statistics() const noexcept
 }
 operation_status gpu_grid::invalidate_graphs()
 {
-    auto& data = *state;
-    const auto start = std::chrono::steady_clock::now();
-    if (data.failed || data.generation == UINT64_MAX)
-        return std::unexpected(operation_error{"cannot invalidate failed sensor graph generation"});
-    auto status = data.check(cudaSetDevice(data.device));
-    if (status) status = data.check(cudaStreamSynchronize(data.stream));
-    if (!status) return status;
-
-    for (auto& plan : data.graphs) plan.release();
-    ++data.generation;
-    data.next_graph = 0;
-    ++data.execution_stats.invalidations;
-    data.execution_stats.invalidation_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
-     return {};
+    return std::unexpected(operation_error{"CUDA graphs are not applicable to coVoxSLAM"});
 }
 field_view gpu_grid::device_field() const noexcept
 {
@@ -170,19 +104,14 @@ operation_result<update_times> gpu_grid::update(std::span<const float> ranges, g
     data.ready = false;
     auto status = data.check(cudaSetDevice(data.device));
     if (!status) return std::unexpected(status.error());
-    const auto previous = data.execution_stats;
-    const auto graph = data.prepare_graph(policy);
-    if (!graph) return std::unexpected(graph.error());
     if (status) status = data.check(cudaEventRecord(data.events[0], data.stream));
     if (status) status = data.check(cudaMemcpyAsync(data.ranges, ranges.data(), ranges.size_bytes(), cudaMemcpyHostToDevice, data.stream));
     if (status) status = data.check(cudaEventRecord(data.events[1], data.stream));
-    if (status) status = data.check(*graph ? int(cudaGraphLaunch(*graph, data.stream)) : data.launch(policy));
+    if (status) status = data.check(data.launch(policy));
     if (status) status = data.check(cudaEventRecord(data.events[2], data.stream));
     const auto waited = data.check(cudaStreamSynchronize(data.stream));
     if (status) status = waited;
     update_times result;
-    result.graph_setup_ms = data.execution_stats.setup_ms - previous.setup_ms;
-    result.graph_reused = data.execution_stats.graph_hits != previous.graph_hits;
     if (status) status = data.check(cudaEventElapsedTime(&result.upload_ms, data.events[0], data.events[1]));
     if (status) status = data.check(cudaEventElapsedTime(&result.gather_ms, data.events[1], data.events[2]));
     if (status && data.bin_events[0]) {
@@ -217,8 +146,9 @@ operation_result<std::unique_ptr<gpu_grid>> gpu_grid::create(const lookup& table
     if (!status) return std::unexpected(status.error());
     if (!safe_accumulation(table.settings, table.ray_count))
         return std::unexpected(operation_error{"sensor accumulation exceeds selected precision range"});
-    if (unsigned(options.backend) > 12 || !options.short_list_max || unsigned(options.execution) > 1)
-        return std::unexpected(operation_error{"invalid gather backend or row threshold"});
+    if (options.backend != gather_backend::hybrid_combined || options.execution != execution_mode::stream ||
+        options.short_list_max != 16 || options.block_list_min != 1024)
+        return std::unexpected(operation_error{"coVoxSLAM requires combined stream gathering with thresholds 16 and 1024"});
     std::size_t bytes = table.offsets.size() * 4 + table.intersections.size() * sizeof(intersection) +
         table.active_voxels.size() * 4 + std::size_t(table.ray_count) * 4 + std::size_t(table.grid.voxels) * sizeof(voxel);
     prepared_layout layout;
