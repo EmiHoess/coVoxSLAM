@@ -194,18 +194,4 @@ struct submap
     mapping_statistics statistics;
 };
 
-void build_cpu_esdf(const tsdf_tiles& tsdf, esdf_tiles& esdf, const mapping_config& config);
-
-class cpu_mapper
-{
-    std::optional<submap> active;
-    mapping_config config;
-public:
-    explicit cpu_mapper(mapping_config options = {});
-    void integrate_scan(std::span<const ray> rays);
-    void begin(const submap_frame& frame);
-    submap finish(const submap_frame& frame);
-    bool is_active() const noexcept;
-}
-;
 }
