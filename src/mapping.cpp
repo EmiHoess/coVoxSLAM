@@ -1,8 +1,6 @@
 #include <covoxslam/mapping.hpp>
 
 #include <stdexcept>
-#include <algorithm>
-#include <chrono>
 
 namespace covoxslam
 {
@@ -55,16 +53,6 @@ const tsdf_voxel* find_voxel(const tsdf_tiles& tiles, int3 voxel) noexcept
      return found == tiles.end() ? nullptr : &found->second.voxels[local_index(voxel)];
 }
 
-tsdf_voxel& allocate_voxel(tsdf_tiles& tiles, int3 voxel, std::size_t maximum_tiles)
-{
-    const auto block = block_index(voxel);
-    auto found = tiles.find(block);
-    if (found == tiles.end()) {
-        if (tiles.size() >= maximum_tiles) throw std::runtime_error("TSDF tile budget exceeded");
-        found = tiles.emplace(block, tsdf_tile{}).first;
-    }
-    return found->second.voxels[local_index(voxel)];
-}
 }
 
 #include <cmath>
@@ -72,20 +60,6 @@ tsdf_voxel& allocate_voxel(tsdf_tiles& tiles, int3 voxel, std::size_t maximum_ti
 
 namespace covoxslam
 {
-int3 voxel_index(vec3f point, float voxel_size)
-{
-    if (!std::isfinite(voxel_size) || voxel_size <= 0)
-        throw std::invalid_argument("voxel size must be finite and positive");
-    const auto index = [voxel_size](float coordinate)
-    {
-        const double value = std::floor(double(coordinate) / voxel_size);
-        if (!std::isfinite(value) || value < std::numeric_limits<int>::min() ||
-            value > std::numeric_limits<int>::max())
-            throw std::out_of_range("voxel coordinate exceeds integer range");
-         return static_cast<int>(value);
-    };
-    return {index(point.x), index(point.y), index(point.z)};
-}
 
 int3 global_index(int3 block, std::size_t local)
 {
@@ -114,10 +88,7 @@ namespace covoxslam
 {
 bool mapping_config::valid() const noexcept
 {
-    if (esdf_generator != esdf_backend::none && esdf_generator != esdf_backend::cpu_blocks_batch &&
-        esdf_generator != esdf_backend::cuda_projective_block_band &&
-        esdf_generator != esdf_backend::cuda_blocks_batch && esdf_generator != esdf_backend::cuda_block_band_soa)
-        return false;
+    if (esdf_generator != esdf_backend::cuda_block_band_soa) return false;
     for (const auto value : {voxel_size, truncation_distance, extraction_distance,
                             maximum_weight, minimum_ray_length_m, maximum_ray_length_m,
                             esdf_site_band_m, esdf_maximum_distance_m, esdf_minimum_weight})

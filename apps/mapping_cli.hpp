@@ -116,35 +116,4 @@ inline operation_result<bool> parse_mapping_option(std::string_view name, std::s
     return false;
 }
 
-template<class mapper_type>
-inline pipeline_callbacks mapping_callbacks(mapper_type& mapper,
-    std::function<void(const submap&)> publish = {}, std::function<void(submap&)> finalize = {})
-{
-    pipeline_callbacks callbacks;
-    callbacks.begin = [&mapper](const submap_frame& frame) { mapper.begin(frame); };
-    callbacks.integrate_scan = [&mapper](const submap_frame&, const frame_descriptor&,
-                                         std::span<const ray> rays, const pose& reference)
-    {
-        if constexpr (requires { mapper.integrate_scan(rays, reference); }) mapper.integrate_scan(rays, reference);
-        else mapper.integrate_scan(rays);
-    };
-    callbacks.finish = [&mapper, publish, finalize](const submap_frame& frame)
-      {
-        auto completed = mapper.finish(frame);
-        if (finalize) finalize(completed);
-        if (publish) publish(completed);
-        const auto& statistics = completed.statistics;
-        std::cout << "tsdf " << frame.id << ": " << completed.tsdf.size() << " tiles, "
-                  << statistics.rays_integrated << " integrated, " << statistics.rays_rejected
-                  << " rejected, " << statistics.voxel_updates << " updates, "
-                   << statistics.integration_ms << " ms\n";
-        if (statistics.cuda_uploaded_bytes || statistics.cuda_downloaded_bytes)
-            std::cout << "cuda " << statistics.cuda_contributing_rays << " contributing rays, "
-                      << statistics.cuda_voxel_segments << " voxel segments, " << statistics.cuda_uploaded_bytes
-                      << " uploaded bytes, " << statistics.cuda_downloaded_bytes << " downloaded bytes\n";
-        std::cout << "esdf " << frame.id << ": " << esdf_backend_name(completed.config.esdf_generator)
-                  << ", " << completed.esdf.size() << " tiles, " << statistics.esdf_ms << " ms\n";
-    };
-    return callbacks;
-}
 }

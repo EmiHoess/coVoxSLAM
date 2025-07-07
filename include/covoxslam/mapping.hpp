@@ -115,13 +115,11 @@ using tsdf_tiles = std::unordered_map<int3, tsdf_tile, int3_hash>;
 using esdf_tiles = std::unordered_map<int3, esdf_tile, int3_hash>;
 
 int3 block_index(int3 voxel) noexcept;
-int3 voxel_index(vec3f point, float voxel_size);
 int3 global_index(int3 block, std::size_t local);
 vec3f voxel_center(int3 index, float size) noexcept;
 std::size_t local_index(int3 voxel) noexcept;
 bool block_index_less(int3 left, int3 right) noexcept;
 const tsdf_voxel* find_voxel(const tsdf_tiles& tiles, int3 voxel) noexcept;
-tsdf_voxel& allocate_voxel(tsdf_tiles& tiles, int3 voxel, std::size_t maximum_tiles);
 }
 
 #include <optional>
@@ -143,7 +141,7 @@ struct mapping_config
     float esdf_site_band_m{0.20F};
     float esdf_maximum_distance_m{8.0F};
      float esdf_minimum_weight{1.0F};
-    esdf_backend esdf_generator{esdf_backend::cpu_blocks_batch};
+    esdf_backend esdf_generator{esdf_backend::cuda_block_band_soa};
     bool valid() const noexcept;
 };
 
