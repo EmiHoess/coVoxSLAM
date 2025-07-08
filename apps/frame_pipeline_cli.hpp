@@ -328,7 +328,6 @@ inline int run_submap_cli(int argc, char** argv)
         if (!loaded) return report_error(loaded.error().message);
         const auto& input = *loaded;
         auto mapper_options = mapping_options;
-        mapper_options.esdf_generator = esdf_backend::none;
         std::optional<operation_error> resident_failure;
         const char* backend = sensor_gather_name(sensor_gather.backend);
         std::string backend_label = backend;
