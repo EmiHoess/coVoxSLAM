@@ -14,27 +14,6 @@ namespace covoxslam::sensor_grid
 {
 namespace
 {
-__global__ void compact_mask_cells(field_view source, const std::uint32_t* offsets,
-    const std::uint32_t* cells, std::uint8_t* flags)
-{
-    const auto tile = blockIdx.x;
-    if (offsets[tile] == offsets[tile + 1])
-    {
-        if (!threadIdx.x) flags[tile] = 0;
-        return;
-    }
-    bool observed{};
-
-    for (std::size_t i = std::size_t(offsets[tile]) + threadIdx.x;
-         i < offsets[tile + 1] && !observed; i += blockDim.x)
-    {
-        const auto value = source.voxels[cells[i]];
-        observed = value.contributions && value.weight > 0 && isfinite(value.weight) && isfinite(value.distance);
-    }
-    const auto any = __syncthreads_or(observed);
-
-    if (!threadIdx.x) flags[tile] = any ? 1 : 0;
-}
 __global__ void mask_cells(field_view source, unsigned n, std::uint8_t* flags)
 {
     const auto block = blockIdx.x, local = threadIdx.x;
@@ -168,47 +147,6 @@ int cuda_sensor_mask(field_view source, std::uint8_t* flags, void* stream)
     if (!source.voxels || !source.side || source.side > 1624 || !flags) return int(cudaErrorInvalidValue);
     const auto n = (source.side + 7) / 8;
     mask_cells<<<n * n * n, 512, 0, static_cast<cudaStream_t>(stream)>>>(source, n, flags);
-    return int(cudaGetLastError());
-}
-int cuda_sensor_compact_mask(field_view source, const std::uint32_t* offsets,
-    const std::uint32_t* cells, std::uint8_t* flags, void* stream)
-{
-    if (!source.voxels || !source.side || source.side > 1624 || !offsets || !cells || !flags)
-        return int(cudaErrorInvalidValue);
-    const auto n = (source.side + 7) / 8;
-    compact_mask_cells<<<n * n * n, 128, 0, static_cast<cudaStream_t>(stream)>>>(source, offsets, cells, flags);
-    return int(cudaGetLastError());
-}
-int cuda_sensor_transfer(field_view source, interpolation mode, const std::uint32_t* slots,
-    std::uint32_t count, const detail::cuda_tile_coordinate* keys, detail::cuda_tsdf_tile* tiles,
-    detail::cuda_projective_pose transform, float size, float maximum_weight, float band,
-    unsigned long long* updates, void* stream, bool fp32, bool specialized, float truncation)
-{
-    if (!count) return int(cudaSuccess);
-    if (fp32 && (!(truncation > 0) || !isfinite(truncation))) return int(cudaErrorInvalidValue);
-    if (specialized && (fp32 || mode != interpolation::trilinear)) return int(cudaErrorInvalidValue);
-    if (!sampling_detail::valid_view(source) || !slots || !keys || !tiles || !updates || unsigned(mode) > 5 || (fp32 && unsigned(mode) > 2) ||
-        !(size > 0) || !isfinite(size) || !(maximum_weight > 0) || !isfinite(maximum_weight) ||
-        !(band >= 0) || !isfinite(band)) return int(cudaErrorInvalidValue);
-    if (specialized) {
-        double norm{};
-
-        for (float value : transform.rotation_xyzw) {
-            if (!std::isfinite(value)) return int(cudaErrorInvalidValue);
-            norm += double(value) * value;
-        }
-
-        for (float value : transform.translation)
-            if (!std::isfinite(value)) return int(cudaErrorInvalidValue);
-
-        if (std::abs(norm - 1) > .001) return int(cudaErrorInvalidValue);
-    }
-    if (specialized) specialized_transfer<<<count, 128, 0, static_cast<cudaStream_t>(stream)>>>(source, slots, keys, tiles,
-        transform, prepare_affine(transform, size), size, maximum_weight, band, updates);
-    else if (fp32) transfer_cells<true><<<count * 4, 128, 0, static_cast<cudaStream_t>(stream)>>>(source, mode, slots, keys, tiles,
-        transform, size, maximum_weight, band, updates, truncation);
-    else transfer_cells<false><<<count * 4, 128, 0, static_cast<cudaStream_t>(stream)>>>(source, mode, slots, keys, tiles,
-        transform, size, maximum_weight, band, updates, truncation);
     return int(cudaGetLastError());
 }
 }
