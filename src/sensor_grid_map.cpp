@@ -10,38 +10,19 @@ operation_result<std::unique_ptr<gpu_map>> gpu_map::create(const lookup& table,
     auto status = validate_lookup(table);
 
     if (!status) return std::unexpected(status.error());
+    if (!resident_soa || options.discovery != discovery_mode::gpu_resident ||
+        options.source_mask != source_mask_mode::dense || options.candidates != candidate_mode::whole_tiles ||
+        options.specialized || options.arithmetic != transfer_arithmetic::fp64)
+        return std::unexpected(operation_error{"coVoxSLAM requires resident SoA reference transfer"});
     const std::size_t side = (table.grid.side + 7) / 8, count = side * side * side;
-    compact_mask_layout compact;
-    if (options.source_mask == source_mask_mode::compact) {
-        auto built = build_compact_mask(table);
-        if (!built) return std::unexpected(built.error());
-        compact = std::move(*built);
-    }
-    const bool masked = candidate_uses_mask(options.candidates);
-    const bool listed = candidate_uses_list(options.candidates);
-    const bool gpu_discovery = options.discovery != discovery_mode::cpu;
-    const bool resident = options.discovery == discovery_mode::gpu_resident;
-    if (resident_soa && (!resident || masked || options.specialized ||
-        options.arithmetic != transfer_arithmetic::fp64))
-        return std::unexpected(operation_error{"SoA mapping requires resident reference transfer"});
-#if !defined(covoxslam_has_urd)
-    if (resident_soa) return std::unexpected(operation_error{"SoA mapping requires collection support"});
-#endif
     const auto hash_capacity = discovery_hash_size(capacity);
-    const std::size_t discovery_bytes = gpu_discovery ? (std::size_t(hash_capacity) + capacity) * 8 + sizeof(discovery_state) : 0;
-    const std::size_t resident_bytes = resident ? std::size_t(hash_capacity) * 16 +
-        std::size_t(capacity) * 20 + ((std::size_t(capacity) + 255) / 256) * 8 : 0;
-    const std::size_t list_bytes = listed ? std::size_t(options.candidate_capacity) * 4 + sizeof(candidate_list_counters) : 0;
-    const std::size_t candidate_bytes = list_bytes + (masked ? std::size_t(capacity) *
-        candidate_mask_words(options.candidates) * 4 + table.active_voxels.size() * 4 + 8 : 0);
-    const std::size_t bytes = resident_bytes + discovery_bytes + candidate_bytes + std::size_t(capacity) * (sizeof(detail::cuda_tsdf_tile) + 16) + count + 8 +
-        (compact.offsets.size() + compact.cells.size()) * 4;
-    if (!capacity || capacity > 1048576 || device < 0 || bytes > maximum_bytes ||
-        unsigned(options.source_mask) > 1 || unsigned(options.arithmetic) > 1 || unsigned(options.candidates) > 8 ||
-        unsigned(options.discovery) > 2 ||
-        (resident && (masked || options.specialized || options.arithmetic != transfer_arithmetic::fp64)) ||
-        (listed && (!options.candidate_capacity || options.candidate_capacity > 536870912)) ||
-        (masked && (options.specialized || options.arithmetic != transfer_arithmetic::fp64)))
+    const std::size_t discovery_bytes = (std::size_t(hash_capacity) + capacity) * 8 + sizeof(discovery_state);
+    const std::size_t resident_bytes = std::size_t(hash_capacity) * 16 +
+        std::size_t(capacity) * 20 + ((std::size_t(capacity) + 255) / 256) * 8;
+    const std::size_t bytes = resident_bytes + discovery_bytes +
+        std::size_t(capacity) * (sizeof(detail::cuda_tsdf_tile) + 16) + count + 8;
+
+    if (!capacity || capacity > 1048576 || device < 0 || bytes > maximum_bytes)
         return std::unexpected(operation_error{"sensor TSDF exceeds storage budget"});
     auto owner = std::unique_ptr<gpu_map>(new gpu_map);
     owner->state = std::make_unique<implementation>();
@@ -49,54 +30,34 @@ operation_result<std::unique_ptr<gpu_map>> gpu_map::create(const lookup& table,
     data.settings = table.settings;
     data.options = options;
     data.soa_selected = resident_soa;
-    data.active_count = static_cast<std::uint32_t>(table.active_voxels.size());
      data.grid = table.grid;
     data.capacity = capacity;
     data.device = device;
-    data.flags.resize(count);
     status = data.check(cudaSetDevice(device));
     if (!status) return std::unexpected(status.error());
     data.selected = true;
     status = data.check(cudaStreamCreateWithFlags(&data.stream, cudaStreamNonBlocking));
-    if (status && !resident_soa) status = data.allocate(data.tiles, capacity);
-#if defined(covoxslam_has_urd)
-    if (status && resident_soa) {
+    if (status) {
         data.soa = std::make_unique<storage::cuda_draft<storage::schema::tsdf, storage::layout::pool_soa>>();
         status = data.soa->initialize(capacity);
     }
-#endif
     if (status) status = data.allocate(data.keys, capacity);
     if (status) status = data.allocate(data.slots, capacity);
     if (status) status = data.allocate(data.mask, count);
     if (status) status = data.allocate(data.updates, 1);
-    if (status && gpu_discovery) status = data.allocate(data.discovery.hash, hash_capacity);
-    if (status && gpu_discovery) status = data.allocate(data.discovery.keys, capacity);
-    if (status && gpu_discovery) status = data.allocate(data.discovery.state, 1);
+    if (status) status = data.allocate(data.discovery.hash, hash_capacity);
+    if (status) status = data.allocate(data.discovery.keys, capacity);
+    if (status) status = data.allocate(data.discovery.state, 1);
     data.discovery.capacity = capacity;
     data.discovery.hash_capacity = hash_capacity;
-    if (status && gpu_discovery) status = data.check(cudaMemsetAsync(data.discovery.state, 0, sizeof(discovery_state), data.stream));
+    if (status) status = data.check(cudaMemsetAsync(data.discovery.state, 0, sizeof(discovery_state), data.stream));
     data.resident.scan = data.discovery;
     data.resident.keys = data.keys; data.resident.slots = data.slots;
-    if (status && resident) status = data.allocate(data.resident.hash, hash_capacity);
-    if (status && resident) status = data.allocate(data.resident.scratch_keys, capacity);
-    if (status && resident) status = data.allocate(data.resident.offsets, capacity);
-    if (status && resident) status = data.allocate(data.resident.sums, (capacity + 255) / 256);
-    if (status && resident) status = data.allocate(data.resident.missing, capacity);
-    if (status && masked) status = data.allocate(data.candidate_masks, std::size_t(capacity) * candidate_mask_words(options.candidates));
-    if (status && masked) status = data.allocate(data.active_cells, table.active_voxels.size());
-    if (status && masked) status = data.allocate(data.candidate_count, 1);
-    if (status && listed) status = data.allocate(data.candidate_list.ids, options.candidate_capacity);
-    if (status && listed) status = data.allocate(data.candidate_list.counters, 1);
-    data.candidate_list.masks = data.candidate_masks;
-    data.candidate_list.capacity = options.candidate_capacity;
-    if (status && masked) status = data.check(cudaMemcpyAsync(data.active_cells, table.active_voxels.data(),
-        table.active_voxels.size() * 4, cudaMemcpyHostToDevice, data.stream));
-    if (status && !compact.offsets.empty()) status = data.allocate(data.mask_offsets, compact.offsets.size());
-    if (status && !compact.cells.empty()) status = data.allocate(data.mask_cells, compact.cells.size());
-    if (status && data.mask_offsets) status = data.check(cudaMemcpyAsync(data.mask_offsets, compact.offsets.data(),
-        compact.offsets.size() * 4, cudaMemcpyHostToDevice, data.stream));
-    if (status && data.mask_cells) status = data.check(cudaMemcpyAsync(data.mask_cells, compact.cells.data(),
-        compact.cells.size() * 4, cudaMemcpyHostToDevice, data.stream));
+    if (status) status = data.allocate(data.resident.hash, hash_capacity);
+    if (status) status = data.allocate(data.resident.scratch_keys, capacity);
+    if (status) status = data.allocate(data.resident.offsets, capacity);
+    if (status) status = data.allocate(data.resident.sums, (capacity + 255) / 256);
+    if (status) status = data.allocate(data.resident.missing, capacity);
 
     for (auto& event : data.events)
         if (status) status = data.check(cudaEventCreate(&event));
@@ -122,25 +83,6 @@ operation_result<tsdf_tiles> gpu_map::download()
 {
     auto& data = *state;
     if (data.failed) return std::unexpected(operation_error{"cannot publish failed sensor TSDF"});
-    if (data.soa_selected) return data.download_soa();
-    std::vector<detail::cuda_tsdf_tile> staging(data.indices.size());
-    auto status = data.check(cudaSetDevice(data.device));
-    if (status && !staging.empty()) status = data.check(cudaMemcpyAsync(staging.data(), data.tiles,
-        staging.size() * sizeof(*data.tiles), cudaMemcpyDeviceToHost, data.stream));
-    status = data.wait(status);
-    if (!status) return std::unexpected(status.error());
-    tsdf_tiles output;
-    output.reserve(staging.size());
-
-    for (std::size_t i = 0; i < staging.size(); ++i)
-    {
-        auto& tile = output[data.indices[i]];
-
-        for (std::size_t j = 0; j < tile_voxels; ++j) {
-            const auto& value = staging[i].voxels[j];
-             tile.voxels[j] = {value.distance, value.weight, value.sample_count, value.flags};
-        }
-    }
-    return output;
+    return data.download_soa();
 }
 }

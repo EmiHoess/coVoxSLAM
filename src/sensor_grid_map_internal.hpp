@@ -1,7 +1,6 @@
 #pragma once
 #include <covoxslam/sensor_grid_map.hpp>
 #include "sensor_grid/map_native.h"
-#include "sensor_grid/candidate_list.h"
 #include "sensor_grid/discovery.h"
 #include "sensor_grid/resident.h"
 #include <cuda_runtime_api.h>
@@ -18,7 +17,6 @@ struct gpu_map::implementation
     geometry grid{};
     int device{};
      std::uint32_t capacity{};
-    detail::cuda_tsdf_tile* tiles{};
     bool soa_selected{};
 #if defined(covoxslam_has_urd)
     std::unique_ptr<storage::cuda_draft<storage::schema::tsdf, storage::layout::pool_soa>> soa;
@@ -26,16 +24,10 @@ struct gpu_map::implementation
     detail::cuda_tile_coordinate* keys{};
     std::uint32_t* slots{};
     std::uint8_t* mask{};
-    std::uint32_t* mask_offsets{}, *mask_cells{};
-    std::uint32_t* candidate_masks{}, *active_cells{};
-    std::uint32_t active_count{};
-    unsigned long long* candidate_count{};
-    candidate_list_view candidate_list{};
     discovery_view discovery{};
     resident_discovery_view resident{};
     transfer_options options{};
     unsigned long long* updates{};
-    std::vector<std::uint8_t> flags;
     std::vector<int3> indices;
     std::unordered_map<int3, std::uint32_t, int3_hash> index;
     cudaStream_t stream{};
@@ -43,8 +35,6 @@ struct gpu_map::implementation
     std::array<void*, 20> allocations{};
     std::size_t allocated{};
     bool selected{}, failed{};
-    operation_result<std::vector<int3>> discover_gpu(field_view source,
-        detail::cuda_projective_pose transform, float& elapsed);
     operation_result<transfer_times> integrate_resident(field_view source,
         detail::cuda_projective_pose transform, interpolation mode);
     operation_result<tsdf_tiles> download_soa();
@@ -67,16 +57,10 @@ struct gpu_map::implementation
     }
     operation_status reset_payload()
     {
-#if defined(covoxslam_has_urd)
-        if (soa) {
-            auto descriptor = soa->descriptor();
-            if (!descriptor) return std::unexpected(descriptor.error());
-            return check(cuda_sensor_reset_soa(resident, *descriptor, stream));
-        }
-#endif
-        return check(options.discovery == discovery_mode::gpu_resident ?
-            cuda_sensor_reset_tiles(resident, tiles, stream) :
-            cudaMemsetAsync(tiles, 0, std::size_t(capacity) * sizeof(*tiles), stream));
+        if (!soa) return std::unexpected(operation_error{"resident SoA pool is unavailable"});
+        auto descriptor = soa->descriptor();
+        if (!descriptor) return std::unexpected(descriptor.error());
+        return check(cuda_sensor_reset_soa(resident, *descriptor, stream));
     }
     ~implementation()
     {

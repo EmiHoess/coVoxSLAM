@@ -19,17 +19,10 @@ operation_result<transfer_times> gpu_map::implementation::integrate_resident(fie
     if (status) status = check(cudaMemsetAsync(updates, 0, 8, stream));
     if (status) status = check(cudaEventRecord(events[2], stream));
     if (status) {
-#if defined(covoxslam_has_urd)
-        if (soa) {
-            auto descriptor = soa->descriptor();
-            if (!descriptor) status = std::unexpected(descriptor.error());
-            else status = check(cuda_sensor_resident_soa(source, resident, *descriptor, transform,
-                settings.voxel_size, settings.maximum_weight, settings.voxel_size, updates, stream));
-        }
-        else
-#endif
-            status = check(cuda_sensor_resident_transfer(source, mode, resident, tiles, transform,
-                settings.voxel_size, settings.maximum_weight, settings.voxel_size, updates, stream));
+        auto descriptor = soa->descriptor();
+        if (!descriptor) status = std::unexpected(descriptor.error());
+        else status = check(cuda_sensor_resident_soa(source, resident, *descriptor, transform,
+            settings.voxel_size, settings.maximum_weight, settings.voxel_size, updates, stream));
     }
     if (status) status = check(cudaEventRecord(events[3], stream));
     if (status) status = check(cudaMemcpyAsync(&result.updates, updates, 8, cudaMemcpyDeviceToHost, stream));
