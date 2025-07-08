@@ -26,15 +26,6 @@ operation_result<row_plan> classify_blocks(std::span<const std::uint32_t> length
     std::uint32_t short_max, std::uint32_t block_min);
 operation_status validate_row_plan(std::span<const std::uint32_t> lengths, const row_plan& plan,
     std::uint32_t short_max, std::uint32_t block_min);
-struct subwarp_plan
-{
-    std::vector<std::uint32_t> rows;
-    std::uint32_t bin_ends[2][4]{};
-};
-operation_result<subwarp_plan> classify_subwarps(std::span<const std::uint32_t> lengths);
-struct hybrid_layout { prepared_layout data; row_plan plan; };
-operation_result<hybrid_layout> build_hybrid_layout(const lookup& table, gather_backend backend,
-    std::uint32_t threshold, std::size_t maximum_entries = 67108864);
 operation_result<std::vector<std::uint16_t>> pack_ray_ids(std::span<const std::uint32_t> ids);
 constexpr bool ray_ids_fit_u16(std::uint32_t original_ray_count) noexcept
 {
