@@ -9,7 +9,7 @@ struct device_descriptor
     std::size_t size_tiles{}, capacity_tiles{}, tile_stride{}, voxel_stride{};
     std::uint64_t generation{};
     schema record_schema{schema::tsdf};
-    layout storage_layout{layout::pooled_aos};
+    layout storage_layout{layout::pool_soa};
     int device{-1};
 };
 template<schema s, bool constant = false> struct device_accessor
@@ -20,7 +20,9 @@ template<schema s, bool constant = false> struct device_accessor
     covoxslam_storage_hd std::size_t capacity() const noexcept { return descriptor.capacity_tiles; }
     covoxslam_storage_hd bool valid() const noexcept
     {
-        return descriptor.record_schema == s && descriptor.generation != 0 && size() <= capacity();
+        return descriptor.record_schema == s && descriptor.storage_layout == layout::pool_soa &&
+            descriptor.tile_stride == 2048 && descriptor.voxel_stride == 4 &&
+            descriptor.generation != 0 && size() <= capacity();
     }
 #if defined(__CUDACC__)
     template<std::size_t field>
