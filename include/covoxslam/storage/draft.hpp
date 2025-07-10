@@ -22,15 +22,7 @@ template<schema s, layout l> class draft
     template<std::size_t... i> static void initialize_fields(storage_type& storage,
         std::size_t count, std::index_sequence<i...>)
     {
-        if constexpr (l == layout::pool_soa)
-            (storage.template get<i>().resize(count * voxels_per_tile), ...);
-        else {
-            storage.resize(count);
-
-            for (std::size_t tile = 0; tile < count; ++tile)
-                for (std::size_t voxel = 0; voxel < voxels_per_tile; ++voxel)
-                    ((storage_field<s, l, i>(storage, tile, voxel) = field_type<s, i>{}), ...);
-        }
+        (storage.template get<i>().resize(count * voxels_per_tile), ...);
     }
     static operation_status check_capacity(std::size_t count)
     {
@@ -68,16 +60,10 @@ public:
         static constexpr bool read_only = constant;
         static constexpr layout storage_layout = l;
         const void* owner_identity() const noexcept { return owner_; }
-        auto record_segment(std::size_t first) const noexcept requires (l == layout::pooled_aos)
-        {
-            using record_type = std::conditional_t<constant, const value<s>, value<s>>;
-            const auto local = first % voxels_per_tile;
-            return std::span<record_type>(&(*owner_->storage_)[first / voxels_per_tile].voxels[local], voxels_per_tile - local);
-        }
-        template<std::size_t field> auto field_segment(std::size_t first) const noexcept requires (l != layout::pooled_aos)
+        template<std::size_t field> auto field_segment(std::size_t first) const noexcept
         {
             using scalar_type = std::conditional_t<constant, const field_type<s, field>, field_type<s, field>>;
-            const auto count = l == layout::pool_soa ? size_ * voxels_per_tile - first : voxels_per_tile - first % voxels_per_tile;
+            const auto count = size_ * voxels_per_tile - first;
             return std::span<scalar_type>(&owner_->template scalar<field>(first / voxels_per_tile, first % voxels_per_tile), count);
         }
         std::size_t size() const noexcept { return size_; }
