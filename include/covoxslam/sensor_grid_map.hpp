@@ -28,12 +28,12 @@ class gpu_map
 public:
     static operation_result<std::unique_ptr<gpu_map>> create(const lookup& table,
         std::uint32_t capacity = 32768, int device = 0, std::size_t maximum_bytes = 1073741824,
-        transfer_options options = {}, bool resident_soa = false);
+        transfer_options options = {}, bool resident_soa = true);
     ~gpu_map();
     gpu_map(const gpu_map&) = delete;
     gpu_map& operator=(const gpu_map&) = delete;
     operation_result<transfer_times> integrate(const gpu_grid& source, pose local_from_sensor,
-        interpolation mode = interpolation::trilinear);
+        interpolation mode = interpolation::nearest);
     operation_result<tsdf_tiles> download();
     operation_result<std::size_t> retain(
         store::coordinated_store<storage::layout::pool_soa, storage::schema::esdf>& destination,

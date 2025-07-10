@@ -40,8 +40,8 @@ operation_result<std::unique_ptr<combined_map>> combined_map::create(const looku
     std::uint32_t capacity, int device, std::size_t maximum_bytes, gather_options options, transfer_options transfer,
     bool resident_soa)
 {
-    if (!combined_gather(options.backend))
-        return std::unexpected(operation_error{"combined mapping requires combined gathering"});
+    if (options.backend != gather_backend::hybrid_combined || !resident_soa)
+        return std::unexpected(operation_error{"coVoxSLAM requires combined gathering and resident SoA storage"});
     auto grid = gpu_grid::create(table, device, maximum_bytes, options);
 
     if (!grid) return std::unexpected(grid.error());
