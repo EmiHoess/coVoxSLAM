@@ -6,19 +6,9 @@ namespace covoxslam::sensor_grid
 {
 using sensor_tsdf_view = storage::device_map_view<storage::schema::tsdf>;
 __device__ inline detail::cuda_tsdf_voxel load_sensor_voxel(
-    const detail::cuda_tsdf_tile* tiles, unsigned slot, unsigned local)
-{
-    return tiles[slot].voxels[local];
-}
-__device__ inline detail::cuda_tsdf_voxel load_sensor_voxel(
     sensor_tsdf_view tiles, unsigned slot, unsigned local) {
     const auto value = tiles[slot].voxels[local];
      return {value.distance, value.weight, value.sample_count, value.flags};
-}
-__device__ inline void store_sensor_voxel(detail::cuda_tsdf_tile* tiles,
-    unsigned slot, unsigned local, detail::cuda_tsdf_voxel value)
-{
-    tiles[slot].voxels[local] = value;
 }
 __device__ inline void store_sensor_voxel(sensor_tsdf_view tiles,
     unsigned slot, unsigned local, detail::cuda_tsdf_voxel value)
