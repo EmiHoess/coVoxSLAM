@@ -111,23 +111,6 @@ public:
     }
     cudaStream_t stream() const noexcept { return state_ ? state_->stream : nullptr; }
     std::size_t size() const noexcept { return state_ ? state_->descriptor.size_tiles : 0; }
-    operation_status upload_direct(std::span<const aos_tile<s>> source) requires (l == layout::pooled_aos)
-    {
-        auto checked = require_device();
-        if (!checked) return checked;
-        if (source.size() != size() || state_->descriptor.generation == std::numeric_limits<std::uint64_t>::max())
-            return std::unexpected(operation_error{"CUDA direct upload size or generation is invalid"});
-        state_->ready = false;
-        ++state_->descriptor.generation;
-        const auto submitted = source.empty() ? cudaSuccess : cudaMemcpyAsync(state_->allocations[0], source.data(),
-            source.size_bytes(), cudaMemcpyHostToDevice, state_->stream);
-        const auto completed = cudaStreamSynchronize(state_->stream);
-
-        if (submitted != cudaSuccess) return cuda_storage_status(submitted);
-        if (completed != cudaSuccess) return cuda_storage_status(completed);
-        state_->ready = true;
-        return {};
-    }
     operation_result<device_descriptor> descriptor() const
     {
         auto checked = require_device();
@@ -161,7 +144,7 @@ template<schema s, layout l>
 operation_status cuda_draft<s, l>::initialize(std::size_t count)
 {
     if (state_) return std::unexpected(operation_error{"CUDA collection is already initialized"});
-    constexpr std::size_t arrays = l == layout::pool_soa ? field_count<s> : 1;
+    constexpr std::size_t arrays = field_count<s>;
     constexpr auto maximum = std::size_t(std::numeric_limits<std::ptrdiff_t>::max());
 
     if (count > maximum / traits::tile_stride / arrays)
@@ -186,9 +169,7 @@ operation_status cuda_draft<s, l>::initialize(std::size_t count)
 
     for (std::size_t field = 0; field < field_count<s>; ++field)
     {
-        if constexpr (l == layout::pool_soa) descriptor.fields[field] = replacement->allocations[field];
-        else if (count) descriptor.fields[field] = reinterpret_cast<std::byte*>(
-            reinterpret_cast<std::uintptr_t>(replacement->allocations[0]) + traits::offsets[field]);
+        descriptor.fields[field] = replacement->allocations[field];
     }
     checked = cuda_storage_status(static_cast<cudaError_t>(initialize_device_fields(descriptor, replacement->stream)));
     if (!checked) return checked;

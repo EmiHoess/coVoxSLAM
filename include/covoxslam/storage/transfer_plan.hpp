@@ -10,7 +10,7 @@ struct transfer_endpoint
     std::byte* fields[5]{};
     std::size_t tiles{}, tile_stride{}, voxel_stride{};
     schema record_schema{schema::tsdf};
-    layout storage_layout{layout::pooled_aos};
+    layout storage_layout{layout::pool_soa};
     int device{-1};
 };
 struct transfer_region {
@@ -65,14 +65,10 @@ inline operation_status validate_endpoint(const transfer_endpoint& value)
     if (!fields || value.device < -1 || value.tiles > maximum / 512 || !value.tile_stride ||
         value.tile_stride > maximum / std::max<std::size_t>(value.tiles, 1))
         return std::unexpected(operation_error{"invalid transfer descriptor extent"});
-    const bool aos = value.storage_layout == layout::pooled_aos;
-    if (!aos && value.storage_layout != layout::tile_aosoa && value.storage_layout != layout::pool_soa)
-        return std::unexpected(operation_error{"invalid transfer layout"});
-    if (value.voxel_stride != (aos ? fields * 4 : 4) || value.tile_stride < value.voxel_stride * 512)
-        return std::unexpected(operation_error{"invalid transfer strides"});
-    if ((aos && value.tile_stride != fields * 2048) ||
-        (value.storage_layout == layout::pool_soa && value.tile_stride != 2048))
-        return std::unexpected(operation_error{"contiguous transfer layout has padding"});
+    if (value.storage_layout != layout::pool_soa)
+        return std::unexpected(operation_error{"transfer requires SoA storage"});
+    if (value.voxel_stride != 4 || value.tile_stride != 2048)
+        return std::unexpected(operation_error{"invalid SoA transfer strides"});
     const auto bytes = value.tiles * value.tile_stride;
 
     for (std::size_t field = 0; field < fields; ++field) {
@@ -81,21 +77,12 @@ inline operation_status validate_endpoint(const transfer_endpoint& value)
             return std::unexpected(operation_error{"invalid transfer field address"});
     }
     if (value.tiles) {
-        const auto base = std::uintptr_t(value.fields[0]);
 
         for (std::size_t a = 0; a < fields; ++a) {
-            if (aos && std::uintptr_t(value.fields[a]) != base + a * 4)
-                return std::unexpected(operation_error{"record field offsets are invalid"});
 
             for (std::size_t b = a + 1; b < fields; ++b) {
-                if (aos) continue;
-                const auto extent = value.storage_layout == layout::pool_soa ? bytes : 2048;
-                if (byte_ranges_overlap(value.fields[a], extent, value.fields[b], extent))
+                if (byte_ranges_overlap(value.fields[a], bytes, value.fields[b], bytes))
                     return std::unexpected(operation_error{"transfer fields overlap"});
-                const auto first = std::uintptr_t(value.fields[a]), second = std::uintptr_t(value.fields[b]);
-                if (value.storage_layout == layout::tile_aosoa &&
-                    (first > second ? first - second : second - first) > value.tile_stride - 2048)
-                    return std::unexpected(operation_error{"tile field offsets exceed the stride"});
             }
         }
     }
@@ -168,15 +155,6 @@ inline operation_result<transfer_plan> plan_transfer(const transfer_endpoint& so
     std::size_t copied{};
     while (copied < count) {
         const auto a = source_first + copied, b = destination_first + copied;
-        if (bulk && source.storage_layout == layout::pooled_aos && fields == (1U << field_count) - 1 &&
-            source.tile_stride == field_count * 2048 && destination.tile_stride == source.tile_stride) {
-            const auto bytes = (count - copied) * field_count * 4;
-            checked = append_transfer(result, {transfer_address(source, 0, a), transfer_address(destination, 0, b),
-                bytes, bytes, bytes, 1}, maximum_pitch);
-            if (!checked) return std::unexpected(checked.error());
-            copied = count;
-            continue;
-        }
         if (bulk && source.storage_layout == layout::pool_soa && source.tile_stride == 2048 && destination.tile_stride == 2048) {
             const auto bytes = (count - copied) * 4;
 
@@ -187,19 +165,6 @@ inline operation_result<transfer_plan> plan_transfer(const transfer_endpoint& so
                 if (!checked) return std::unexpected(checked.error());
             }
             copied = count;
-            continue;
-        }
-        if (bulk && source.storage_layout == layout::tile_aosoa && a % 512 == 0 && b % 512 == 0 && count - copied >= 512 &&
-            source.tile_stride <= maximum_pitch && destination.tile_stride <= maximum_pitch) {
-            const auto tiles = (count - copied) / 512;
-
-            for (std::size_t f = 0; f < field_count; ++f) {
-                if (!(fields & (1U << f))) continue;
-                checked = append_transfer(result, {transfer_address(source, f, a), transfer_address(destination, f, b),
-                    source.tile_stride, destination.tile_stride, 2048, tiles}, maximum_pitch);
-                if (!checked) return std::unexpected(checked.error());
-            }
-            copied += tiles * 512;
             continue;
         }
         const auto length = std::min({count - copied, 512 - a % 512, 512 - b % 512});
