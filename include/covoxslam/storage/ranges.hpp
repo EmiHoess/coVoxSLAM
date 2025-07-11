@@ -60,24 +60,9 @@ template<schema s, class accessor> operation_status copy_records(const map_view<
     if (count > destination.size() || count > std::size_t(std::numeric_limits<std::ptrdiff_t>::max()) / sizeof(value<s>))
         return std::unexpected(operation_error{"record destination is too small"});
     if (count == 0) return {};
-    if constexpr (requires { source.native_accessor().record_segment(first); }) {
-        const auto segment = source.native_accessor().record_segment(first);
-        if (count <= segment.size() && segment.data() == destination.data()) return {};
-    }
     if (overlaps_bytes(source, {first, count}, destination.data(), count * sizeof(value<s>)))
         return std::unexpected(operation_error{"record ranges overlap"});
-    if constexpr (requires { source.native_accessor().record_segment(first); })
     {
-        static_assert(std::is_trivially_copyable_v<value<s>>);
-        std::size_t copied{};
-        while (copied < count) {
-            const auto segment = source.native_accessor().record_segment(first + copied);
-            const auto length = std::min(segment.size(), count - copied);
-            std::memcpy(destination.data() + copied, segment.data(), length * sizeof(value<s>));
-            copied += length;
-        }
-    }
-    else {
         for (std::size_t i = 0; i < count; ++i) {
             auto input = source[(first + i) / 512].voxels[(first + i) % 512];
             const auto fields = scalar_fields<s>(input);

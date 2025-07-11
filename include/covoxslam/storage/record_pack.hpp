@@ -45,9 +45,6 @@ template<schema s, class accessor> operation_status pack_records(const map_view<
     if (count > destination.size() || count > std::size_t(std::numeric_limits<std::ptrdiff_t>::max()) / sizeof(value<s>))
         return std::unexpected(operation_error{"packed destination is too small"});
     if (count == 0) return {};
-    if constexpr (requires { source.native_accessor().record_segment(first); })
-        return copy_records(source, first, count, destination);
-    else
     {
         if (overlaps_bytes(source, {first, count}, destination.data(), count * sizeof(value<s>)))
             return std::unexpected(operation_error{"packed ranges overlap"});
@@ -82,22 +79,12 @@ template<schema s, class accessor> operation_status unpack_records(std::span<con
     if (source.size() > std::size_t(std::numeric_limits<std::ptrdiff_t>::max()) / sizeof(value<s>))
         return std::unexpected(operation_error{"unpacked source size overflows"});
     if (source.empty()) return {};
-    if constexpr (requires { destination.native_accessor().record_segment(first); }) {
-        const auto segment = destination.native_accessor().record_segment(first);
-        if (source.size() <= segment.size() && segment.data() == source.data()) return {};
-    }
     if (overlaps_bytes(destination, {first, source.size()}, source.data(), source.size_bytes()))
         return std::unexpected(operation_error{"unpacked ranges overlap"});
     std::size_t copied{};
     while (copied < source.size())
     {
-        if constexpr (requires { destination.native_accessor().record_segment(first); }) {
-            const auto segment = destination.native_accessor().record_segment(first + copied);
-            const auto length = std::min(segment.size(), source.size() - copied);
-            std::memcpy(segment.data(), source.data() + copied, length * sizeof(value<s>));
-            copied += length;
-        }
-        else {
+        {
             auto segments = destination_field_segments(destination, first + copied);
             const auto length = std::min(common_segment_size(segments), source.size() - copied);
             std::size_t offset{};

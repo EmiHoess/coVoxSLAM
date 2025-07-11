@@ -26,7 +26,7 @@ template<schema s, class accessor> operation_status selective_query(const map_vi
     while (copied < range.count)
     {
         const auto first = range.first + copied;
-        if constexpr (requires { source.native_accessor().template field_segment<0>(first); }) {
+        {
             const auto distances = source.native_accessor().template field_segment<0>(first);
             const auto flags = source.native_accessor().template field_segment<field_count<s> - 1>(first);
             auto length = std::min({distances.size(), flags.size(), range.count - copied});
@@ -41,17 +41,6 @@ template<schema s, class accessor> operation_status selective_query(const map_vi
             else {
                 for (std::size_t i = 0; i < length; ++i)
                     output[copied + i] = (flags[i] & 1U) ? distances[i] : 0;
-            }
-            copied += length;
-        }
-        else {
-            const auto records = source.native_accessor().record_segment(first);
-            const auto length = std::min(records.size(), range.count - copied);
-
-            for (std::size_t i = 0; i < length; ++i) {
-                const auto& v = records[i];
-                if constexpr (s == schema::tsdf) output[copied + i] = (v.flags & 1U) ? v.distance * v.weight : 0;
-                else output[copied + i] = (v.flags & 1U) ? v.signed_distance_m : 0;
             }
             copied += length;
         }
