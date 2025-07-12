@@ -23,8 +23,7 @@ inline operation_result<store::checkpoint_parameters> stored_field_parameters(
 {
     const auto& config = map.config;
 
-    if (!config.valid() || (options.esdf_generator == esdf_backend::cuda_block_band_soa &&
-        (config.esdf_generator != options.esdf_generator || map.esdf.size() != map.tsdf.size())))
+    if (!config.valid() || config.esdf_generator != options.esdf_generator || map.esdf.size() != map.tsdf.size())
         return std::unexpected(operation_error{"stored field identity does not match completed generation"});
     return store::checkpoint_parameters{config.voxel_size, config.truncation_distance,
         config.maximum_weight, config.esdf_maximum_distance_m, std::uint64_t(config.esdf_generator)};
@@ -90,9 +89,8 @@ template<storage::layout l> operation_result<stored_pipeline_result> stored_pipe
     auto export_ready = validate_stored_export(maps, options);
     if (!export_ready) return std::unexpected(export_ready.error());
     stored_pipeline_result output;
-    constexpr const char* layouts[]{"aos", "aosoa", "soa"};
     constexpr const char* field_modes[]{"copied", "borrowed", "resident"};
-    report << "store layout " << layouts[unsigned(options.layout)] << ", PGO fields "
+    report << "store layout soa, PGO fields "
         << field_modes[unsigned(options.fields)] << ", checkpoint format 1, field view API 1\n"
         << "mapping resident fields, deferred canonical readback, publication verification CPU\n";
     report << "store import ms " << std::chrono::duration<double, std::milli>(imported - started).count() << '\n';
@@ -140,20 +138,11 @@ template<storage::layout l> operation_result<stored_pipeline_result> stored_pipe
             checked = storage::cuda_storage_status(cudaSetDevice(solver.device));
             if (!checked) return std::unexpected(checked.error());
 
-            for (auto id : ids) {
-                auto state = retained.status(id);
-                if (!state) return std::unexpected(state.error());
-
-                if (state->gpu != state->content) {
-                    checked = retained.synchronize_gpu(id, 3, options.cpu_bytes);
-                    if (!checked) return std::unexpected(checked.error());
-                }
-            }
             auto resident = retained.lease_resident(ids, 3, options.gpu_bytes);
             if (!resident) return std::unexpected(resident.error());
             auto gpu_fields = resident_pgo_fields<l, storage::schema::esdf>(*resident, bindings, geometry);
             if (!gpu_fields) return std::unexpected(gpu_fields.error());
-            if (existing) report << "PGO uses retained device fields without TSDF or ESDF upload\n";
+            report << "PGO uses retained device fields without TSDF or ESDF upload\n";
             auto prepared = cache.prepare(*graph, *gpu_fields);
             if (!prepared) return std::unexpected(prepared.error());
             solved = solve_prepared_fields(*prepared, solver);

@@ -18,40 +18,18 @@ operation_status validate_stored_export(std::span<const submap> maps, const stor
 }
 operation_status validate_store_pipeline(const store_pipeline_options& store, const pgo::options& solver)
 {
-    if (store.negative_band && store.esdf_generator != esdf_backend::cuda_block_band_soa)
-        return std::unexpected(operation_error{"store negative band requires SoA band ESDF"});
-    if (store.resident_mapping && (!store.enabled || store.layout != storage::layout::pool_soa ||
-        store.esdf_generator != esdf_backend::cuda_block_band_soa))
-        return std::unexpected(operation_error{"resident mapping requires SoA storage and band ESDF"});
-    if (store.esdf_generator != esdf_backend::none && store.esdf_generator != esdf_backend::cuda_block_band_soa)
-        return std::unexpected(operation_error{"unsupported stored ESDF generator"});
-    if (store.esdf_generator == esdf_backend::cuda_block_band_soa) {
-        if (!store.enabled || store.layout != storage::layout::pool_soa || store.device < 0)
-            return std::unexpected(operation_error{"block band SoA requires map store soa and a valid CUDA device"});
-        if (solver.enabled && store.fields == stored_pgo_fields::resident && solver.device != store.device)
-            return std::unexpected(operation_error{"resident solver and ESDF must use the same CUDA device"});
-#if !defined(covoxslam_has_cuda)
-        return std::unexpected(operation_error{"block band SoA requires CUDA support"});
+    if (!store.enabled || !store.resident_mapping || store.layout != storage::layout::pool_soa ||
+        store.esdf_generator != esdf_backend::cuda_block_band_soa || store.device < 0)
+        return std::unexpected(operation_error{"coVoxSLAM requires resident SoA storage and band ESDF"});
+#if !defined(covoxslam_has_cuda) || !defined(covoxslam_has_urd)
+    return std::unexpected(operation_error{"coVoxSLAM mapping requires CUDA and collection support"});
 #endif
-    }
-    if (!store.enabled) {
-        if (store.fields != stored_pgo_fields::copied || !store.checkpoint_root.empty())
-            return std::unexpected(operation_error{"store field and checkpoint options require a map store"});
-        return {};
-    }
     if (!store.cpu_bytes || !store.gpu_bytes)
         return std::unexpected(operation_error{"store memory budgets must be positive"});
-    if (unsigned(store.layout) > unsigned(storage::layout::pool_soa) ||
-        unsigned(store.fields) > unsigned(stored_pgo_fields::resident))
-        return std::unexpected(operation_error{"invalid store layout or solver field selection"});
-#if !defined(covoxslam_has_urd)
-    if (store.layout != storage::layout::pooled_aos)
-        return std::unexpected(operation_error{"SoA layouts require the optional collection dependency"});
-#endif
-#if !defined(covoxslam_has_cuda)
-    if (store.fields == stored_pgo_fields::resident)
-        return std::unexpected(operation_error{"resident PGO requires CUDA support"});
-#endif
+    if (unsigned(store.fields) > unsigned(stored_pgo_fields::resident))
+        return std::unexpected(operation_error{"invalid solver field selection"});
+    if (solver.enabled && store.fields == stored_pgo_fields::resident && solver.device != store.device)
+        return std::unexpected(operation_error{"resident solver and ESDF must use the same CUDA device"});
     if ((!solver.enabled && store.fields != stored_pgo_fields::copied) ||
         (store.fields == stored_pgo_fields::borrowed && solver.solver != pgo::backend::native_cpu) ||
         (store.fields == stored_pgo_fields::resident && solver.solver != pgo::backend::cuda_cold))
@@ -63,12 +41,5 @@ operation_status validate_store_pipeline(const store_pipeline_options& store, co
     }
     if (solver.enabled) return pgo::validate_options(solver);
     return {};
-}
-operation_result<stored_pipeline_result> finish_stored_pipeline(std::span<submap> maps,
-    const store_pipeline_options& store, const pgo::options& solver, bool shadow)
-{
-    auto valid = validate_store_pipeline(store, solver);
-    if (!valid) return std::unexpected(valid.error());
-    return std::unexpected(operation_error{"mapping must finish through its retained SoA session"});
 }
 }

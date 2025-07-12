@@ -24,6 +24,4 @@ struct stored_pipeline_result
 };
 operation_status validate_store_pipeline(const store_pipeline_options& store, const pgo::options& solver);
 operation_status validate_stored_export(std::span<const submap> maps, const store_pipeline_options& store);
-operation_result<stored_pipeline_result> finish_stored_pipeline(std::span<submap> maps,
-    const store_pipeline_options& store, const pgo::options& solver, bool shadow);
 }
