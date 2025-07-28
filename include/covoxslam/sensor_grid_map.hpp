@@ -57,6 +57,4 @@ public:
         std::uint64_t id, pose4 anchor);
     operation_status reset();
 };
-operation_result<std::vector<int3>> destination_tiles(geometry grid, float size,
-    std::span<const std::uint8_t> observed, pose local_from_sensor, std::size_t maximum_tiles);
 }
