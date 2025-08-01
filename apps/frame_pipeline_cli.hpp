@@ -46,12 +46,11 @@ inline int run_submap_cli(int argc, char** argv)
         bool sensor_options_set{};
         sensor_grid::gather_options sensor_gather;
         sensor_grid::transfer_options sensor_transfer;
-        auto sensor_mode = sensor_grid::interpolation::trilinear;
+        auto sensor_mode = sensor_grid::interpolation::nearest;
         mapping_device_options cuda_options;
         dataset_load_options input_options;
         std::filesystem::path root;
         std::filesystem::path output;
-        bool nearest_preset{true};
         bool preset_specified{};
         unsigned selectors_seen{};
         pgo_cli_options pgo_settings;
@@ -329,25 +328,8 @@ inline int run_submap_cli(int argc, char** argv)
         const auto& input = *loaded;
         auto mapper_options = mapping_options;
         std::optional<operation_error> resident_failure;
-        const char* backend = sensor_gather_name(sensor_gather.backend);
-        std::string backend_label = backend;
-        if (nearest_preset) std::cout << "preset combined-nearest, nearest cell only, unknown cells rejected\n";
-        if (sensor_selected && sensor_transfer.source_mask == sensor_grid::source_mask_mode::compact)
-            backend_label += "-compact-mask";
-        if (sensor_selected && sensor_transfer.arithmetic == sensor_grid::transfer_arithmetic::fp32)
-            backend_label += "-fp32-transfer";
-        if (sensor_selected && sensor_transfer.specialized) backend_label += "-specialized-transfer";
-        if (sensor_selected && sensor_transfer.candidates == sensor_grid::candidate_mode::voxel_mask) backend_label += "-voxel-mask";
-        if (sensor_selected && sensor_transfer.candidates == sensor_grid::candidate_mode::compacted_control) backend_label += "-compacted-control";
-        if (sensor_selected && sensor_transfer.candidates == sensor_grid::candidate_mode::compact_fp32) backend_label += "-compact-fp32";
-        if (sensor_selected && sensor_transfer.candidates == sensor_grid::candidate_mode::append_fp32) backend_label += "-append-fp32";
-        if (sensor_selected && sensor_transfer.candidates == sensor_grid::candidate_mode::compact_fp64) backend_label += "-compact-fp64";
-        if (sensor_selected && sensor_transfer.candidates == sensor_grid::candidate_mode::append_fp64) backend_label += "-append-fp64";
-        if (sensor_selected && sensor_transfer.candidates == sensor_grid::candidate_mode::coarse_mask) backend_label += "-coarse-mask";
-        if (sensor_selected && sensor_transfer.candidates == sensor_grid::candidate_mode::whole_tile_control) backend_label += "-whole-tile-control";
-        if (sensor_selected && sensor_transfer.discovery == sensor_grid::discovery_mode::gpu_host) backend_label += "-gpu-discovery";
-        if (sensor_selected && sensor_transfer.discovery == sensor_grid::discovery_mode::gpu_resident) backend_label += "-gpu-resident";
-        if (store_settings.resident_mapping) backend_label += "-soa";
+        const std::string backend_label = "coVoxSLAM";
+        std::cout << "coVoxSLAM, nearest cell TSDF, resident SoA block band ESDF\n";
         const auto fusion_label = sensor_sampling_name(sensor_mode);
         std::unique_ptr<map_exporter> exporter;
         std::vector<submap> pgo_maps;

@@ -265,11 +265,6 @@ void map_exporter::write(const submap& value)
              << ",\"voxel_updates\":" << statistics.voxel_updates
              << ",\"cuda_uploaded_bytes\":" << statistics.cuda_uploaded_bytes
              << ",\"cuda_downloaded_bytes\":" << statistics.cuda_downloaded_bytes
-             << ",\"cuda_contributing_rays\":" << statistics.cuda_contributing_rays
-             << ",\"cuda_voxel_segments\":" << statistics.cuda_voxel_segments
-             << ",\"cuda_task_expansion_ms\":" << statistics.cuda_task_expansion_ms
-             << ",\"cuda_task_evaluation_ms\":" << statistics.cuda_task_evaluation_ms
-             << ",\"cuda_task_fusion_ms\":" << statistics.cuda_task_fusion_ms
              << ",\"sensor_gather_ms\":" << statistics.sensor_gather_ms
              << ",\"sensor_upload_ms\":" << statistics.sensor_upload_ms
              << ",\"sensor_graph_setup_ms\":" << statistics.sensor_graph_setup_ms
@@ -285,30 +280,7 @@ void map_exporter::write(const submap& value)
              << ",\"sensor_candidate_voxels\":" << statistics.sensor_candidate_voxels
              << ",\"sensor_kernel_launches\":" << statistics.sensor_kernel_launches
              << ",\"sensor_transfer_bits\":" << statistics.sensor_transfer_bits
-             << ",\"cuda_compact_discovery_ms\":" << statistics.cuda_compact_discovery_ms
-             << ",\"cuda_compact_accumulation_ms\":" << statistics.cuda_compact_accumulation_ms
-             << ",\"cuda_compact_validation_ms\":" << statistics.cuda_compact_validation_ms
-             << ",\"cuda_compact_clear_ms\":" << statistics.cuda_compact_clear_ms
-             << ",\"cuda_skip_clear_discovery_ms\":" << statistics.cuda_skip_clear_discovery_ms
-             << ",\"cuda_skip_accumulation_ms\":" << statistics.cuda_skip_accumulation_ms
-             << ",\"cuda_skip_validation_ms\":" << statistics.cuda_skip_validation_ms
-             << ",\"cuda_skip_finalize_ms\":" << statistics.cuda_skip_finalize_ms
              << ",\"cuda_accumulator_bits\":" << statistics.cuda_accumulator_bits
-             << ",\"cuda_compact_batched\":" << (statistics.cuda_compact_batched ? "true" : "false")
-             << ",\"cuda_warp_flush_groups\":" << statistics.cuda_warp_flush_groups
-             << ",\"cuda_warp_peer_groups\":" << statistics.cuda_warp_peer_groups
-             << ",\"cuda_warp_cache_hits\":" << statistics.cuda_warp_cache_hits
-             << ",\"cuda_warp_cache_flushes\":" << statistics.cuda_warp_cache_flushes
-             << ",\"cuda_warp_count\":" << statistics.cuda_warp_count
-             << ",\"cuda_warp_count_effective\":" << statistics.cuda_warp_count_effective
-             << ",\"cuda_warp_scattered\":" << (statistics.cuda_warp_scattered ? "true" : "false")
-             << ",\"cuda_warp_cache_entries\":" << statistics.cuda_warp_cache_entries
-             << ",\"cuda_warp_shared_bytes\":" << statistics.cuda_warp_shared_bytes
-             << ",\"cuda_skipped_contributions\":" << statistics.cuda_skipped_contributions
-             << ",\"cuda_free_space_minimum_weight\":" << statistics.cuda_free_space_minimum_weight
-             << ",\"cuda_free_space_refresh_scans\":" << statistics.cuda_free_space_refresh_scans
-             << ",\"cuda_ray_segment_length_m\":" << statistics.cuda_ray_segment_length_m
-             << ",\"cuda_ray_segment_slots\":" << statistics.cuda_ray_segment_slots
              << ",\"integration_ms\":" << statistics.integration_ms
              << ",\"payload_bytes\":" << frame.timing.payload_bytes
              << ",\"payload_read_ms\":" << frame.timing.read_ms
