@@ -1,4 +1,4 @@
-#include "sparse_mapping.h"
+#include "common/mapping_types.h"
 #include "primitives/scan.cuh"
 
 namespace covoxslam::detail

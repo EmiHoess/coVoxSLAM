@@ -1,6 +1,6 @@
 #pragma once
 #include <covoxslam/storage/device_view.hpp>
-#include "../sparse_mapping.h"
+#include "../common/mapping_types.h"
 
 namespace covoxslam::sensor_grid
 {
