@@ -1,4 +1,4 @@
-option(covoxslam_enable_urd "Enable external collection layouts" OFF)
+option(covoxslam_enable_urd "Enable external SoA collections" OFF)
 set(covoxslam_urd_path "../urd-cpp" CACHE STRING "Relative external collection source path")
 if(covoxslam_enable_urd)
     cmake_path(ABSOLUTE_PATH covoxslam_urd_path BASE_DIRECTORY "${PROJECT_SOURCE_DIR}"
