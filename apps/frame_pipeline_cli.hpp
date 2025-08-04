@@ -112,9 +112,6 @@ inline int run_submap_cli(int argc, char** argv)
             switch (lookup_cli_option(option, sensor_mapping_options)) {
             case sensor_mapping_option::backend:
                 switch (lookup_cli_option(value, sensor_backend_choices)) {
-                case sensor_backend_choice::sensor:
-                    sensor_selected = mapping_enabled = true;
-                    continue;
                 case sensor_backend_choice::combined:
                     sensor_selected = mapping_enabled = true;
                     sensor_gather.backend = sensor_grid::gather_backend::hybrid_combined;
@@ -127,11 +124,6 @@ inline int run_submap_cli(int argc, char** argv)
                 sensor_options_set = true;
                 switch (lookup_cli_option(value, sensor_sampling_values)) {
                 case sensor_sampling_value::nearest: sensor_mode = sensor_grid::interpolation::nearest; break;
-                case sensor_sampling_value::tetrahedral: sensor_mode = sensor_grid::interpolation::tetrahedral; break;
-                case sensor_sampling_value::trilinear: sensor_mode = sensor_grid::interpolation::trilinear; break;
-                case sensor_sampling_value::overlap: sensor_mode = sensor_grid::interpolation::exact_overlap; break;
-                case sensor_sampling_value::neighborhood8: sensor_mode = sensor_grid::interpolation::neighborhood8; break;
-                case sensor_sampling_value::neighborhood27: sensor_mode = sensor_grid::interpolation::neighborhood27; break;
                 default: return report_error("unsupported sensor interpolation");
                 }
                 continue;
@@ -162,61 +154,38 @@ inline int run_submap_cli(int argc, char** argv)
             case sensor_mapping_option::source_mask:
                 switch (lookup_cli_option(value, source_mask_choices)) {
                 case source_mask_choice::dense: sensor_transfer.source_mask = sensor_grid::source_mask_mode::dense; break;
-                case source_mask_choice::compact: sensor_transfer.source_mask = sensor_grid::source_mask_mode::compact; break;
-                default: return report_error("sensor source mask must be dense or compact");
+                default: return report_error("coVoxSLAM requires a dense sensor source mask");
                 }
                 sensor_options_set = true;
                 continue;
             case sensor_mapping_option::transfer_precision:
                 switch (lookup_cli_option(value, transfer_precision_choices)) {
-                case transfer_precision_choice::fp32: sensor_transfer.arithmetic = sensor_grid::transfer_arithmetic::fp32; break;
                 case transfer_precision_choice::fp64: sensor_transfer.arithmetic = sensor_grid::transfer_arithmetic::fp64; break;
-                default: return report_error("sensor transfer precision must be 32 or 64");
+                default: return report_error("coVoxSLAM requires 64 bit sensor transfer");
                 }
                 sensor_options_set = true;
                 continue;
             case sensor_mapping_option::transfer_kernel:
                 switch (lookup_cli_option(value, transfer_kernel_choices)) {
                 case transfer_kernel_choice::reference: sensor_transfer.specialized = false; break;
-                case transfer_kernel_choice::specialized: sensor_transfer.specialized = true; break;
-                default: return report_error("sensor transfer must be reference or specialized");
+                default: return report_error("coVoxSLAM requires reference sensor transfer");
                 }
                 sensor_options_set = true;
                 continue;
             case sensor_mapping_option::candidates:
                 switch (lookup_cli_option(value, candidate_choices)) {
                 case candidate_choice::whole_tiles: sensor_transfer.candidates = sensor_grid::candidate_mode::whole_tiles; break;
-                case candidate_choice::voxel_mask: sensor_transfer.candidates = sensor_grid::candidate_mode::voxel_mask; break;
-                case candidate_choice::compacted_control: sensor_transfer.candidates = sensor_grid::candidate_mode::compacted_control; break;
-                case candidate_choice::compact_fp32: sensor_transfer.candidates = sensor_grid::candidate_mode::compact_fp32; break;
-                case candidate_choice::append_fp32: sensor_transfer.candidates = sensor_grid::candidate_mode::append_fp32; break;
-                case candidate_choice::compact_fp64: sensor_transfer.candidates = sensor_grid::candidate_mode::compact_fp64; break;
-                case candidate_choice::append_fp64: sensor_transfer.candidates = sensor_grid::candidate_mode::append_fp64; break;
-                case candidate_choice::coarse_mask: sensor_transfer.candidates = sensor_grid::candidate_mode::coarse_mask; break;
-                case candidate_choice::whole_tile_control: sensor_transfer.candidates = sensor_grid::candidate_mode::whole_tile_control; break;
                 default: return report_error("invalid sensor candidate method");
                 }
                 sensor_options_set = true;
                 continue;
             case sensor_mapping_option::discovery:
                 switch (lookup_cli_option(value, discovery_choices)) {
-                case discovery_choice::cpu: sensor_transfer.discovery = sensor_grid::discovery_mode::cpu; break;
-                case discovery_choice::gpu_host: sensor_transfer.discovery = sensor_grid::discovery_mode::gpu_host; break;
                 case discovery_choice::gpu_resident: sensor_transfer.discovery = sensor_grid::discovery_mode::gpu_resident; break;
                 default: return report_error("invalid sensor discovery method");
                 }
                 sensor_options_set = true;
                 continue;
-            case sensor_mapping_option::candidate_capacity: {
-                std::uint32_t capacity{};
-                const auto parsed = std::from_chars(value.data(), value.data() + value.size(), capacity);
-
-                if (parsed.ec != std::errc{} || parsed.ptr != value.data() + value.size() || !capacity || capacity > 536870912)
-                    return report_error("invalid sensor candidate capacity");
-                sensor_transfer.candidate_capacity = capacity;
-                sensor_options_set = true;
-                continue;
-            }
             default: break;
             }
             switch (lookup_cli_option(option, submap_cli_options))
@@ -287,18 +256,8 @@ inline int run_submap_cli(int argc, char** argv)
                 sensor_transfer, sensor_mode, options.ring_stride, options.column_stride}))
             return report_error("explicit options conflict with combined-nearest preset");
         if (sensor_options_set && !sensor_selected) return report_error("sensor options require cuda-sensor-grid");
-        if (sensor_selected && sensor_grid::candidate_uses_mask(sensor_transfer.candidates) &&
-            (unsigned(sensor_mode) > 2 || sensor_transfer.specialized || sensor_transfer.arithmetic != sensor_grid::transfer_arithmetic::fp64))
-            return report_error("candidate masks require reference fp64 point sampling");
-        if (sensor_selected && sensor_transfer.arithmetic == sensor_grid::transfer_arithmetic::fp32 && unsigned(sensor_mode) > 2)
-            return report_error("fp32 transfer supports nearest, tetrahedral or trilinear sampling");
-        if (sensor_selected && sensor_transfer.specialized && (sensor_mode != sensor_grid::interpolation::trilinear ||
-            sensor_transfer.arithmetic != sensor_grid::transfer_arithmetic::fp64))
-            return report_error("specialized transfer requires fp64 trilinear sampling");
         if (!options.submap_duration_ns || !options.ring_stride || !options.column_stride)
             return report_error("duration and sampling strides must be positive");
-        if (!output.empty() && !mapping_enabled)
-            return report_error("--output requires --backend cpu-ray, cuda-ray or cuda-projective");
         pgo_settings.solver.device = cuda_options.device;
         store_settings.device = cuda_options.device;
         store_settings.esdf_generator = mapping_options.esdf_generator;

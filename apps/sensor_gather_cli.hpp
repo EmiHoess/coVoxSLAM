@@ -5,7 +5,7 @@
 
 namespace covoxslam
 {
-enum class execution_choice { unknown, stream, graph };
+enum class execution_choice { unknown, stream };
 inline constexpr cli_option_entry<execution_choice> execution_choices[]{
     {"stream", execution_choice::stream}
 };
@@ -17,7 +17,7 @@ inline operation_status select_sensor_execution(std::string_view text, sensor_gr
     }
     return {};
 }
-enum class gather_choice { unknown, csr, warp, interleaved, hybrid, subwarp, short_interleaved, aligned, ray16, compact, pipelined, block_long, combined, uncapped };
+enum class gather_choice { unknown, combined };
 inline constexpr cli_option_entry<gather_choice> gather_choices[]{
     {"hybrid-combined", gather_choice::combined}
 };
@@ -32,19 +32,7 @@ inline operation_status select_sensor_gather(std::string_view text, sensor_grid:
 inline const char* sensor_gather_name(sensor_grid::gather_backend mode)
 {
     switch (mode) {
-    case sensor_grid::gather_backend::csr: return "cuda-sensor-grid";
-    case sensor_grid::gather_backend::warp_soa_prepared: return "cuda-sensor-grid-warp-soa-prepared";
-    case sensor_grid::gather_backend::thread_interleaved_prepared: return "cuda-sensor-grid-thread-interleaved-prepared";
-    case sensor_grid::gather_backend::warp_soa_hybrid_prepared: return "cuda-sensor-grid-warp-soa-hybrid-prepared";
-    case sensor_grid::gather_backend::warp_soa_subwarp_prepared: return "cuda-sensor-grid-warp-soa-subwarp-prepared";
-    case sensor_grid::gather_backend::hybrid_short_interleaved: return "cuda-sensor-grid-hybrid-short-interleaved";
-    case sensor_grid::gather_backend::hybrid_aligned: return "cuda-sensor-grid-hybrid-aligned";
-    case sensor_grid::gather_backend::hybrid_ray16: return "cuda-sensor-grid-hybrid-ray16";
-    case sensor_grid::gather_backend::hybrid_compact: return "cuda-sensor-grid-hybrid-compact";
-    case sensor_grid::gather_backend::hybrid_pipelined: return "cuda-sensor-grid-hybrid-pipelined";
-    case sensor_grid::gather_backend::hybrid_block_long: return "cuda-sensor-grid-hybrid-block-long";
     case sensor_grid::gather_backend::hybrid_combined: return "cuda-sensor-grid-hybrid-combined";
-    case sensor_grid::gather_backend::hybrid_combined_uncapped: return "cuda-sensor-grid-hybrid-combined-uncapped";
     }
     return "invalid";
 }
