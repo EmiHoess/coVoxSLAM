@@ -27,8 +27,6 @@ operation_result<lookup> build_lookup(const config& settings,
     std::span<const direction> directions, std::uint32_t reduction_factor = 1,
     lookup_limits limits = {});
 operation_status validate_lookup(const lookup& table);
-operation_result<std::vector<voxel>> update_cpu(const lookup& table,
-    std::span<const float> ranges, gather_policy policy = {});
 inline lookup_view host_view(const lookup& table)
 {
     return {table.offsets.data(), table.intersections.data(), table.active_voxels.data(),
