@@ -8,11 +8,10 @@ operation_status validate_stored_export(std::span<const submap> maps, const stor
         auto identity = detail::stored_field_parameters(map, store);
         if (!identity) return std::unexpected(identity.error());
 
-        if (store.esdf_generator == esdf_backend::cuda_block_band_soa)
+        for (const auto& [key, tile] : map.tsdf)
 
-            for (const auto& [key, tile] : map.tsdf)
-                if (!map.esdf.contains(key))
-                    return std::unexpected(operation_error{"generated ESDF export topology differs from TSDF"});
+            if (!map.esdf.contains(key))
+                return std::unexpected(operation_error{"generated ESDF export topology differs from TSDF"});
     }
     return {};
 }

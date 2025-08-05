@@ -146,8 +146,8 @@ operation_result<stored_pipeline_result> resident_pipeline::finish(std::span<sub
         state_->metrics.materialize_ms += std::chrono::duration<double, std::milli>(
             std::chrono::steady_clock::now() - copied).count();
     }
-    auto completed = detail::stored_pipeline<storage::layout::pool_soa>(maps, state_->options, solver,
-        shadow, state_->maps.get());
+    auto completed = detail::stored_pipeline(maps, state_->options, solver,
+        shadow, *state_->maps);
     if (!completed) return std::unexpected(completed.error());
     state_->metrics.completion_ms = std::chrono::duration<double, std::milli>(
         std::chrono::steady_clock::now() - completion_started).count();

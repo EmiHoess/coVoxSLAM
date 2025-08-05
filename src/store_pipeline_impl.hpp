@@ -50,16 +50,17 @@ bind_stored_fields(const store::geometry_snapshot<l, storage::schema::esdf>& cap
     return result;
 }
 #endif
-template<storage::layout l> operation_result<stored_pipeline_result> stored_pipeline(
+inline operation_result<stored_pipeline_result> stored_pipeline(
     std::span<submap> maps, const store_pipeline_options& options, const pgo::options& solver, bool shadow,
-    store::coordinated_store<l>* existing)
+    store::coordinated_store<storage::layout::pool_soa>& retained)
 {
     using namespace store;
+    constexpr auto l = storage::layout::pool_soa;
     const auto started = std::chrono::steady_clock::now();
-    if (!existing || maps.empty() || l != storage::layout::pool_soa ||
+
+    if (maps.empty() ||
         options.esdf_generator != esdf_backend::cuda_block_band_soa)
         return std::unexpected(operation_error{"completion requires retained SoA band fields"});
-    auto& retained = *existing;
     std::vector<std::uint64_t> ids;
 #if defined(covoxslam_has_pgo)
     std::vector<pgo_field_binding> bindings;
