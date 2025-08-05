@@ -8,12 +8,12 @@ enum class gather_backend : std::uint32_t { csr, warp_soa_prepared, thread_inter
     hybrid_pipelined, hybrid_block_long, hybrid_combined, hybrid_combined_uncapped };
 constexpr bool combined_gather(gather_backend backend) noexcept
 {
-    return backend == gather_backend::hybrid_combined || backend == gather_backend::hybrid_combined_uncapped;
+    return backend == gather_backend::hybrid_combined;
 }
 enum class execution_mode : std::uint32_t { stream, cuda_graph };
 struct gather_options
 {
-    gather_backend backend{gather_backend::csr};
+    gather_backend backend{gather_backend::hybrid_combined};
     std::uint32_t short_list_max{16}, block_list_min{1024};
     execution_mode execution{execution_mode::stream};
 };

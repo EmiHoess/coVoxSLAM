@@ -94,7 +94,8 @@ operation_result<update_times> gpu_grid::update(std::span<const float> ranges, g
 {
     auto& data = *state;
 
-    if (data.failed || ranges.size() != data.table.ray_count || !valid_gather_policy(policy))
+    if (data.failed || ranges.size() != data.table.ray_count || !valid_gather_policy(policy) ||
+        policy.max_rays || policy.first_entry_only)
         return std::unexpected(operation_error{"invalid sensor update or failed CUDA field"});
     data.ready = false;
     auto status = data.check(cudaSetDevice(data.device));
