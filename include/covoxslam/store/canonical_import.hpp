@@ -24,12 +24,8 @@ template<storage::layout l> operation_status import_active_submap(coordinated_st
         for (const auto& [index, tile] : tiles) {
             keys.push_back({id, index.x, index.y, index.z});
 
-            for (const auto& value : tile.voxels) {
-                if constexpr (s == storage::schema::tsdf)
-                    values.push_back({value.distance, value.weight, value.sample_count, value.flags});
-                else values.push_back({value.signed_distance_m,
-                    value.parent_dx, value.parent_dy, value.parent_dz, value.flags});
-            }
+            for (const auto& value : tile.voxels)
+                values.push_back(value);
         }
         return maps.template import_field<s>(id, keys, values, s == storage::schema::tsdf ? 0 : 1);
     };

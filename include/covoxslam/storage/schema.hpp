@@ -1,4 +1,5 @@
 #pragma once
+#include <covoxslam/voxel_records.h>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -9,16 +10,8 @@ namespace covoxslam::storage
 inline constexpr std::size_t voxels_per_tile = 512;
 enum class schema { tsdf = 0, esdf = 1, blocks_esdf = 2, projective_esdf = 3 };
 enum class layout { pooled_aos = 0, tile_aosoa = 1, pool_soa = 2 };
-struct tsdf_value
-{
-    float distance{}, weight{};
-    std::uint32_t sample_count{}, flags{};
-};
-struct esdf_value {
-    float signed_distance_m{};
-    std::int32_t parent_dx{}, parent_dy{}, parent_dz{};
-    std::uint32_t flags{};
-};
+using tsdf_value = tsdf_record;
+using esdf_value = esdf_record;
 struct blocks_esdf_value
 {
     float distance_m{};
