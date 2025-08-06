@@ -1,4 +1,5 @@
 #pragma once
+#include <covoxslam/voxel_records.h>
 #include <cstddef>
 #include <cstdint>
 
@@ -12,15 +13,7 @@ struct cuda_tile_coordinate
     std::int32_t x{}, y{}, z{};
 };
 
-struct cuda_tsdf_voxel {
-    float distance{}, weight{};
-     std::uint32_t sample_count{}, flags{};
-};
-
-struct cuda_tsdf_tile
-{
-    cuda_tsdf_voxel voxels[512]{};
-};
+using cuda_tsdf_voxel = tsdf_record;
 
 enum class cuda_esdf_unobserved : std::uint32_t { unknown, free, occupied };
 

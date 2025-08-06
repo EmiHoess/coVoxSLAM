@@ -38,7 +38,7 @@ __global__ void transfer_cells(field_view source, const std::uint32_t* slots,
 
     if (measured.valid)
     {
-        auto value = load_sensor_voxel(tiles, slot, local);
+        auto value = storage::gather_record(tiles[slot].voxels[local]);
         const float old = value.flags & 1U ? value.weight : 0.f;
         const double total = double(old) + measured.weight;
         value.distance = static_cast<float>((double(old) * (old > 0 ? value.distance : 0.f) +
@@ -47,7 +47,7 @@ __global__ void transfer_cells(field_view source, const std::uint32_t* slots,
 
         value.flags = 1U | (fabsf(value.distance) <= band ? 2U : 0U);
         if (value.sample_count != UINT32_MAX) ++value.sample_count;
-         store_sensor_voxel(tiles, slot, local, value);
+         storage::scatter_record(tiles[slot].voxels[local], value);
         updated = true;
     }
     const unsigned updates = __syncthreads_count(updated);
