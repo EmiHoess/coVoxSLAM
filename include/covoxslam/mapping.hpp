@@ -2,6 +2,7 @@
 
 #include <covoxslam/dataset.hpp>
 #include <covoxslam/input_timing.hpp>
+#include <covoxslam/voxel_records.h>
 
 #include <functional>
 #include <span>
@@ -80,22 +81,8 @@ inline constexpr std::uint32_t observed_flag = 1;
 inline constexpr std::uint32_t near_surface_flag = 2;
 inline constexpr std::uint32_t esdf_site_flag = 4;
 
-struct tsdf_voxel
-{
-    float distance{};
-    float weight{};
-     std::uint32_t sample_count{};
-    std::uint32_t flags{};
-};
-
-struct esdf_voxel {
-    float signed_distance_m{};
-    std::int32_t parent_dx{};
-    std::int32_t parent_dy{};
-    std::int32_t parent_dz{};
-    std::uint32_t flags{};
-}
-;
+using tsdf_voxel = tsdf_record;
+using esdf_voxel = esdf_record;
 
 struct tsdf_tile
 {
