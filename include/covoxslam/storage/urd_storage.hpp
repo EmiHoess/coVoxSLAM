@@ -34,6 +34,8 @@ template<schema s> struct storage_traits<s, layout::pool_soa>
 };
 #endif
 template<schema s, layout l> using collection_storage = typename storage_traits<s, l>::type;
+template<schema s, layout l> inline constexpr std::size_t payload_tile_bytes =
+    storage_traits<s, l>::tile_stride * (l == layout::pool_soa ? field_count<s> : 1);
 template<schema s, layout l, std::size_t field, class t>
 decltype(auto) storage_field(t& storage, std::size_t tile, std::size_t voxel) noexcept
 {

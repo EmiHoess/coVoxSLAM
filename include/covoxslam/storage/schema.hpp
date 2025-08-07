@@ -30,6 +30,8 @@ template<> struct schema_traits<schema::esdf> { using value_type = esdf_value; s
 template<> struct schema_traits<schema::blocks_esdf> { using value_type = blocks_esdf_value; static constexpr std::size_t fields = 5; };
 template<> struct schema_traits<schema::projective_esdf> { using value_type = projective_esdf_value; static constexpr std::size_t fields = 5; };
 template<schema s> using value = typename schema_traits<s>::value_type;
+template<schema s> inline constexpr std::size_t record_bytes = sizeof(value<s>);
+template<schema s> inline constexpr std::size_t canonical_tile_bytes = voxels_per_tile * record_bytes<s>;
 template<schema s> inline constexpr std::size_t field_count = schema_traits<s>::fields;
 template<schema s, std::size_t field>
 using field_type = std::conditional_t<s == schema::tsdf,

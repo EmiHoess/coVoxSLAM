@@ -52,8 +52,7 @@ private:
         const auto capacity = field_.index.slot_count();
         std::shared_ptr<budget_claim> replacement;
         if (capacity > field_.payload.capacity()) {
-            constexpr auto stride = storage::storage_traits<s, l>::tile_stride *
-                (l == storage::layout::pool_soa ? storage::field_count<s> : 1);
+            constexpr auto stride = storage::payload_tile_bytes<s, l>;
             if (capacity > std::numeric_limits<std::size_t>::max() / stride)
                 return std::unexpected(operation_error{"mapping field growth overflows"});
             auto memory = budget_.reserve({capacity * stride, 0, 0});
@@ -139,8 +138,7 @@ template<storage::layout l, storage::schema es = storage::schema::esdf> class ma
     std::shared_ptr<memory_budget> budget_;
     template<storage::schema s> operation_result<std::shared_ptr<field_pool<s, l>>> allocate_field(std::size_t count)
     {
-        constexpr auto stride = storage::storage_traits<s, l>::tile_stride *
-            (l == storage::layout::pool_soa ? storage::field_count<s> : 1);
+        constexpr auto stride = storage::payload_tile_bytes<s, l>;
         if (count > maximum_tiles_ || count > std::numeric_limits<std::size_t>::max() / stride)
             return std::unexpected(operation_error{"field allocation exceeds capacity"});
         auto claim = budget_->reserve({count * stride, 0, 0});
@@ -289,8 +287,7 @@ public:
                 if (!field) return {};
                 using pool = std::remove_cvref_t<decltype(*field)>;
                 constexpr auto selected = std::is_same_v<pool, field_pool<storage::schema::tsdf, l>> ? storage::schema::tsdf : es;
-                constexpr auto bytes_per_tile = storage::storage_traits<selected, l>::tile_stride *
-                    (l == storage::layout::pool_soa ? storage::field_count<selected> : 1);
+                constexpr auto bytes_per_tile = storage::payload_tile_bytes<selected, l>;
                 const auto descriptor = field->payload.view();
                 const auto bytes = field->payload.capacity() * bytes_per_tile;
                 if (bytes > std::numeric_limits<std::size_t>::max() - result.payload_capacity_bytes)
@@ -326,8 +323,7 @@ public:
                 auto selected = field<s>(id);
                 if (!selected) return std::unexpected(selected.error());
                 const auto capacity = (*selected)->payload.capacity();
-                constexpr auto bytes_per_tile = storage::storage_traits<s, l>::tile_stride *
-                    (l == storage::layout::pool_soa ? storage::field_count<s> : 1);
+                constexpr auto bytes_per_tile = storage::payload_tile_bytes<s, l>;
                 if (capacity > remaining / bytes_per_tile)
                     return std::unexpected(operation_error{"snapshot payload budget is exhausted"});
                 remaining -= capacity * bytes_per_tile;
