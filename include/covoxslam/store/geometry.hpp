@@ -54,10 +54,7 @@ public:
     {
         const auto* map = find(id);
         if (!map) return std::unexpected(operation_error{"geometry submap is absent"});
-        const auto& field = [&]() -> const auto& {
-            if constexpr (s == storage::schema::tsdf) return map->tsdf;
-            else return map->esdf;
-        }();
+        const auto& field = select_field<s, es>(*map);
         if (!field) return std::unexpected(operation_error{"geometry field is not captured"});
         const auto divide = [](int v) { return v / 8 - (v % 8 < 0); };
         const auto local = [](int v) { return unsigned((v % 8 + 8) % 8); };

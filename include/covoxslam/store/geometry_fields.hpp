@@ -75,10 +75,7 @@ operation_result<geometry_volume_data> geometry_volume(const geometry_snapshot<l
 {
     const auto* map = source.find(id);
     if (!map) return std::unexpected(operation_error{"geometry submap is absent"});
-    const auto& field = [&]() -> const auto& {
-        if constexpr (s == storage::schema::tsdf) return map->tsdf;
-        else return map->esdf;
-    }();
+    const auto& field = select_field<s, es>(*map);
     if (!field) return std::unexpected(operation_error{"geometry field is not captured"});
     if (field->index.size() > maximum_payload_bytes / (512 * sizeof(storage::value<s>)))
         return std::unexpected(operation_error{"geometry payload limit exceeded"});
