@@ -209,7 +209,7 @@ public:
         std::vector<retired_allocation> retained;
         auto append = [&]<storage::schema s>(const std::shared_ptr<const field_pool<s, l>>& field) {
             if (!field) return;
-            constexpr auto stride = storage::storage_traits<s, l>::tile_stride * (l == storage::layout::pool_soa ? storage::field_count<s> : 1);
+            constexpr auto stride = storage::payload_tile_bytes<s, l>;
             retained.push_back({field, field->payload.capacity() * stride});
         };
         append(entry->tsdf); append(entry->esdf);
@@ -498,8 +498,7 @@ public:
             auto admit = [&]<storage::schema s>(unsigned field) -> operation_status {
                 if (!(fields & (1U << field))) return {};
                 if (!state.content[field]) return std::unexpected(operation_error{"geometry field is absent"});
-                constexpr auto stride = storage::storage_traits<s, l>::tile_stride *
-                    (l == storage::layout::pool_soa ? storage::field_count<s> : 1);
+                constexpr auto stride = storage::payload_tile_bytes<s, l>;
                 const auto& host = select_field<s, es>(*cpu);
                 std::size_t capacity = host ? host->payload.capacity() : 0;
                 if (state.cpu[field] != state.content[field]) {
@@ -507,7 +506,7 @@ public:
                     auto resident = gpu_.template field<s>(id);
                     if (!resident) return std::unexpected(resident.error());
                     capacity = (*resident)->payload.size();
-                    constexpr auto record_bytes = 512 * sizeof(storage::value<s>);
+                    constexpr auto record_bytes = storage::canonical_tile_bytes<s>;
                     if (capacity > (readback_budget - download_bytes) / record_bytes)
                         return std::unexpected(operation_error{"geometry readback limit exceeded"});
                     download_bytes += capacity * record_bytes;

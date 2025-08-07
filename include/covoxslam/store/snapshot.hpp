@@ -35,8 +35,7 @@ public:
                 if (field->index.submap() != map.record.id || !epoch || field->content_epoch != epoch ||
                     field->index.slot_count() != field->payload.size())
                     return std::unexpected(operation_error{"snapshot field is inconsistent"});
-                constexpr auto bytes_per_tile = storage::storage_traits<s, l>::tile_stride *
-                    (l == storage::layout::pool_soa ? storage::field_count<s> : 1);
+                constexpr auto bytes_per_tile = storage::payload_tile_bytes<s, l>;
                 if (field->payload.capacity() > (byte_budget - result.bytes_) / bytes_per_tile)
                     return std::unexpected(operation_error{"snapshot payload budget exceeded"});
                 result.bytes_ += field->payload.capacity() * bytes_per_tile;

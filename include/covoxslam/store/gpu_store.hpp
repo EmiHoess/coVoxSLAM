@@ -54,8 +54,7 @@ template<storage::layout l, storage::schema es = storage::schema::esdf> class gp
             if (descriptor->record_schema != s || descriptor->storage_layout != l)
                 return std::unexpected(operation_error{"device source schema differs from destination"});
         }
-        constexpr auto stride = storage::storage_traits<s, l>::tile_stride *
-            (l == storage::layout::pool_soa ? storage::field_count<s> : 1);
+        constexpr auto stride = storage::payload_tile_bytes<s, l>;
         std::size_t buckets{2};
         if (source->index.size() > std::size_t(std::numeric_limits<std::uint32_t>::max()) / 2 ||
             source->payload.size() > std::numeric_limits<std::size_t>::max() / stride)
@@ -122,8 +121,7 @@ public:
         if (!resident) return std::unexpected(resident.error());
         auto metadata = (*resident)->source_identity.lock();
         if (!metadata) return std::unexpected(operation_error{"GPU readback topology is unavailable"});
-        constexpr auto stride = storage::storage_traits<s, l>::tile_stride *
-            (l == storage::layout::pool_soa ? storage::field_count<s> : 1);
+        constexpr auto stride = storage::payload_tile_bytes<s, l>;
         auto memory = budget_->reserve({metadata->payload.size() * stride, 0, 0});
         if (!memory) return std::unexpected(memory.error());
         auto candidate = std::make_shared<field_pool<s, l>>();

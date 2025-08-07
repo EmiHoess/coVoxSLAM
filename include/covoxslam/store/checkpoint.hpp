@@ -13,8 +13,7 @@ template<storage::schema s, storage::layout l> operation_result<std::shared_ptr<
     std::uint64_t count{};
     input.scalar(count);
     constexpr auto wire_stride = 24 + 512 * storage::field_count<s> * 4;
-    constexpr auto storage_stride = storage::storage_traits<s, l>::tile_stride *
-        (l == storage::layout::pool_soa ? storage::field_count<s> : 1);
+    constexpr auto storage_stride = storage::payload_tile_bytes<s, l>;
     if (!input.good || !epoch || count > maximum_tiles || count > input.remaining() / wire_stride ||
         count > std::numeric_limits<std::uint32_t>::max() || count > std::numeric_limits<std::size_t>::max() / storage_stride)
         return std::unexpected(operation_error{"checkpoint field length is invalid"});

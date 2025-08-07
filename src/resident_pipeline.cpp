@@ -58,7 +58,7 @@ operation_status resident_pipeline::close(sensor_grid::combined_map& mapper, sub
     const auto copied = std::chrono::steady_clock::now();
     state_->metrics.handoff_ms += std::chrono::duration<double, std::milli>(copied - started).count();
     state_->metrics.retained_tiles += *count;
-     state_->metrics.copied_device_bytes += *count * 512 * sizeof(storage::tsdf_value);
+     state_->metrics.copied_device_bytes += *count * storage::canonical_tile_bytes<storage::schema::tsdf>;
     store::band_esdf_options settings;
     settings.field.voxel_size = metadata.config.voxel_size;
     settings.field.truncation_distance = metadata.config.truncation_distance;
@@ -92,7 +92,8 @@ operation_result<stored_pipeline_result> resident_pipeline::finish(std::span<sub
         return std::unexpected(operation_error{"resident completion is unavailable"});
     auto valid = validate_store_pipeline(state_->options, solver);
     if (!valid) return std::unexpected(valid.error());
-    constexpr auto canonical_tile_bytes = 512 * (sizeof(storage::tsdf_value) + sizeof(storage::esdf_value));
+    constexpr auto canonical_tile_bytes = storage::canonical_tile_bytes<storage::schema::tsdf> +
+        storage::canonical_tile_bytes<storage::schema::esdf>;
 
     if (maps.size() != state_->configurations.size() ||
         state_->metrics.retained_tiles > state_->options.cpu_bytes / canonical_tile_bytes)
@@ -137,8 +138,8 @@ operation_result<stored_pipeline_result> resident_pipeline::finish(std::span<sub
         if (!esdf) return std::unexpected(esdf.error());
         if (tsdf->tsdf.size() != esdf->esdf.size())
             return std::unexpected(operation_error{"resident output field topology differs"});
-        const auto bytes = tsdf->tsdf.size() * 512 * sizeof(storage::tsdf_value) +
-            esdf->esdf.size() * 512 * sizeof(storage::esdf_value);
+        const auto bytes = tsdf->tsdf.size() * storage::canonical_tile_bytes<storage::schema::tsdf> +
+            esdf->esdf.size() * storage::canonical_tile_bytes<storage::schema::esdf>;
         map.tsdf = std::move(tsdf->tsdf);
          map.esdf = std::move(esdf->esdf);
         map.statistics.cuda_downloaded_bytes += bytes;
