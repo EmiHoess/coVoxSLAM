@@ -2,6 +2,7 @@
 #include <covoxslam/store/handle.hpp>
 #include <covoxslam/store/cpu_index.hpp>
 #include <covoxslam/store/budget.hpp>
+#include <covoxslam/store/field_access.hpp>
 #include <covoxslam/storage/draft.hpp>
 #include <covoxslam/storage/record_pack.hpp>
 #include <cmath>
@@ -150,11 +151,6 @@ template<storage::layout l, storage::schema es = storage::schema::esdf> class ma
         if (!checked) return std::unexpected(checked.error());
         return field;
     }
-    template<storage::schema s> auto& select_field(map_entry<l, es>& entry)
-    {
-        if constexpr (s == storage::schema::tsdf) return entry.tsdf;
-        else return entry.esdf;
-    }
     template<storage::schema s> operation_result<std::shared_ptr<field_pool<s, l>>> clone_field(
         std::uint64_t id, const std::shared_ptr<const field_pool<s, l>>& source, std::size_t count)
     {
@@ -186,7 +182,7 @@ public:
         auto found = maps_.find(id);
 
         if (found == maps_.end() || found->second.record.state != lifecycle::active || !epoch ||
-            select_field<s>(found->second))
+            select_field<s, es>(found->second))
             return std::unexpected(operation_error{"topology requires an empty active field"});
         cpu_block_index index;
         auto checked = index.initialize(id, s == storage::schema::tsdf ? field_kind::tsdf : field_kind::esdf, keys);
@@ -205,7 +201,7 @@ public:
         if (found == maps_.end() || found->second.record.state == lifecycle::retired || !replacement)
             return std::unexpected(operation_error{"mirror destination is unavailable"});
         auto& entry = found->second;
-        auto& field = select_field<s>(entry);
+        auto& field = select_field<s, es>(entry);
         const auto kind = s == storage::schema::tsdf ? field_kind::tsdf : field_kind::esdf;
         auto generation = next_epoch(entry.record.versions.allocation), descriptor = next_epoch(entry.record.versions.descriptor);
         if (!generation || !descriptor || !budget_->owns(replacement->memory) || replacement->index.submap() != id ||
@@ -227,7 +223,7 @@ public:
         if (found == maps_.end() || found->second.record.state != lifecycle::active)
             return std::unexpected(operation_error{"field editing requires an active submap"});
         auto& entry = found->second;
-        auto& source = select_field<s>(entry);
+        auto& source = select_field<s, es>(entry);
         auto epoch = next_epoch(source ? source->content_epoch : 0);
         auto allocation = next_epoch(entry.record.versions.allocation), descriptor = next_epoch(entry.record.versions.descriptor);
         if (!epoch || !allocation || !descriptor) return std::unexpected(operation_error{"field editing epoch exhausted"});
@@ -417,7 +413,7 @@ public:
         const auto* entry = find(id);
         if (!entry || entry->record.state == lifecycle::retired)
             return std::unexpected(operation_error{"submap identity is unavailable"});
-        auto result = [&]() { if constexpr (s == storage::schema::tsdf) return entry->tsdf; else return entry->esdf; }();
+        auto result = select_field<s, es>(*entry);
         if (!result) return std::unexpected(operation_error{"submap field is absent"});
         return result;
     }
@@ -440,7 +436,7 @@ public:
         if (found == maps_.end() || found->second.record.state != lifecycle::active)
             return std::unexpected(operation_error{"insertion requires an active submap"});
         auto& entry = found->second;
-        auto& source = select_field<s>(entry);
+        auto& source = select_field<s, es>(entry);
         if (source) {
             auto existing = source->index.find(key);
             if (existing) return existing;
@@ -478,7 +474,7 @@ public:
         auto& entry = maps_.at(handle.submap);
         if (entry.record.state != lifecycle::active) return std::unexpected(operation_error{"removal requires an active submap"});
         auto remove = [&]<storage::schema s>() -> operation_status {
-            auto& source = select_field<s>(entry);
+            auto& source = select_field<s, es>(entry);
             auto epoch = next_epoch(source->content_epoch), allocation = next_epoch(entry.record.versions.allocation);
             auto descriptor = next_epoch(entry.record.versions.descriptor);
             if (!epoch || !allocation || !descriptor) return std::unexpected(operation_error{"store epoch exhausted"});
@@ -507,7 +503,7 @@ public:
         if (found == maps_.end() || found->second.record.state != lifecycle::active)
             return std::unexpected(operation_error{"field import requires an active submap"});
         auto& entry = found->second;
-        auto& field = [&]() -> auto& { if constexpr (s == storage::schema::tsdf) return entry.tsdf; else return entry.esdf; }();
+        auto& field = select_field<s, es>(entry);
         const auto allocation = next_epoch(entry.record.versions.allocation);
         const auto descriptor = next_epoch(entry.record.versions.descriptor);
         if (!allocation || !descriptor) return std::unexpected(operation_error{"store epoch exhausted"});
