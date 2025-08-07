@@ -500,10 +500,7 @@ public:
                 if (!state.content[field]) return std::unexpected(operation_error{"geometry field is absent"});
                 constexpr auto stride = storage::storage_traits<s, l>::tile_stride *
                     (l == storage::layout::pool_soa ? storage::field_count<s> : 1);
-                const auto& host = [&]() -> const auto& {
-                    if constexpr (s == storage::schema::tsdf) return cpu->tsdf;
-                    else return cpu->esdf;
-                }();
+                const auto& host = select_field<s, es>(*cpu);
                 std::size_t capacity = host ? host->payload.capacity() : 0;
                 if (state.cpu[field] != state.content[field]) {
                     if (state.gpu[field] != state.content[field]) return std::unexpected(operation_error{"geometry has no current replica"});

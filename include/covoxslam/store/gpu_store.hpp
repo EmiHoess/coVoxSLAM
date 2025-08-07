@@ -175,8 +175,7 @@ public:
         if (!checked) return checked;
         candidate->content_epoch = content_epoch;
         if ((*previous)->memory) (*previous)->memory->retire();
-        if constexpr (s == storage::schema::tsdf) entry.tsdf = std::move(candidate);
-        else entry.esdf = std::move(candidate);
+        select_field<s, es>(entry) = std::move(candidate);
         (s == storage::schema::tsdf ? entry.record.versions.tsdf : entry.record.versions.esdf) = content_epoch;
         if constexpr (s != storage::schema::tsdf) entry.record.versions.esdf_source = esdf_source;
         entry.record.versions.allocation = *generation; entry.record.versions.descriptor = *descriptor;
@@ -297,7 +296,7 @@ public:
     {
         const auto found = maps_.find(id);
         if (found == maps_.end()) return std::unexpected(operation_error{"GPU submap is absent"});
-        auto selected = [&]() { if constexpr (s == storage::schema::tsdf) return found->second.tsdf; else return found->second.esdf; }();
+        auto selected = select_field<s, es>(found->second);
         if (!selected) return std::unexpected(operation_error{"GPU field is absent"});
         auto descriptor = selected->payload.descriptor();
         if (!descriptor) return std::unexpected(descriptor.error());
