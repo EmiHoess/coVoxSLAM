@@ -27,16 +27,7 @@ struct device_lookup
 #if defined(__CUDACC__)
 __device__ inline std::uint64_t device_key_hash(block_key key)
 {
-    auto hash = key.submap ^ UINT64_C(0x9e3779b97f4a7c15);
-    const std::int32_t coordinates[]{key.x, key.y, key.z};
-
-    for (auto coordinate : coordinates)
-        hash ^= std::uint32_t(coordinate) + UINT64_C(0x9e3779b97f4a7c15) + (hash << 6) + (hash >> 2);
-    hash ^= hash >> 30;
-    hash *= UINT64_C(0xbf58476d1ce4e5b9);
-    hash ^= hash >> 27;
-    hash *= UINT64_C(0x94d049bb133111eb);
-    return hash ^ (hash >> 31);
+    return block_key_hash(key);
 }
 __device__ inline bool device_key_equal(block_key a, block_key b)
 {
