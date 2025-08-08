@@ -173,7 +173,8 @@ public:
         if (!checked) return checked;
         candidate->content_epoch = content_epoch;
         if ((*previous)->memory) (*previous)->memory->retire();
-        select_field<s, es>(entry) = std::move(candidate);
+        if constexpr (s == storage::schema::tsdf) entry.tsdf = std::move(candidate);
+        else entry.esdf = std::move(candidate);
         (s == storage::schema::tsdf ? entry.record.versions.tsdf : entry.record.versions.esdf) = content_epoch;
         if constexpr (s != storage::schema::tsdf) entry.record.versions.esdf_source = esdf_source;
         entry.record.versions.allocation = *generation; entry.record.versions.descriptor = *descriptor;
