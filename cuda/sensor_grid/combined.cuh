@@ -5,16 +5,10 @@
 namespace covoxslam::sensor_grid
 {
 template <bool narrow>
-__device__ inline std::uint32_t combined_ray_id(layout_view view, std::uint32_t index)
-{
-    if constexpr (narrow) return view.ray_ids16[index];
-    return view.ray_ids[index];
-}
-template <bool narrow>
 __device__ inline combined_sample load_combined_sample(layout_view view, std::uint32_t index,
     const compact_ray* prepared)
 {
-    return {prepared[combined_ray_id<narrow>(view, index)], view.entry_t[index], view.projected[index]};
+    return {prepared[compact_ray_id<narrow>(view, index)], view.entry_t[index], view.projected[index]};
 }
 template <bool narrow>
 __device__ inline combined_sample load_combined_chunk(layout_view view, std::uint32_t start,
@@ -104,7 +98,7 @@ void combined_block_gather(layout_view view, std::uint32_t plan_offset, std::uin
         const auto index = start + offset;
         float weight = 0.0F, clipped = 0.0F;
 
-        if (compact_contribution(prepared[combined_ray_id<narrow>(view, index)], view.entry_t[index],
+        if (compact_contribution(prepared[compact_ray_id<narrow>(view, index)], view.entry_t[index],
                                   view.projected[index], settings, weight, clipped)) {
             sum_weight += static_cast<gather_accumulator>(weight);
             sum_distance += static_cast<gather_accumulator>(clipped) * static_cast<gather_accumulator>(weight);
