@@ -15,16 +15,57 @@ namespace covoxslam
 {
 namespace detail
 {
-pose read_pose(const json_value& value)
+operation_result<pose> read_pose(const json_value& value)
 {
-    const auto& translation = value.at("translation_m");
-    const auto& rotation = value.at("quaternion_xyzw");
+    const auto translation_member = value.member("translation_m");
+    if (!translation_member) return std::unexpected(translation_member.error());
+    const auto rotation_member = value.member("quaternion_xyzw");
+    if (!rotation_member) return std::unexpected(rotation_member.error());
+    const auto& translation = translation_member->get();
+    const auto& rotation = rotation_member->get();
+    if (translation.kind != json_kind::array || translation.items.size() != 3 ||
+        rotation.kind != json_kind::array || rotation.items.size() != 4)
+        return std::unexpected(operation_error{"invalid pose dimensions"});
+     auto scalar = [](const json_value& item) -> operation_result<float>
+    {
+        const auto number = item.number();
+        if (!number) return std::unexpected(number.error());
+        if (std::abs(*number) > std::numeric_limits<float>::max())
+            return std::unexpected(operation_error{"pose component exceeds float range"});
+        return static_cast<float>(*number);
+    };
+    std::array<float, 7> components;
+    for (std::size_t index = 0; index < translation.items.size(); ++index) {
+        const auto value = scalar(translation.items[index]);
+        if (!value) return std::unexpected(value.error());
+        components[index] = *value;
+    }
+    for (std::size_t index = 0; index < rotation.items.size(); ++index) {
+        const auto value = scalar(rotation.items[index]);
+        if (!value) return std::unexpected(value.error());
+        components[index + 3] = *value;
+    }
+    pose result;
+    result.translation = {components[0], components[1], components[2]};
+    result.rotation = {components[3], components[4], components[5], components[6]};
+    const auto& q = result.rotation;
+    const double norm = std::hypot(std::hypot(double(q.x), double(q.y)), std::hypot(double(q.z), double(q.w)));
+    if (std::abs(norm - 1) > 0.001)
+        return std::unexpected(operation_error{"pose quaternion is not normalized"});
+    result.rotation = normalized(result.rotation);
+     return result;
+}
+
+pose legacy_read_pose(const json_value& value)
+{
+    const auto& translation = value.legacy_at("translation_m");
+    const auto& rotation = value.legacy_at("quaternion_xyzw");
     if (translation.kind != json_kind::array || translation.items.size() != 3 ||
         rotation.kind != json_kind::array || rotation.items.size() != 4)
         throw std::runtime_error("invalid pose dimensions");
      auto scalar = [](const json_value& item)
     {
-        const double number = item.number();
+        const double number = item.legacy_number();
         if (std::abs(number) > std::numeric_limits<float>::max())
             throw std::runtime_error("pose component exceeds float range");
         return static_cast<float>(number);
@@ -50,25 +91,25 @@ std::filesystem::path frame_buffer_path(
     const std::filesystem::path& root,
     std::string_view unit = {}, std::string_view encoding = {})
 {
-    const auto& buffer = buffers.at(name);
-    const auto& shape_value = buffer.at("shape");
+    const auto& buffer = buffers.legacy_at(name);
+    const auto& shape_value = buffer.legacy_at("shape");
     const auto& dimensions = shape_value.items;
-    if (shape_value.kind != detail::json_kind::array || buffer.at("dtype").string() != dtype ||
-        buffer.at("layout").string() != layout ||
-         buffer.at("byte_order").string() != "little_endian" ||
+    if (shape_value.kind != detail::json_kind::array || buffer.legacy_at("dtype").legacy_string() != dtype ||
+        buffer.legacy_at("layout").legacy_string() != layout ||
+         buffer.legacy_at("byte_order").legacy_string() != "little_endian" ||
         dimensions.size() != shape.size())
         throw std::runtime_error("unsupported organized buffer format");
-    if (!unit.empty() && buffer.at("unit").string() != unit)
+    if (!unit.empty() && buffer.legacy_at("unit").legacy_string() != unit)
         throw std::runtime_error("unsupported frame buffer unit");
     if (!encoding.empty() && buffer.members.contains("invalid_encoding") &&
-        buffer.at("invalid_encoding").string() != encoding)
+        buffer.legacy_at("invalid_encoding").legacy_string() != encoding)
         throw std::runtime_error("unsupported frame zero encoding");
     std::size_t index{};
     for (const auto extent : shape) {
-        if (dimensions[index++].unsigned_integer() != extent)
+        if (dimensions[index++].legacy_unsigned_integer() != extent)
             throw std::runtime_error("buffer shape does not match the frame");
     }
-    return detail::dataset_path(root, buffer.at("file").string());
+    return detail::legacy_dataset_path(root, buffer.legacy_at("file").legacy_string());
 }
 
 std::size_t frame_beam_count(const frame_descriptor& frame)
@@ -88,49 +129,49 @@ operation_result<frame_descriptor> read_frame_descriptor(
     const std::filesystem::path& root, const std::filesystem::path& metadata_path)
 {
     frame_descriptor frame;
-    frame.metadata_path = detail::dataset_path(root, metadata_path.lexically_relative(root));
+    frame.metadata_path = detail::legacy_dataset_path(root, metadata_path.lexically_relative(root));
     frame.metadata_content_hash = hash_file(frame.metadata_path).content_hash;
     const auto parsed = detail::read_metadata(frame.metadata_path);
     if (!parsed) return std::unexpected(parsed.error());
     const auto& value = *parsed;
-    if (value.at("schema_version").string() != "covox.spinning_lidar.v2")
+    if (value.legacy_at("schema_version").legacy_string() != "covox.spinning_lidar.v2")
         return std::unexpected(operation_error{"unsupported frame schema"});
-    if (value.at("document_type").string() != "spinning_lidar_frame")
+    if (value.legacy_at("document_type").legacy_string() != "spinning_lidar_frame")
         return std::unexpected(operation_error{"unexpected frame document type"});
-    const auto id = value.at("frame_id").unsigned_integer();
+    const auto id = value.legacy_at("frame_id").legacy_unsigned_integer();
     if (id > static_cast<std::uint64_t>(std::numeric_limits<int>::max()))
         return std::unexpected(operation_error{"frame identifier exceeds the integer range"});
      frame.frame_id = static_cast<int>(id);
     if (value.members.contains("submap_id")) {
-        const double id_value = value.at("submap_id").number();
+        const double id_value = value.legacy_at("submap_id").legacy_number();
         if (id_value < -1 || id_value > std::numeric_limits<int>::max() ||
             std::trunc(id_value) != id_value)
             return std::unexpected(operation_error{"invalid submap identifier"});
         frame.submap_id = static_cast<int>(id_value);
     }
-    frame.start_stamp_ns = value.at("header_stamp_ns").unsigned_integer();
-    frame.end_stamp_ns = value.at("scan_end_stamp_ns").unsigned_integer();
-    frame.rows = value.at("organized_rows").unsigned_integer();
-    frame.columns = value.at("organized_cols").unsigned_integer();
-     frame.beam_count = value.at("beam_count").unsigned_integer();
-    frame.hit_count = value.at("hit_count").unsigned_integer();
-    frame.dropout_count = value.at("dropout_count").unsigned_integer();
-    frame.invalid_count = value.at("invalid_count").unsigned_integer();
-    frame.outlier_count = value.at("outlier_count").unsigned_integer();
+    frame.start_stamp_ns = value.legacy_at("header_stamp_ns").legacy_unsigned_integer();
+    frame.end_stamp_ns = value.legacy_at("scan_end_stamp_ns").legacy_unsigned_integer();
+    frame.rows = value.legacy_at("organized_rows").legacy_unsigned_integer();
+    frame.columns = value.legacy_at("organized_cols").legacy_unsigned_integer();
+     frame.beam_count = value.legacy_at("beam_count").legacy_unsigned_integer();
+    frame.hit_count = value.legacy_at("hit_count").legacy_unsigned_integer();
+    frame.dropout_count = value.legacy_at("dropout_count").legacy_unsigned_integer();
+    frame.invalid_count = value.legacy_at("invalid_count").legacy_unsigned_integer();
+    frame.outlier_count = value.legacy_at("outlier_count").legacy_unsigned_integer();
     const auto count = frame_beam_count(frame);
     if (frame.hit_count > count || frame.dropout_count > count - frame.hit_count ||
         frame.invalid_count != count - frame.hit_count - frame.dropout_count ||
         frame.outlier_count > frame.hit_count)
         return std::unexpected(operation_error{"inconsistent frame counters"});
-    frame.ground_truth_start = detail::read_pose(value.at("pose_world_lidar_start"));
-    frame.ground_truth_end = detail::read_pose(value.at("pose_world_lidar_end"));
+    frame.ground_truth_start = detail::legacy_read_pose(value.legacy_at("pose_world_lidar_start"));
+    frame.ground_truth_end = detail::legacy_read_pose(value.legacy_at("pose_world_lidar_end"));
     frame.odometry_start = value.members.contains("odometry_pose_world_lidar_start")
-        ? detail::read_pose(value.at("odometry_pose_world_lidar_start"))
+        ? detail::legacy_read_pose(value.legacy_at("odometry_pose_world_lidar_start"))
         : frame.ground_truth_start;
      frame.odometry_end = value.members.contains("odometry_pose_world_lidar_end")
-        ? detail::read_pose(value.at("odometry_pose_world_lidar_end"))
+        ? detail::legacy_read_pose(value.legacy_at("odometry_pose_world_lidar_end"))
         : frame.ground_truth_end;
-    const auto& buffers = value.at("buffers");
+    const auto& buffers = value.legacy_at("buffers");
     const auto rows = frame.rows;
     const auto columns = frame.columns;
     frame.raw_xyz_path = frame_buffer_path(
@@ -181,73 +222,73 @@ operation_result<dataset> load_dataset(const std::filesystem::path& root, datase
     const auto& metadata = *parsed;
     const auto manifest_hash = hash_file(selected).content_hash;
     const auto encoding = selected.extension() == ".toml" ? "toml" : "json";
-    if (metadata.members.contains("metadata_format") && metadata.at("metadata_format").string() != encoding)
+    if (metadata.members.contains("metadata_format") && metadata.legacy_at("metadata_format").legacy_string() != encoding)
         return std::unexpected(operation_error{"metadata format disagrees with extension"});
-    result.schema_version = metadata.at("schema_version").string();
+    result.schema_version = metadata.legacy_at("schema_version").legacy_string();
     if (result.schema_version != "covox.spinning_lidar.v2" ||
-        metadata.at("document_type").string() != "spinning_lidar_dataset")
+        metadata.legacy_at("document_type").legacy_string() != "spinning_lidar_dataset")
         return std::unexpected(operation_error{"unsupported dataset schema"});
-    result.name = metadata.at("name").string();
-     result.type = metadata.at("type").string();
-    const auto& units = metadata.at("units");
-    if (units.at("distance").string() != "meters" || units.at("angle").string() != "radians" ||
-        units.at("timestamp").string() != "nanoseconds" || units.at("range").string() != "millimeters")
+    result.name = metadata.legacy_at("name").legacy_string();
+     result.type = metadata.legacy_at("type").legacy_string();
+    const auto& units = metadata.legacy_at("units");
+    if (units.legacy_at("distance").legacy_string() != "meters" || units.legacy_at("angle").legacy_string() != "radians" ||
+        units.legacy_at("timestamp").legacy_string() != "nanoseconds" || units.legacy_at("range").legacy_string() != "millimeters")
         return std::unexpected(operation_error{"unsupported dataset units"});
-    const auto sensor_path = dataset_path(result.root, metadata.at("sensor_file").string());
+    const auto sensor_path = legacy_dataset_path(result.root, metadata.legacy_at("sensor_file").legacy_string());
     const auto sensor_hash = hash_file(sensor_path).content_hash;
     const auto parsed_calibration = read_metadata(sensor_path);
     if (!parsed_calibration) return std::unexpected(parsed_calibration.error());
     const auto& calibration = *parsed_calibration;
-    if (calibration.at("schema_version").string() != result.schema_version ||
-        calibration.at("document_type").string() != "spinning_lidar_sensor")
+    if (calibration.legacy_at("schema_version").legacy_string() != result.schema_version ||
+        calibration.legacy_at("document_type").legacy_string() != "spinning_lidar_sensor")
         return std::unexpected(operation_error{"unsupported sensor schema"});
-    const auto& convention = metadata.at("frame_convention");
-    if (convention.at("handedness").string() != "right_handed" ||
-        convention.at("quaternion_order").string() != "xyzw" ||
-        convention.at("transform_notation").string() != "T_parent_child_maps_child_to_parent")
+    const auto& convention = metadata.legacy_at("frame_convention");
+    if (convention.legacy_at("handedness").legacy_string() != "right_handed" ||
+        convention.legacy_at("quaternion_order").legacy_string() != "xyzw" ||
+        convention.legacy_at("transform_notation").legacy_string() != "T_parent_child_maps_child_to_parent")
         return std::unexpected(operation_error{"unsupported coordinate convention"});
-    const auto& timing = metadata.at("timestamp_convention");
-    if (timing.at("origin").string() != "dataset_relative" ||
-        timing.at("scan_header").string() != "first_column" ||
-        timing.at("beam_offsets").string() != "relative_to_scan_header")
+    const auto& timing = metadata.legacy_at("timestamp_convention");
+    if (timing.legacy_at("origin").legacy_string() != "dataset_relative" ||
+        timing.legacy_at("scan_header").legacy_string() != "first_column" ||
+        timing.legacy_at("beam_offsets").legacy_string() != "relative_to_scan_header")
         return std::unexpected(operation_error{"unsupported timestamp convention"});
     auto& sensor = result.sensor;
-    sensor.model = calibration.at("sensor_model").string();
-    sensor.acquisition_model = calibration.at("acquisition_model").string();
-    sensor.rings = calibration.at("rings").unsigned_integer();
-    sensor.columns = calibration.at("columns").unsigned_integer();
+    sensor.model = calibration.legacy_at("sensor_model").legacy_string();
+    sensor.acquisition_model = calibration.legacy_at("acquisition_model").legacy_string();
+    sensor.rings = calibration.legacy_at("rings").legacy_unsigned_integer();
+    sensor.columns = calibration.legacy_at("columns").legacy_unsigned_integer();
     if (!sensor.rings || !sensor.columns || sensor.rings > 16777216 / sensor.columns)
         return std::unexpected(operation_error{"invalid sensor dimensions"});
-    if (calibration.at("beam_count").unsigned_integer() != sensor.rings * sensor.columns)
+    if (calibration.legacy_at("beam_count").legacy_unsigned_integer() != sensor.rings * sensor.columns)
         return std::unexpected(operation_error{"sensor beam count mismatch"});
-     sensor.scan_rate_hz = calibration.at("scan_rate_hz").number();
-    sensor.scan_period_ns = calibration.at("scan_period_ns").unsigned_integer();
-    sensor.azimuth_start_rad = calibration.at("azimuth_start_rad").number();
-    sensor.azimuth_coverage_rad = calibration.at("azimuth_coverage_rad").number();
-    const auto direction = calibration.at("rotation_direction").string();
+     sensor.scan_rate_hz = calibration.legacy_at("scan_rate_hz").legacy_number();
+    sensor.scan_period_ns = calibration.legacy_at("scan_period_ns").legacy_unsigned_integer();
+    sensor.azimuth_start_rad = calibration.legacy_at("azimuth_start_rad").legacy_number();
+    sensor.azimuth_coverage_rad = calibration.legacy_at("azimuth_coverage_rad").legacy_number();
+    const auto direction = calibration.legacy_at("rotation_direction").legacy_string();
     if (direction != "clockwise" && direction != "counter_clockwise")
         return std::unexpected(operation_error{"unsupported sensor rotation direction"});
     sensor.counter_clockwise = direction == "counter_clockwise";
-    const auto& angles = calibration.at("vertical_angles_rad");
+    const auto& angles = calibration.legacy_at("vertical_angles_rad");
     if (angles.kind != json_kind::array || angles.items.size() != sensor.rings)
         return std::unexpected(operation_error{"invalid vertical angle table"});
     for (const auto& angle : angles.items)
     {
-        const auto radians = angle.number();
+        const auto radians = angle.legacy_number();
          if (std::abs(radians) > 1.5707963267948966) return std::unexpected(operation_error{"invalid beam elevation"});
         sensor.vertical_angles_rad.push_back(static_cast<float>(radians));
     }
-    const auto minimum = calibration.at("min_range_m").number();
-    const auto maximum = calibration.at("max_range_m").number();
+    const auto minimum = calibration.legacy_at("min_range_m").legacy_number();
+    const auto maximum = calibration.legacy_at("max_range_m").legacy_number();
     if (minimum < 0 || maximum <= minimum || maximum > std::numeric_limits<float>::max() ||
         sensor.scan_rate_hz <= 0 || !sensor.scan_period_ns || sensor.azimuth_coverage_rad <= 0 ||
         sensor.azimuth_coverage_rad > 6.283185307179587)
         return std::unexpected(operation_error{"invalid sensor ranges or timing"});
     sensor.min_range_m = static_cast<float>(minimum);
     sensor.max_range_m = static_cast<float>(maximum);
-    sensor.body_from_lidar = read_pose(calibration.at("T_parent_child"));
-    const std::filesystem::path pattern(metadata.at("frame_metadata_pattern").string());
-     const auto frame_directory = dataset_path(result.root, pattern.parent_path());
+    sensor.body_from_lidar = legacy_read_pose(calibration.legacy_at("T_parent_child"));
+    const std::filesystem::path pattern(metadata.legacy_at("frame_metadata_pattern").legacy_string());
+     const auto frame_directory = legacy_dataset_path(result.root, pattern.parent_path());
     const auto filename = pattern.filename().string();
     const auto wildcard = filename.find('*');
     if (wildcard == std::string::npos || filename.find('*', wildcard + 1) != std::string::npos)
@@ -259,14 +300,14 @@ operation_result<dataset> load_dataset(const std::filesystem::path& root, datase
             name.ends_with(filename.substr(wildcard + 1)))
         {
             auto frame = read_frame_descriptor(result.root,
-                dataset_path(result.root, pattern.parent_path() / entry.path().filename()));
+                legacy_dataset_path(result.root, pattern.parent_path() / entry.path().filename()));
             if (!frame) return std::unexpected(frame.error());
             if (frame->rows != sensor.rings || frame->columns != sensor.columns)
                 return std::unexpected(operation_error{"frame dimensions differ from the sensor calibration"});
             result.frames.push_back(std::move(*frame));
         }
     }
-     if (result.frames.size() != metadata.at("num_frames").unsigned_integer())
+     if (result.frames.size() != metadata.legacy_at("num_frames").legacy_unsigned_integer())
         return std::unexpected(operation_error{"frame metadata count mismatch"});
     std::sort(result.frames.begin(), result.frames.end(), [](const auto& left, const auto& right) {
         return left.frame_id < right.frame_id;
@@ -300,7 +341,7 @@ std::vector<std::uint8_t> read_frame_bytes(
     if (path.empty() || width == 0 ||
         count > static_cast<std::size_t>(std::numeric_limits<std::streamsize>::max()) / width)
         throw std::runtime_error("missing frame buffer or invalid byte count");
-    const auto resolved = detail::dataset_path(input.root, path.lexically_relative(input.root));
+    const auto resolved = detail::legacy_dataset_path(input.root, path.lexically_relative(input.root));
     const auto bytes = count * width;
      std::ifstream file(resolved, std::ios::binary | std::ios::ate);
     if (!file || file.tellg() != static_cast<std::streamoff>(bytes))
@@ -433,7 +474,7 @@ void validate_frame_payload_bounds(
         total += bytes;
         if (request.path->empty())
             throw std::runtime_error("a requested frame buffer is absent");
-        const auto path = detail::dataset_path(
+        const auto path = detail::legacy_dataset_path(
             input.root, request.path->lexically_relative(input.root));
         if (!std::filesystem::is_regular_file(path) || std::filesystem::file_size(path) != bytes)
             throw std::runtime_error("requested frame buffer has an invalid path or size");
@@ -679,15 +720,15 @@ operation_result<std::vector<pose_sample>> read_trajectory(
             return std::unexpected(parsed.error());
         }
         const auto& value = *parsed;
-        if (value.at("schema_version").string() != "covox.spinning_lidar.v2" ||
-             value.at("document_type").string() != "spinning_lidar_trajectory_record")
+        if (value.legacy_at("schema_version").legacy_string() != "covox.spinning_lidar.v2" ||
+             value.legacy_at("document_type").legacy_string() != "spinning_lidar_trajectory_record")
             throw std::runtime_error("unsupported trajectory record schema");
-        if (value.at("trajectory_kind").string() != kind)
+        if (value.legacy_at("trajectory_kind").legacy_string() != kind)
             throw std::runtime_error("trajectory kind does not match its descriptor");
-        if (value.at("parent_frame").string() != convention.at("world_frame").string() ||
-            value.at("child_frame").string() != convention.at("sensor_frame").string())
+        if (value.legacy_at("parent_frame").legacy_string() != convention.legacy_at("world_frame").legacy_string() ||
+            value.legacy_at("child_frame").legacy_string() != convention.legacy_at("sensor_frame").legacy_string())
             throw std::runtime_error("trajectory coordinate frames disagree with the manifest");
-        pose_sample sample{value.at("stamp_ns").unsigned_integer(), detail::read_pose(value)};
+        pose_sample sample{value.legacy_at("stamp_ns").legacy_unsigned_integer(), detail::legacy_read_pose(value)};
         if (!result.empty() && sample.stamp_ns <= result.back().stamp_ns)
             throw std::runtime_error("trajectory timestamps are not strictly increasing");
         result.push_back(sample);
@@ -701,17 +742,17 @@ operation_status load_json_trajectories(dataset& input, const detail::json_value
 {
     if (input.type != "recorded_spinning_lidar" && input.type != "synthetic_spinning_lidar")
         throw std::runtime_error("unsupported spinning lidar dataset type");
-    const auto& convention = metadata.at("frame_convention");
+    const auto& convention = metadata.legacy_at("frame_convention");
     if (metadata.members.contains("trajectory_ground_truth_file")) {
-        auto ground_truth = read_trajectory(detail::dataset_path(input.root,
-            metadata.at("trajectory_ground_truth_file").string()), "ground_truth", convention);
+        auto ground_truth = read_trajectory(detail::legacy_dataset_path(input.root,
+            metadata.legacy_at("trajectory_ground_truth_file").legacy_string()), "ground_truth", convention);
         if (!ground_truth) return std::unexpected(ground_truth.error());
         input.ground_truth = std::move(*ground_truth);
     }
     else if (input.type != "recorded_spinning_lidar")
         throw std::runtime_error("synthetic recording requires a ground truth trajectory");
-    auto odometry = read_trajectory(detail::dataset_path(input.root,
-        metadata.at("odometry_file").string()), "odometry", convention);
+    auto odometry = read_trajectory(detail::legacy_dataset_path(input.root,
+        metadata.legacy_at("odometry_file").legacy_string()), "odometry", convention);
     if (!odometry) return std::unexpected(odometry.error());
      input.odometry = std::move(*odometry);
     return {};
@@ -804,7 +845,7 @@ std::uint64_t input_structure_hash(const dataset& input, const detail::json_valu
     for (const auto key : {"sensor_file", "world_file", "timeline_file"})
     {
         if (metadata.members.contains(key))
-            paths.push_back(detail::dataset_path(input.root, metadata.at(key).string()));
+            paths.push_back(detail::legacy_dataset_path(input.root, metadata.legacy_at(key).legacy_string()));
     }
     for (const auto& frame : input.frames)
     {
@@ -824,7 +865,7 @@ std::uint64_t input_structure_hash(const dataset& input, const detail::json_valu
     for (const auto key : {"trajectory_ground_truth_file", "odometry_file"})
     {
         if (!metadata.members.contains(key)) continue;
-        const auto identity = file_identity(detail::dataset_path(input.root, metadata.at(key).string()));
+        const auto identity = file_identity(detail::legacy_dataset_path(input.root, metadata.legacy_at(key).legacy_string()));
         structure.append(identity.size);
         structure.append(identity.modified);
     }
@@ -843,7 +884,7 @@ void prepare_payload_index(dataset& input)
             {frame.time_offset_ns_path, frame.columns * 4ULL}}};
         for (const auto& [path, size] : payloads) {
             if (path.empty()) continue;
-            const auto resolved = detail::dataset_path(input.root, path.lexically_relative(input.root));
+            const auto resolved = detail::legacy_dataset_path(input.root, path.lexically_relative(input.root));
             const auto identity = file_identity(resolved);
             if (identity.size != size)
                 throw std::runtime_error("indexed payload size disagrees with frame metadata");
@@ -972,7 +1013,7 @@ std::vector<pose_sample> read_cached_trajectory(cache_buffer& buffer)
 bool read_input_cache(dataset& input, std::uint64_t structure_hash, bool ground_truth_expected)
 {
     try {
-        auto buffer = read_cache_bytes(detail::dataset_path(input.root, ".covox_input_cache_v1.bin"));
+        auto buffer = read_cache_bytes(detail::legacy_dataset_path(input.root, ".covox_input_cache_v1.bin"));
         if (buffer.take<std::uint64_t>() != structure_hash ||
             buffer.take<std::uint64_t>() != input.payload_index.size()) return false;
         auto payloads = input.payload_index;

@@ -188,14 +188,48 @@ public:
 };
 }
 
-const json_value& json_value::at(std::string_view key) const
+operation_result<std::reference_wrapper<const json_value>> json_value::member(std::string_view key) const
+{
+    if (kind != json_kind::object) return std::unexpected(operation_error{"expected JSON object"});
+    const auto found = members.find(key);
+    if (found == members.end())
+        return std::unexpected(operation_error{"missing JSON member " + std::string(key)});
+     return std::cref(found->second);
+}
+operation_result<std::reference_wrapper<const std::string>> json_value::string() const
+{
+    if (kind != json_kind::string) return std::unexpected(operation_error{"expected JSON string"});
+    return std::cref(scalar);
+}
+operation_result<std::uint64_t> json_value::unsigned_integer() const
+{
+    if (kind != json_kind::number)
+        return std::unexpected(operation_error{"expected exact unsigned JSON integer"});
+    std::uint64_t value{};
+    const auto result = std::from_chars(scalar.data(), scalar.data() + scalar.size(), value);
+     if (result.ec != std::errc{} || result.ptr != scalar.data() + scalar.size())
+        return std::unexpected(operation_error{"expected exact unsigned JSON integer"});
+    return value;
+}
+operation_result<double> json_value::number() const
+{
+    if (kind != json_kind::number)
+        return std::unexpected(operation_error{"expected finite JSON number"});
+    double value{};
+    const auto result = std::from_chars(scalar.data(), scalar.data() + scalar.size(), value);
+    if (result.ec != std::errc{} || result.ptr != scalar.data() + scalar.size() || !std::isfinite(value))
+        return std::unexpected(operation_error{"expected finite JSON number"});
+    return value;
+}
+
+const json_value& json_value::legacy_at(std::string_view key) const
 {
     if (kind != json_kind::object) throw std::runtime_error("expected JSON object");
     const auto found = members.find(key);
     if (found == members.end()) throw std::runtime_error("missing JSON member " + std::string(key));
      return found->second;
 }
-const std::string& json_value::string() const {
+const std::string& json_value::legacy_string() const {
     if (kind != json_kind::string) throw std::runtime_error("expected JSON string");
     return scalar;
 }
@@ -204,7 +238,7 @@ operation_result<json_value> parse_json(std::string_view text)
     return json_cursor(text).parse();
 }
 
-std::uint64_t json_value::unsigned_integer() const
+std::uint64_t json_value::legacy_unsigned_integer() const
 {
     std::uint64_t value{};
     const auto result = std::from_chars(scalar.data(), scalar.data() + scalar.size(), value);
@@ -214,7 +248,7 @@ std::uint64_t json_value::unsigned_integer() const
     return value;
 }
 
-double json_value::number() const {
+double json_value::legacy_number() const {
     double value{};
     const auto result = std::from_chars(scalar.data(), scalar.data() + scalar.size(), value);
     if (kind != json_kind::number || result.ec != std::errc{} ||
@@ -241,8 +275,29 @@ operation_result<json_value> read_json(const std::filesystem::path& path)
     return result;
 }
 
-std::filesystem::path dataset_path(const std::filesystem::path& root,
-                                   const std::filesystem::path& relative)
+operation_result<std::filesystem::path> dataset_path(const std::filesystem::path& root,
+                                                     const std::filesystem::path& relative)
+{
+    if (relative.empty() || relative.has_root_path())
+        return std::unexpected(operation_error{"expected relative dataset path"});
+    for (const auto& component : relative)
+        if (component == ".." || component.native().find(
+            static_cast<std::filesystem::path::value_type>(':')) != std::filesystem::path::string_type::npos)
+            return std::unexpected(operation_error{"invalid dataset path component"});
+    std::error_code error;
+    const auto base = std::filesystem::canonical(root, error);
+    if (error) return std::unexpected(operation_error{"cannot resolve dataset root"});
+    error.clear();
+     const auto target = std::filesystem::weakly_canonical(base / relative, error);
+    if (error) return std::unexpected(operation_error{"cannot resolve dataset path"});
+    const auto local = target.lexically_relative(base);
+    if (local.empty() || *local.begin() == "..")
+        return std::unexpected(operation_error{"dataset path escapes root"});
+    return target;
+}
+
+std::filesystem::path legacy_dataset_path(const std::filesystem::path& root,
+                                          const std::filesystem::path& relative)
 {
     if (relative.empty() || relative.has_root_path())
         throw std::runtime_error("expected relative dataset path");
