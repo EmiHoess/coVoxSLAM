@@ -149,10 +149,10 @@ operation_result<frame_descriptor> read_frame_descriptor(
 
 namespace
 {
-void load_json_trajectories(dataset& input, const detail::json_value& metadata);
+operation_status load_json_trajectories(dataset& input, const detail::json_value& metadata);
 void validate_trajectory_coverage(const dataset& input);
-void load_dataset_inputs(dataset& input, const detail::json_value& metadata,
-                         dataset_load_options options);
+operation_status load_dataset_inputs(dataset& input, const detail::json_value& metadata,
+                                     dataset_load_options options);
 std::uint64_t input_structure_hash(const dataset& input, const detail::json_value& metadata);
 void index_dataset_payloads(dataset& input, std::uint64_t structure_hash);
 void write_input_cache(const dataset& input, std::uint64_t structure_hash);
@@ -274,7 +274,8 @@ operation_result<dataset> load_dataset(const std::filesystem::path& root, datase
     for (std::size_t index = 1; index < result.frames.size(); ++index)
         if (result.frames[index - 1].frame_id == result.frames[index].frame_id)
             return std::unexpected(operation_error{"duplicate frame identifier"});
-    load_dataset_inputs(result, metadata, options);
+    auto inputs = load_dataset_inputs(result, metadata, options);
+    if (!inputs) return std::unexpected(inputs.error());
     if (manifest_hash != hash_file(selected).content_hash ||
         sensor_hash != hash_file(sensor_path).content_hash)
         return std::unexpected(operation_error{"recording metadata changed while inputs were loaded"});
@@ -655,7 +656,7 @@ void validate_pose_sample(const pose_sample& sample)
         throw std::runtime_error("invalid trajectory pose");
 }
 
-std::vector<pose_sample> read_trajectory(
+operation_result<std::vector<pose_sample>> read_trajectory(
     const std::filesystem::path& path, std::string_view kind, const detail::json_value& convention)
 {
     const auto before = file_identity(path);
@@ -663,13 +664,21 @@ std::vector<pose_sample> read_trajectory(
     if (!file) throw std::runtime_error("cannot open trajectory");
     std::vector<pose_sample> result;
     std::vector<char> line(1024U * 1024U + 2);
+    std::size_t line_number{};
     while (file.getline(line.data(), static_cast<std::streamsize>(line.size())))
     {
+        ++line_number;
         const auto count = static_cast<std::size_t>(file.gcount()) - (file.eof() ? 0 : 1);
         if (count == 0 || (count == 1 && line[0] == '\r')) continue;
         if (count > 1024U * 1024U || result.size() >= maximum_trajectory_samples)
             throw std::length_error("trajectory exceeds its line or sample limit");
-        const auto value = detail::parse_json(std::string_view(line.data(), count));
+        auto parsed = detail::parse_json(std::string_view(line.data(), count));
+        if (!parsed) {
+            parsed.error().message = path.string() + ": line " + std::to_string(line_number) + ": " +
+                                     parsed.error().message;
+            return std::unexpected(parsed.error());
+        }
+        const auto& value = *parsed;
         if (value.at("schema_version").string() != "covox.spinning_lidar.v2" ||
              value.at("document_type").string() != "spinning_lidar_trajectory_record")
             throw std::runtime_error("unsupported trajectory record schema");
@@ -688,18 +697,24 @@ std::vector<pose_sample> read_trajectory(
     return result;
 }
 
-void load_json_trajectories(dataset& input, const detail::json_value& metadata)
+operation_status load_json_trajectories(dataset& input, const detail::json_value& metadata)
 {
     if (input.type != "recorded_spinning_lidar" && input.type != "synthetic_spinning_lidar")
         throw std::runtime_error("unsupported spinning lidar dataset type");
     const auto& convention = metadata.at("frame_convention");
-    if (metadata.members.contains("trajectory_ground_truth_file"))
-        input.ground_truth = read_trajectory(detail::dataset_path(input.root,
+    if (metadata.members.contains("trajectory_ground_truth_file")) {
+        auto ground_truth = read_trajectory(detail::dataset_path(input.root,
             metadata.at("trajectory_ground_truth_file").string()), "ground_truth", convention);
+        if (!ground_truth) return std::unexpected(ground_truth.error());
+        input.ground_truth = std::move(*ground_truth);
+    }
     else if (input.type != "recorded_spinning_lidar")
         throw std::runtime_error("synthetic recording requires a ground truth trajectory");
-     input.odometry = read_trajectory(detail::dataset_path(input.root,
+    auto odometry = read_trajectory(detail::dataset_path(input.root,
         metadata.at("odometry_file").string()), "odometry", convention);
+    if (!odometry) return std::unexpected(odometry.error());
+     input.odometry = std::move(*odometry);
+    return {};
 }
 
 void validate_trajectory_coverage(const dataset& input)
@@ -983,8 +998,8 @@ bool read_input_cache(dataset& input, std::uint64_t structure_hash, bool ground_
     }
 }
 
-void load_dataset_inputs(dataset& input, const detail::json_value& metadata,
-                          dataset_load_options options)
+operation_status load_dataset_inputs(dataset& input, const detail::json_value& metadata,
+                                     dataset_load_options options)
 {
     if (options.verification != dataset_verification_mode::prefer_cache &&
         options.verification != dataset_verification_mode::force_full)
@@ -994,7 +1009,8 @@ void load_dataset_inputs(dataset& input, const detail::json_value& metadata,
     const bool cached = options.verification == dataset_verification_mode::prefer_cache &&
                         read_input_cache(input, structure_hash, metadata.members.contains("trajectory_ground_truth_file"));
     if (!cached) {
-        load_json_trajectories(input, metadata);
+        auto loaded = load_json_trajectories(input, metadata);
+        if (!loaded) return std::unexpected(loaded.error());
          index_dataset_payloads(input, structure_hash);
     }
     if (input_structure_hash(input, metadata) != structure_hash)
@@ -1002,6 +1018,7 @@ void load_dataset_inputs(dataset& input, const detail::json_value& metadata,
     validate_trajectory_coverage(input);
     input.input_source = cached ? dataset_input_source::validated_cache : dataset_input_source::full_scan;
     update_content_fingerprint(input, structure_hash);
+    return {};
 }
 }
 }
