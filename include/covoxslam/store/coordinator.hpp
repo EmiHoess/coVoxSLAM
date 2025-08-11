@@ -1,4 +1,5 @@
 #pragma once
+#include <covoxslam/core/result.hpp>
 #include <covoxslam/store/store.hpp>
 #include <covoxslam/store/authority.hpp>
 #include <covoxslam/store/snapshot.hpp>

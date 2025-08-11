@@ -2,7 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <covoxslam/result.hpp>
+#include <covoxslam/core/result.hpp>
 #include <string>
 
 namespace covoxslam

@@ -1,5 +1,5 @@
 #include <covoxslam/dataset.hpp>
-#include <covoxslam/result.hpp>
+#include <covoxslam/core/result.hpp>
 #include "frame_pipeline_cli.hpp"
 #include "sensor_grid_cli.hpp"
 

@@ -1,4 +1,5 @@
 #pragma once
+#include <covoxslam/core/result.hpp>
 #include <covoxslam/pgo.hpp>
 
 #if defined(covoxslam_has_pgo)

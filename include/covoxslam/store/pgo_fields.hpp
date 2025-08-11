@@ -1,4 +1,5 @@
 #pragma once
+#include <covoxslam/core/result.hpp>
 #include <covoxslam/store/geometry.hpp>
 #include <covoxslam/storage/transfer_plan.hpp>
 #include <covoxslam/pgo.hpp>

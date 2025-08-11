@@ -1,5 +1,7 @@
 #pragma once
 
+#include <covoxslam/core/geometry.hpp>
+#include <covoxslam/core/result.hpp>
 #include <covoxslam/sensor_grid_cuda.hpp>
 #include <covoxslam/sensor_grid_sampling.h>
 #include <covoxslam/mapping.hpp>

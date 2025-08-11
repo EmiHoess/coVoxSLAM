@@ -1,4 +1,5 @@
 #pragma once
+#include <covoxslam/core/result.hpp>
 #include <covoxslam/store/pgo_fields.hpp>
 #include <covoxslam/store/coordinator.hpp>
 #include <covoxslam/pgo_snapshot.hpp>

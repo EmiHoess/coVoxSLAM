@@ -1,4 +1,5 @@
 #pragma once
+#include <covoxslam/core/result.hpp>
 #include <covoxslam/storage/draft.hpp>
 #include <covoxslam/storage/device_view.hpp>
 #include <covoxslam/storage/cuda_transfers.hpp>

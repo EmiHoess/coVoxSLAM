@@ -1,4 +1,5 @@
 #pragma once
+#include <covoxslam/core/result.hpp>
 #include <covoxslam/store/cpu_index.hpp>
 #include <algorithm>
 #include <array>

@@ -1,6 +1,6 @@
 #pragma once
 
-#include <covoxslam/types.hpp>
+#include <covoxslam/core/geometry.hpp>
 
 #include <map>
 #include <cstdint>

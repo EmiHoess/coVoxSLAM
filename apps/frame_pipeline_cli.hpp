@@ -1,5 +1,7 @@
 #pragma once
 
+#include <covoxslam/core/geometry.hpp>
+#include <covoxslam/core/result.hpp>
 #include <covoxslam/mapping.hpp>
 #include "mapping_cli.hpp"
 #include "map_export_cli.hpp"

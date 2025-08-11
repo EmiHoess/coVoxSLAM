@@ -1,6 +1,6 @@
 #pragma once
 #include <covoxslam/storage/schema.hpp>
-#include <covoxslam/result.hpp>
+#include <covoxslam/core/result.hpp>
 #include <cstdint>
 
 namespace covoxslam::store

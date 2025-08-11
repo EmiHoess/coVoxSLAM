@@ -1,4 +1,5 @@
 #pragma once
+#include <covoxslam/core/result.hpp>
 #include <covoxslam/store/coordinator.hpp>
 #include <covoxslam/store/geometry_fields.hpp>
 

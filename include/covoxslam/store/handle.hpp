@@ -1,7 +1,7 @@
 #pragma once
 #include <covoxslam/storage/schema.hpp>
 #include <covoxslam/store/key.hpp>
-#include <covoxslam/result.hpp>
+#include <covoxslam/core/result.hpp>
 #include <limits>
 
 namespace covoxslam::store

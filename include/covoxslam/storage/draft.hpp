@@ -1,7 +1,7 @@
 #pragma once
 #include <covoxslam/storage/urd_storage.hpp>
 #include <covoxslam/storage/views.hpp>
-#include <covoxslam/result.hpp>
+#include <covoxslam/core/result.hpp>
 #include <algorithm>
 #include <cassert>
 #include <limits>

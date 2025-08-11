@@ -1,6 +1,6 @@
 #pragma once
 #include "json_reader.hpp"
-#include <covoxslam/result.hpp>
+#include <covoxslam/core/result.hpp>
 
 namespace covoxslam::detail
 {

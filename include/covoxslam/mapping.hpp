@@ -1,5 +1,6 @@
 #pragma once
 
+#include <covoxslam/core/geometry.hpp>
 #include <covoxslam/dataset.hpp>
 #include <covoxslam/input_timing.hpp>
 #include <covoxslam/voxel_records.h>

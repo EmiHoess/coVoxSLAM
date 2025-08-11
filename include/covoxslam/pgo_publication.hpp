@@ -1,4 +1,6 @@
 #pragma once
+#include <covoxslam/core/geometry.hpp>
+#include <covoxslam/core/result.hpp>
 #include <covoxslam/pgo_snapshot.hpp>
 
 #if defined(covoxslam_has_pgo)

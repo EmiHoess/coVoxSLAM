@@ -1,5 +1,5 @@
 #pragma once
-#include <covoxslam/result.hpp>
+#include <covoxslam/core/result.hpp>
 #include <array>
 #include <algorithm>
 #include <cstddef>

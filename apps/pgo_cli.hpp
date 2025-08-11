@@ -1,4 +1,5 @@
 #pragma once
+#include <covoxslam/core/result.hpp>
 #include <covoxslam/pgo_publication.hpp>
 #include "cli_lookup.hpp"
 #include <sstream>

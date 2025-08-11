@@ -1,4 +1,5 @@
 #pragma once
+#include <covoxslam/core/result.hpp>
 #include <covoxslam/store_pipeline.hpp>
 #include "cli_lookup.hpp"
 #include <charconv>

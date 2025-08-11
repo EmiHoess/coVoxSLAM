@@ -1,4 +1,5 @@
 #pragma once
+#include <covoxslam/core/result.hpp>
 #include <covoxslam/store/band_esdf.hpp>
 #include <covoxslam/store/esdf_resources.hpp>
 

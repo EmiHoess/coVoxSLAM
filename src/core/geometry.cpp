@@ -1,4 +1,4 @@
-#include <covoxslam/types.hpp>
+#include <covoxslam/core/geometry.hpp>
 
 #include <cmath>
 #include <numbers>

@@ -1,4 +1,5 @@
 #pragma once
+#include <covoxslam/core/result.hpp>
 #include <covoxslam/pgo.hpp>
 #include <covoxslam/storage/schema.hpp>
 #include <filesystem>

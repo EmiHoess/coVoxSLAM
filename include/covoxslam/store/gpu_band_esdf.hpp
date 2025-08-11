@@ -1,4 +1,5 @@
 #pragma once
+#include <covoxslam/core/result.hpp>
 #include <covoxslam/store/band_esdf_workspace.hpp>
 #include <covoxslam/store/band_esdf_generation.hpp>
 #include "../../../cuda/store/mapping.h"

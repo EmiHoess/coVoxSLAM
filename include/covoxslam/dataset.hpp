@@ -1,8 +1,8 @@
 #pragma once
 #include <covoxslam/input_timing.hpp>
-#include <covoxslam/result.hpp>
+#include <covoxslam/core/result.hpp>
 
-#include <covoxslam/types.hpp>
+#include <covoxslam/core/geometry.hpp>
 
 #include <cstddef>
 #include <cstdint>

@@ -1,6 +1,6 @@
 #pragma once
 
-#include <covoxslam/result.hpp>
+#include <covoxslam/core/result.hpp>
 #include <covoxslam/sensor_grid_types.h>
 #include <cstdint>
 #include <span>

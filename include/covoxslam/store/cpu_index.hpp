@@ -1,4 +1,5 @@
 #pragma once
+#include <covoxslam/core/result.hpp>
 #include <covoxslam/store/handle.hpp>
 #include <span>
 #include <unordered_map>

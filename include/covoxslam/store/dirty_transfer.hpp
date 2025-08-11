@@ -1,4 +1,5 @@
 #pragma once
+#include <covoxslam/core/result.hpp>
 #include <covoxslam/store/dirty.hpp>
 #include <covoxslam/storage/cuda_draft.hpp>
 

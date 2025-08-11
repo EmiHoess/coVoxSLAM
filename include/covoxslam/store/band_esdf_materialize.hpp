@@ -1,4 +1,5 @@
 #pragma once
+#include <covoxslam/core/result.hpp>
 #include <covoxslam/store/geometry_capture.hpp>
 #include <covoxslam/store/band_esdf.hpp>
 #include <covoxslam/store/band_esdf_generation.hpp>

@@ -1,4 +1,6 @@
 #pragma once
+#include <covoxslam/core/geometry.hpp>
+#include <covoxslam/core/result.hpp>
 #include <covoxslam/sensor_grid_map.hpp>
 #include "sensor_grid/map_native.h"
 #include "sensor_grid/discovery.h"

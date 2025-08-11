@@ -1,4 +1,6 @@
 #pragma once
+#include <covoxslam/core/geometry.hpp>
+#include <covoxslam/core/result.hpp>
 #include <covoxslam/store/snapshot.hpp>
 #include <covoxslam/mapping.hpp>
 
