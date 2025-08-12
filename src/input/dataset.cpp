@@ -1,4 +1,4 @@
-#include <covoxslam/dataset.hpp>
+#include <covoxslam/input/dataset.hpp>
 #include "json_reader.hpp"
 #include "dataset_metadata.hpp"
 
@@ -199,6 +199,56 @@ void index_dataset_payloads(dataset& input, std::uint64_t structure_hash);
 void write_input_cache(const dataset& input, std::uint64_t structure_hash);
 void verify_frame_bytes(const dataset& input, const std::filesystem::path& path,
                         std::span<const std::uint8_t> bytes);
+
+operation_status assign_string_member(
+    const detail::json_value& object, std::string_view name, std::string& destination)
+{
+    const auto member = object.member(name);
+    if (!member) return std::unexpected(member.error());
+    const auto value = member->get().string();
+    if (!value) return std::unexpected(value.error());
+    destination = value->get();
+    return {};
+}
+
+template<class integer>
+operation_status assign_unsigned_member(
+    const detail::json_value& object, std::string_view name, integer& destination)
+{
+    const auto member = object.member(name);
+    if (!member) return std::unexpected(member.error());
+    const auto value = member->get().unsigned_integer();
+    if (!value) return std::unexpected(value.error());
+
+    if (*value > std::numeric_limits<integer>::max())
+        return std::unexpected(operation_error{"JSON unsigned integer exceeds destination range"});
+    destination = static_cast<integer>(*value);
+    return {};
+}
+
+operation_status assign_number_member(
+    const detail::json_value& object, std::string_view name, double& destination)
+{
+    const auto member = object.member(name);
+    if (!member) return std::unexpected(member.error());
+    const auto value = member->get().number();
+    if (!value) return std::unexpected(value.error());
+    destination = *value;
+    return {};
+}
+
+operation_status expect_string_member(
+    const detail::json_value& object, std::string_view name,
+    std::string_view expected, std::string_view mismatch)
+{
+    const auto member = object.member(name);
+    if (!member) return std::unexpected(member.error());
+    const auto value = member->get().string();
+    if (!value) return std::unexpected(value.error());
+
+    if (value->get() != expected) return std::unexpected(operation_error{std::string(mismatch)});
+    return {};
+}
 }
 
 operation_result<dataset> load_dataset(const std::filesystem::path& root, dataset_load_options options)
@@ -222,92 +272,175 @@ operation_result<dataset> load_dataset(const std::filesystem::path& root, datase
     const auto& metadata = *parsed;
     const auto manifest_hash = hash_file(selected).content_hash;
     const auto encoding = selected.extension() == ".toml" ? "toml" : "json";
-    if (metadata.members.contains("metadata_format") && metadata.legacy_at("metadata_format").legacy_string() != encoding)
-        return std::unexpected(operation_error{"metadata format disagrees with extension"});
-    result.schema_version = metadata.legacy_at("schema_version").legacy_string();
-    if (result.schema_version != "covox.spinning_lidar.v2" ||
-        metadata.legacy_at("document_type").legacy_string() != "spinning_lidar_dataset")
+    if (metadata.members.contains("metadata_format")) {
+        const auto format = expect_string_member(metadata, "metadata_format", encoding,
+                                                  "metadata format disagrees with extension");
+        if (!format) return std::unexpected(format.error());
+    }
+    if (const auto schema = assign_string_member(metadata, "schema_version", result.schema_version); !schema)
+        return std::unexpected(schema.error());
+    if (result.schema_version != "covox.spinning_lidar.v2")
         return std::unexpected(operation_error{"unsupported dataset schema"});
-    result.name = metadata.legacy_at("name").legacy_string();
-     result.type = metadata.legacy_at("type").legacy_string();
-    const auto& units = metadata.legacy_at("units");
-    if (units.legacy_at("distance").legacy_string() != "meters" || units.legacy_at("angle").legacy_string() != "radians" ||
-        units.legacy_at("timestamp").legacy_string() != "nanoseconds" || units.legacy_at("range").legacy_string() != "millimeters")
-        return std::unexpected(operation_error{"unsupported dataset units"});
-    const auto sensor_path = legacy_dataset_path(result.root, metadata.legacy_at("sensor_file").legacy_string());
+    if (const auto document = expect_string_member(metadata, "document_type", "spinning_lidar_dataset",
+                                                    "unsupported dataset schema"); !document)
+        return std::unexpected(document.error());
+    if (const auto name = assign_string_member(metadata, "name", result.name); !name)
+        return std::unexpected(name.error());
+     if (const auto type = assign_string_member(metadata, "type", result.type); !type)
+        return std::unexpected(type.error());
+    const auto units_member = metadata.member("units");
+    if (!units_member) return std::unexpected(units_member.error());
+    const auto& units = units_member->get();
+    for (const auto [name, expected] : {std::pair{"distance", "meters"}, std::pair{"angle", "radians"},
+                                       std::pair{"timestamp", "nanoseconds"}, std::pair{"range", "millimeters"}})
+    {
+        const auto unit = expect_string_member(units, name, expected, "unsupported dataset units");
+        if (!unit) return std::unexpected(unit.error());
+    }
+    std::string sensor_file;
+    if (const auto file = assign_string_member(metadata, "sensor_file", sensor_file); !file)
+        return std::unexpected(file.error());
+    const auto checked_sensor_path = dataset_path(result.root, sensor_file);
+    if (!checked_sensor_path) return std::unexpected(checked_sensor_path.error());
+    const auto sensor_path = *checked_sensor_path;
     const auto sensor_hash = hash_file(sensor_path).content_hash;
     const auto parsed_calibration = read_metadata(sensor_path);
     if (!parsed_calibration) return std::unexpected(parsed_calibration.error());
     const auto& calibration = *parsed_calibration;
-    if (calibration.legacy_at("schema_version").legacy_string() != result.schema_version ||
-        calibration.legacy_at("document_type").legacy_string() != "spinning_lidar_sensor")
-        return std::unexpected(operation_error{"unsupported sensor schema"});
-    const auto& convention = metadata.legacy_at("frame_convention");
-    if (convention.legacy_at("handedness").legacy_string() != "right_handed" ||
-        convention.legacy_at("quaternion_order").legacy_string() != "xyzw" ||
-        convention.legacy_at("transform_notation").legacy_string() != "T_parent_child_maps_child_to_parent")
-        return std::unexpected(operation_error{"unsupported coordinate convention"});
-    const auto& timing = metadata.legacy_at("timestamp_convention");
-    if (timing.legacy_at("origin").legacy_string() != "dataset_relative" ||
-        timing.legacy_at("scan_header").legacy_string() != "first_column" ||
-        timing.legacy_at("beam_offsets").legacy_string() != "relative_to_scan_header")
-        return std::unexpected(operation_error{"unsupported timestamp convention"});
+    if (const auto schema = expect_string_member(calibration, "schema_version", result.schema_version,
+                                                  "unsupported sensor schema"); !schema)
+        return std::unexpected(schema.error());
+    if (const auto document = expect_string_member(calibration, "document_type", "spinning_lidar_sensor",
+                                                    "unsupported sensor schema"); !document)
+        return std::unexpected(document.error());
+    const auto convention_member = metadata.member("frame_convention");
+    if (!convention_member) return std::unexpected(convention_member.error());
+    const auto& convention = convention_member->get();
+    for (const auto [name, expected] : {
+        std::pair{"handedness", "right_handed"}, std::pair{"quaternion_order", "xyzw"},
+        std::pair{"transform_notation", "T_parent_child_maps_child_to_parent"}})
+    {
+        const auto checked = expect_string_member(
+            convention, name, expected, "unsupported coordinate convention");
+        if (!checked) return std::unexpected(checked.error());
+    }
+    const auto timing_member = metadata.member("timestamp_convention");
+    if (!timing_member) return std::unexpected(timing_member.error());
+    const auto& timing = timing_member->get();
+    for (const auto [name, expected] : {
+        std::pair{"origin", "dataset_relative"}, std::pair{"scan_header", "first_column"},
+        std::pair{"beam_offsets", "relative_to_scan_header"}})
+    {
+        const auto checked = expect_string_member(
+            timing, name, expected, "unsupported timestamp convention");
+        if (!checked) return std::unexpected(checked.error());
+    }
     auto& sensor = result.sensor;
-    sensor.model = calibration.legacy_at("sensor_model").legacy_string();
-    sensor.acquisition_model = calibration.legacy_at("acquisition_model").legacy_string();
-    sensor.rings = calibration.legacy_at("rings").legacy_unsigned_integer();
-    sensor.columns = calibration.legacy_at("columns").legacy_unsigned_integer();
+    if (const auto model = assign_string_member(calibration, "sensor_model", sensor.model); !model)
+        return std::unexpected(model.error());
+    if (const auto model = assign_string_member(
+        calibration, "acquisition_model", sensor.acquisition_model); !model)
+        return std::unexpected(model.error());
+    if (const auto rings = assign_unsigned_member(calibration, "rings", sensor.rings); !rings)
+        return std::unexpected(rings.error());
+    if (const auto columns = assign_unsigned_member(calibration, "columns", sensor.columns); !columns)
+        return std::unexpected(columns.error());
     if (!sensor.rings || !sensor.columns || sensor.rings > 16777216 / sensor.columns)
         return std::unexpected(operation_error{"invalid sensor dimensions"});
-    if (calibration.legacy_at("beam_count").legacy_unsigned_integer() != sensor.rings * sensor.columns)
+    std::uint64_t beam_count{};
+    if (const auto count = assign_unsigned_member(calibration, "beam_count", beam_count); !count)
+        return std::unexpected(count.error());
+    if (beam_count != sensor.rings * sensor.columns)
         return std::unexpected(operation_error{"sensor beam count mismatch"});
-     sensor.scan_rate_hz = calibration.legacy_at("scan_rate_hz").legacy_number();
-    sensor.scan_period_ns = calibration.legacy_at("scan_period_ns").legacy_unsigned_integer();
-    sensor.azimuth_start_rad = calibration.legacy_at("azimuth_start_rad").legacy_number();
-    sensor.azimuth_coverage_rad = calibration.legacy_at("azimuth_coverage_rad").legacy_number();
-    const auto direction = calibration.legacy_at("rotation_direction").legacy_string();
+     if (const auto rate = assign_number_member(calibration, "scan_rate_hz", sensor.scan_rate_hz); !rate)
+        return std::unexpected(rate.error());
+    if (const auto period = assign_unsigned_member(
+        calibration, "scan_period_ns", sensor.scan_period_ns); !period)
+        return std::unexpected(period.error());
+    if (const auto azimuth = assign_number_member(
+        calibration, "azimuth_start_rad", sensor.azimuth_start_rad); !azimuth)
+        return std::unexpected(azimuth.error());
+    if (const auto coverage = assign_number_member(
+        calibration, "azimuth_coverage_rad", sensor.azimuth_coverage_rad); !coverage)
+        return std::unexpected(coverage.error());
+    std::string direction;
+    if (const auto rotation = assign_string_member(calibration, "rotation_direction", direction); !rotation)
+        return std::unexpected(rotation.error());
     if (direction != "clockwise" && direction != "counter_clockwise")
         return std::unexpected(operation_error{"unsupported sensor rotation direction"});
     sensor.counter_clockwise = direction == "counter_clockwise";
-    const auto& angles = calibration.legacy_at("vertical_angles_rad");
+    const auto angles_member = calibration.member("vertical_angles_rad");
+    if (!angles_member) return std::unexpected(angles_member.error());
+    const auto& angles = angles_member->get();
     if (angles.kind != json_kind::array || angles.items.size() != sensor.rings)
         return std::unexpected(operation_error{"invalid vertical angle table"});
     for (const auto& angle : angles.items)
     {
-        const auto radians = angle.legacy_number();
-         if (std::abs(radians) > 1.5707963267948966) return std::unexpected(operation_error{"invalid beam elevation"});
-        sensor.vertical_angles_rad.push_back(static_cast<float>(radians));
+        const auto radians = angle.number();
+        if (!radians) return std::unexpected(radians.error());
+         if (std::abs(*radians) > 1.5707963267948966)
+            return std::unexpected(operation_error{"invalid beam elevation"});
+        sensor.vertical_angles_rad.push_back(static_cast<float>(*radians));
     }
-    const auto minimum = calibration.legacy_at("min_range_m").legacy_number();
-    const auto maximum = calibration.legacy_at("max_range_m").legacy_number();
+    double minimum{};
+    double maximum{};
+    if (const auto range = assign_number_member(calibration, "min_range_m", minimum); !range)
+        return std::unexpected(range.error());
+    if (const auto range = assign_number_member(calibration, "max_range_m", maximum); !range)
+        return std::unexpected(range.error());
     if (minimum < 0 || maximum <= minimum || maximum > std::numeric_limits<float>::max() ||
         sensor.scan_rate_hz <= 0 || !sensor.scan_period_ns || sensor.azimuth_coverage_rad <= 0 ||
         sensor.azimuth_coverage_rad > 6.283185307179587)
         return std::unexpected(operation_error{"invalid sensor ranges or timing"});
     sensor.min_range_m = static_cast<float>(minimum);
     sensor.max_range_m = static_cast<float>(maximum);
-    sensor.body_from_lidar = legacy_read_pose(calibration.legacy_at("T_parent_child"));
-    const std::filesystem::path pattern(metadata.legacy_at("frame_metadata_pattern").legacy_string());
-     const auto frame_directory = legacy_dataset_path(result.root, pattern.parent_path());
+    const auto transform_member = calibration.member("T_parent_child");
+    if (!transform_member) return std::unexpected(transform_member.error());
+    const auto body_from_lidar = read_pose(transform_member->get());
+    if (!body_from_lidar) return std::unexpected(body_from_lidar.error());
+    sensor.body_from_lidar = *body_from_lidar;
+    std::string frame_pattern;
+    if (const auto pattern = assign_string_member(metadata, "frame_metadata_pattern", frame_pattern); !pattern)
+        return std::unexpected(pattern.error());
+    const std::filesystem::path pattern(frame_pattern);
+     const auto checked_frame_directory = dataset_path(result.root, pattern.parent_path());
+    if (!checked_frame_directory) return std::unexpected(checked_frame_directory.error());
+    const auto frame_directory = *checked_frame_directory;
     const auto filename = pattern.filename().string();
     const auto wildcard = filename.find('*');
     if (wildcard == std::string::npos || filename.find('*', wildcard + 1) != std::string::npos)
         return std::unexpected(operation_error{"expected one frame metadata wildcard"});
-    for (const auto& entry : std::filesystem::directory_iterator(frame_directory))
+    path_error.clear();
+    std::filesystem::directory_iterator entry(frame_directory, path_error);
+    const std::filesystem::directory_iterator end;
+    if (path_error) return std::unexpected(operation_error{
+        "cannot inspect frame metadata directory: " + path_error.message()});
+    while (entry != end)
     {
-        const auto name = entry.path().filename().string();
-        if (entry.is_regular_file() && name.starts_with(filename.substr(0, wildcard)) &&
+        const auto name = entry->path().filename().string();
+        const auto regular = entry->is_regular_file(path_error);
+        if (path_error) return std::unexpected(operation_error{
+            "cannot inspect frame metadata entry: " + path_error.message()});
+        if (regular && name.starts_with(filename.substr(0, wildcard)) &&
             name.ends_with(filename.substr(wildcard + 1)))
         {
-            auto frame = read_frame_descriptor(result.root,
-                legacy_dataset_path(result.root, pattern.parent_path() / entry.path().filename()));
+            const auto frame_path = dataset_path(
+                result.root, pattern.parent_path() / entry->path().filename());
+            if (!frame_path) return std::unexpected(frame_path.error());
+            auto frame = read_frame_descriptor(result.root, *frame_path);
             if (!frame) return std::unexpected(frame.error());
             if (frame->rows != sensor.rings || frame->columns != sensor.columns)
                 return std::unexpected(operation_error{"frame dimensions differ from the sensor calibration"});
             result.frames.push_back(std::move(*frame));
         }
+        entry.increment(path_error);
+        if (path_error) return std::unexpected(operation_error{
+            "cannot enumerate frame metadata directory: " + path_error.message()});
     }
-     if (result.frames.size() != metadata.legacy_at("num_frames").legacy_unsigned_integer())
+    std::uint64_t frame_count{};
+    if (const auto count = assign_unsigned_member(metadata, "num_frames", frame_count); !count)
+        return std::unexpected(count.error());
+     if (result.frames.size() != frame_count)
         return std::unexpected(operation_error{"frame metadata count mismatch"});
     std::sort(result.frames.begin(), result.frames.end(), [](const auto& left, const auto& right) {
         return left.frame_id < right.frame_id;
