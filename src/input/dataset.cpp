@@ -191,7 +191,7 @@ operation_result<frame_descriptor> read_frame_descriptor(
 namespace
 {
 operation_status load_json_trajectories(dataset& input, const detail::json_value& metadata);
-void validate_trajectory_coverage(const dataset& input);
+operation_status validate_trajectory_coverage(const dataset& input);
 operation_status load_dataset_inputs(dataset& input, const detail::json_value& metadata,
                                      dataset_load_options options);
 std::uint64_t input_structure_hash(const dataset& input, const detail::json_value& metadata);
@@ -717,6 +717,21 @@ cache_file_identity file_identity(const std::filesystem::path& path)
     return {std::filesystem::file_size(path), static_cast<std::int64_t>(modified)};
 }
 
+operation_result<cache_file_identity> checked_file_identity(const std::filesystem::path& path)
+{
+    std::error_code error;
+    const auto regular = std::filesystem::is_regular_file(path, error);
+    if (error || !regular)
+        return std::unexpected(operation_error{"recording input is not a regular file"});
+    const auto modified = std::filesystem::last_write_time(path, error);
+    if (error)
+        return std::unexpected(operation_error{"recording input could not be inspected"});
+    const auto size = std::filesystem::file_size(path, error);
+    if (error)
+        return std::unexpected(operation_error{"recording input could not be inspected"});
+    return cache_file_identity{size, static_cast<std::int64_t>(modified.time_since_epoch().count())};
+}
+
 payload_cache_descriptor hash_file(const std::filesystem::path& path)
 {
     const auto before = file_identity(path);
@@ -830,12 +845,21 @@ void validate_pose_sample(const pose_sample& sample)
         throw std::runtime_error("invalid trajectory pose");
 }
 
-operation_result<std::vector<pose_sample>> read_trajectory(
-    const std::filesystem::path& path, std::string_view kind, const detail::json_value& convention)
+operation_error trajectory_record_error(
+    const std::filesystem::path& path, std::size_t line, operation_error error)
 {
-    const auto before = file_identity(path);
+    error.message = path.string() + ": line " + std::to_string(line) + ": " + error.message;
+    return error;
+}
+
+operation_result<std::vector<pose_sample>> read_trajectory(
+    const std::filesystem::path& path, std::string_view kind,
+    std::string_view parent_frame, std::string_view child_frame)
+{
+    const auto before = checked_file_identity(path);
+    if (!before) return std::unexpected(before.error());
     std::ifstream file(path, std::ios::binary);
-    if (!file) throw std::runtime_error("cannot open trajectory");
+    if (!file) return std::unexpected(operation_error{"cannot open trajectory"});
     std::vector<pose_sample> result;
     std::vector<char> line(1024U * 1024U + 2);
     std::size_t line_number{};
@@ -845,55 +869,95 @@ operation_result<std::vector<pose_sample>> read_trajectory(
         const auto count = static_cast<std::size_t>(file.gcount()) - (file.eof() ? 0 : 1);
         if (count == 0 || (count == 1 && line[0] == '\r')) continue;
         if (count > 1024U * 1024U || result.size() >= maximum_trajectory_samples)
-            throw std::length_error("trajectory exceeds its line or sample limit");
+            return std::unexpected(trajectory_record_error(path, line_number,
+                operation_error{"trajectory exceeds its line or sample limit"}));
         auto parsed = detail::parse_json(std::string_view(line.data(), count));
-        if (!parsed) {
-            parsed.error().message = path.string() + ": line " + std::to_string(line_number) + ": " +
-                                     parsed.error().message;
-            return std::unexpected(parsed.error());
-        }
+        if (!parsed) return std::unexpected(trajectory_record_error(path, line_number, parsed.error()));
         const auto& value = *parsed;
-        if (value.legacy_at("schema_version").legacy_string() != "covox.spinning_lidar.v2" ||
-             value.legacy_at("document_type").legacy_string() != "spinning_lidar_trajectory_record")
-            throw std::runtime_error("unsupported trajectory record schema");
-        if (value.legacy_at("trajectory_kind").legacy_string() != kind)
-            throw std::runtime_error("trajectory kind does not match its descriptor");
-        if (value.legacy_at("parent_frame").legacy_string() != convention.legacy_at("world_frame").legacy_string() ||
-            value.legacy_at("child_frame").legacy_string() != convention.legacy_at("sensor_frame").legacy_string())
-            throw std::runtime_error("trajectory coordinate frames disagree with the manifest");
-        pose_sample sample{value.legacy_at("stamp_ns").legacy_unsigned_integer(), detail::legacy_read_pose(value)};
+        const auto schema = expect_string_member(value, "schema_version", "covox.spinning_lidar.v2",
+                                                  "unsupported trajectory record schema");
+        if (!schema) return std::unexpected(trajectory_record_error(path, line_number, schema.error()));
+        const auto document = expect_string_member(value, "document_type", "spinning_lidar_trajectory_record",
+                                                    "unsupported trajectory record schema");
+        if (!document) return std::unexpected(trajectory_record_error(path, line_number, document.error()));
+        const auto checked_kind = expect_string_member(
+            value, "trajectory_kind", kind, "trajectory kind does not match its descriptor");
+        if (!checked_kind)
+            return std::unexpected(trajectory_record_error(path, line_number, checked_kind.error()));
+        const auto checked_parent = expect_string_member(
+            value, "parent_frame", parent_frame,
+            "trajectory coordinate frames disagree with the manifest");
+        if (!checked_parent)
+            return std::unexpected(trajectory_record_error(path, line_number, checked_parent.error()));
+        const auto checked_child = expect_string_member(
+            value, "child_frame", child_frame,
+            "trajectory coordinate frames disagree with the manifest");
+        if (!checked_child)
+            return std::unexpected(trajectory_record_error(path, line_number, checked_child.error()));
+        const auto stamp_member = value.member("stamp_ns");
+        if (!stamp_member)
+            return std::unexpected(trajectory_record_error(path, line_number, stamp_member.error()));
+        const auto stamp = stamp_member->get().unsigned_integer();
+        if (!stamp) return std::unexpected(trajectory_record_error(path, line_number, stamp.error()));
+        const auto pose = detail::read_pose(value);
+        if (!pose) return std::unexpected(trajectory_record_error(path, line_number, pose.error()));
+        pose_sample sample{*stamp, *pose};
         if (!result.empty() && sample.stamp_ns <= result.back().stamp_ns)
-            throw std::runtime_error("trajectory timestamps are not strictly increasing");
+            return std::unexpected(trajectory_record_error(path, line_number,
+                operation_error{"trajectory timestamps are not strictly increasing"}));
         result.push_back(sample);
     }
-    if (!file.eof() || file.bad() || result.empty() || file_identity(path) != before)
-        throw std::runtime_error("trajectory is empty, changed or could not be read");
+    const auto after = checked_file_identity(path);
+    if (!file.eof() || file.bad() || result.empty() || !after || *after != *before)
+        return std::unexpected(operation_error{"trajectory is empty, changed or could not be read"});
     return result;
 }
 
 operation_status load_json_trajectories(dataset& input, const detail::json_value& metadata)
 {
     if (input.type != "recorded_spinning_lidar" && input.type != "synthetic_spinning_lidar")
-        throw std::runtime_error("unsupported spinning lidar dataset type");
-    const auto& convention = metadata.legacy_at("frame_convention");
-    if (metadata.members.contains("trajectory_ground_truth_file")) {
-        auto ground_truth = read_trajectory(detail::legacy_dataset_path(input.root,
-            metadata.legacy_at("trajectory_ground_truth_file").legacy_string()), "ground_truth", convention);
-        if (!ground_truth) return std::unexpected(ground_truth.error());
-        input.ground_truth = std::move(*ground_truth);
+        return std::unexpected(operation_error{"unsupported spinning lidar dataset type"});
+    const auto convention_member = metadata.member("frame_convention");
+    if (!convention_member) return std::unexpected(convention_member.error());
+    const auto& convention = convention_member->get();
+    std::string world_frame;
+    std::string sensor_frame;
+    if (const auto world = assign_string_member(convention, "world_frame", world_frame); !world)
+        return std::unexpected(world.error());
+    if (const auto sensor = assign_string_member(convention, "sensor_frame", sensor_frame); !sensor)
+        return std::unexpected(sensor.error());
+
+    std::vector<pose_sample> ground_truth;
+    if (metadata.members.contains("trajectory_ground_truth_file"))
+    {
+        std::string relative;
+        if (const auto file = assign_string_member(
+            metadata, "trajectory_ground_truth_file", relative); !file)
+            return std::unexpected(file.error());
+        const auto path = detail::dataset_path(input.root, relative);
+        if (!path) return std::unexpected(path.error());
+        auto loaded = read_trajectory(*path, "ground_truth", world_frame, sensor_frame);
+        if (!loaded) return std::unexpected(loaded.error());
+        ground_truth = std::move(*loaded);
     }
     else if (input.type != "recorded_spinning_lidar")
-        throw std::runtime_error("synthetic recording requires a ground truth trajectory");
-    auto odometry = read_trajectory(detail::legacy_dataset_path(input.root,
-        metadata.legacy_at("odometry_file").legacy_string()), "odometry", convention);
+        return std::unexpected(operation_error{"synthetic recording requires a ground truth trajectory"});
+
+    std::string relative_odometry;
+    if (const auto file = assign_string_member(metadata, "odometry_file", relative_odometry); !file)
+        return std::unexpected(file.error());
+    const auto odometry_path = detail::dataset_path(input.root, relative_odometry);
+    if (!odometry_path) return std::unexpected(odometry_path.error());
+    auto odometry = read_trajectory(*odometry_path, "odometry", world_frame, sensor_frame);
     if (!odometry) return std::unexpected(odometry.error());
-     input.odometry = std::move(*odometry);
+    input.ground_truth = std::move(ground_truth);
+    input.odometry = std::move(*odometry);
     return {};
 }
 
-void validate_trajectory_coverage(const dataset& input)
+operation_status validate_trajectory_coverage(const dataset& input)
 {
-    if (input.frames.empty()) throw std::runtime_error("recording has no frames");
+    if (input.frames.empty()) return std::unexpected(operation_error{"recording has no frames"});
     const auto begin = input.frames.front().start_stamp_ns;
     auto minimum_stamp = begin;
     std::uint64_t end{};
@@ -905,8 +969,9 @@ void validate_trajectory_coverage(const dataset& input)
     {
         if (trajectory->empty() && trajectory == &input.ground_truth && input.type == "recorded_spinning_lidar") continue;
         if (trajectory->empty() || trajectory->front().stamp_ns > minimum_stamp || trajectory->back().stamp_ns < end)
-            throw std::runtime_error("trajectory does not cover every scan");
+            return std::unexpected(operation_error{"trajectory does not cover every scan"});
     }
+    return {};
 }
 }
 
@@ -1189,7 +1254,8 @@ operation_status load_dataset_inputs(dataset& input, const detail::json_value& m
     }
     if (input_structure_hash(input, metadata) != structure_hash)
         throw std::runtime_error("recording metadata changed while inputs were loaded");
-    validate_trajectory_coverage(input);
+    const auto coverage = validate_trajectory_coverage(input);
+    if (!coverage) return std::unexpected(coverage.error());
     input.input_source = cached ? dataset_input_source::validated_cache : dataset_input_source::full_scan;
     update_content_fingerprint(input, structure_hash);
     return {};
