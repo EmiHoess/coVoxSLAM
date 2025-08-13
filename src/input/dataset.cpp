@@ -56,60 +56,65 @@ operation_result<pose> read_pose(const json_value& value)
      return result;
 }
 
-pose legacy_read_pose(const json_value& value)
-{
-    const auto& translation = value.legacy_at("translation_m");
-    const auto& rotation = value.legacy_at("quaternion_xyzw");
-    if (translation.kind != json_kind::array || translation.items.size() != 3 ||
-        rotation.kind != json_kind::array || rotation.items.size() != 4)
-        throw std::runtime_error("invalid pose dimensions");
-     auto scalar = [](const json_value& item)
-    {
-        const double number = item.legacy_number();
-        if (std::abs(number) > std::numeric_limits<float>::max())
-            throw std::runtime_error("pose component exceeds float range");
-        return static_cast<float>(number);
-    };
-    pose result;
-    result.translation = {scalar(translation.items[0]), scalar(translation.items[1]), scalar(translation.items[2])};
-    result.rotation = {scalar(rotation.items[0]), scalar(rotation.items[1]), scalar(rotation.items[2]), scalar(rotation.items[3])};
-    const auto& q = result.rotation;
-    const double norm = std::hypot(std::hypot(double(q.x), double(q.y)), std::hypot(double(q.z), double(q.w)));
-    if (std::abs(norm - 1) > 0.001) throw std::runtime_error("pose quaternion is not normalized");
-    result.rotation = normalized(result.rotation);
-     return result;
-}
 }
 
 namespace
 {
 payload_cache_descriptor hash_file(const std::filesystem::path& path);
-std::filesystem::path frame_buffer_path(
+operation_result<payload_cache_descriptor> checked_hash_file(const std::filesystem::path& path);
+template<class integer> operation_status assign_unsigned_member(
+    const detail::json_value& object, std::string_view name, integer& destination);
+operation_status expect_string_member(const detail::json_value& object, std::string_view name,
+                                      std::string_view expected, std::string_view mismatch);
+
+operation_result<std::filesystem::path> frame_buffer_path(
     const detail::json_value& buffers, std::string_view name,
     std::string_view dtype, std::string_view layout,
     std::initializer_list<std::size_t> shape,
     const std::filesystem::path& root,
     std::string_view unit = {}, std::string_view encoding = {})
 {
-    const auto& buffer = buffers.legacy_at(name);
-    const auto& shape_value = buffer.legacy_at("shape");
+    const auto buffer_member = buffers.member(name);
+    if (!buffer_member) return std::unexpected(buffer_member.error());
+    const auto& buffer = buffer_member->get();
+    const auto shape_member = buffer.member("shape");
+    if (!shape_member) return std::unexpected(shape_member.error());
+    const auto& shape_value = shape_member->get();
     const auto& dimensions = shape_value.items;
-    if (shape_value.kind != detail::json_kind::array || buffer.legacy_at("dtype").legacy_string() != dtype ||
-        buffer.legacy_at("layout").legacy_string() != layout ||
-         buffer.legacy_at("byte_order").legacy_string() != "little_endian" ||
-        dimensions.size() != shape.size())
-        throw std::runtime_error("unsupported organized buffer format");
-    if (!unit.empty() && buffer.legacy_at("unit").legacy_string() != unit)
-        throw std::runtime_error("unsupported frame buffer unit");
-    if (!encoding.empty() && buffer.members.contains("invalid_encoding") &&
-        buffer.legacy_at("invalid_encoding").legacy_string() != encoding)
-        throw std::runtime_error("unsupported frame zero encoding");
+    if (shape_value.kind != detail::json_kind::array || dimensions.size() != shape.size())
+        return std::unexpected(operation_error{"unsupported organized buffer format"});
+    if (const auto checked = expect_string_member(buffer, "dtype", dtype, "unsupported organized buffer format"); !checked)
+        return std::unexpected(checked.error());
+    if (const auto checked = expect_string_member(buffer, "layout", layout, "unsupported organized buffer format"); !checked)
+        return std::unexpected(checked.error());
+    if (const auto checked = expect_string_member(buffer, "byte_order", "little_endian", "unsupported organized buffer format"); !checked)
+        return std::unexpected(checked.error());
+    if (!unit.empty()) { const auto checked = expect_string_member(buffer, "unit", unit, "unsupported frame buffer unit");
+        if (!checked) return std::unexpected(checked.error()); }
+    if (!encoding.empty() && buffer.members.contains("invalid_encoding")) { const auto checked = expect_string_member(buffer, "invalid_encoding", encoding, "unsupported frame zero encoding");
+        if (!checked) return std::unexpected(checked.error()); }
     std::size_t index{};
     for (const auto extent : shape) {
-        if (dimensions[index++].legacy_unsigned_integer() != extent)
-            throw std::runtime_error("buffer shape does not match the frame");
+        const auto dimension = dimensions[index++].unsigned_integer();
+        if (!dimension) return std::unexpected(dimension.error());
+        if (*dimension != extent) return std::unexpected(operation_error{"buffer shape does not match the frame"});
     }
-    return detail::legacy_dataset_path(root, buffer.legacy_at("file").legacy_string());
+    const auto file_member = buffer.member("file");
+    if (!file_member) return std::unexpected(file_member.error());
+    const auto file = file_member->get().string();
+    if (!file) return std::unexpected(file.error());
+    return detail::dataset_path(root, file->get());
+}
+
+operation_status assign_pose_member(
+    const detail::json_value& object, std::string_view name, pose& destination)
+{
+    const auto member = object.member(name);
+    if (!member) return std::unexpected(member.error());
+    const auto value = detail::read_pose(member->get());
+    if (!value) return std::unexpected(value.error());
+    destination = *value;
+    return {};
 }
 
 std::size_t frame_beam_count(const frame_descriptor& frame)
@@ -129,62 +134,93 @@ operation_result<frame_descriptor> read_frame_descriptor(
     const std::filesystem::path& root, const std::filesystem::path& metadata_path)
 {
     frame_descriptor frame;
-    frame.metadata_path = detail::legacy_dataset_path(root, metadata_path.lexically_relative(root));
-    frame.metadata_content_hash = hash_file(frame.metadata_path).content_hash;
+    const auto checked_path = detail::dataset_path(root, metadata_path.lexically_relative(root));
+    if (!checked_path) return std::unexpected(checked_path.error());
+    frame.metadata_path = *checked_path;
+    const auto hash = checked_hash_file(frame.metadata_path);
+    if (!hash) return std::unexpected(hash.error());
+    frame.metadata_content_hash = hash->content_hash;
     const auto parsed = detail::read_metadata(frame.metadata_path);
     if (!parsed) return std::unexpected(parsed.error());
     const auto& value = *parsed;
-    if (value.legacy_at("schema_version").legacy_string() != "covox.spinning_lidar.v2")
-        return std::unexpected(operation_error{"unsupported frame schema"});
-    if (value.legacy_at("document_type").legacy_string() != "spinning_lidar_frame")
-        return std::unexpected(operation_error{"unexpected frame document type"});
-    const auto id = value.legacy_at("frame_id").legacy_unsigned_integer();
-    if (id > static_cast<std::uint64_t>(std::numeric_limits<int>::max()))
+    if (const auto checked = expect_string_member(value, "schema_version", "covox.spinning_lidar.v2", "unsupported frame schema"); !checked)
+        return std::unexpected(checked.error());
+    if (const auto checked = expect_string_member(value, "document_type", "spinning_lidar_frame", "unexpected frame document type"); !checked)
+        return std::unexpected(checked.error());
+    const auto id_member = value.member("frame_id");
+    if (!id_member) return std::unexpected(id_member.error());
+    const auto id = id_member->get().unsigned_integer();
+    if (!id) return std::unexpected(id.error());
+    if (*id > static_cast<std::uint64_t>(std::numeric_limits<int>::max()))
         return std::unexpected(operation_error{"frame identifier exceeds the integer range"});
-     frame.frame_id = static_cast<int>(id);
+     frame.frame_id = static_cast<int>(*id);
     if (value.members.contains("submap_id")) {
-        const double id_value = value.legacy_at("submap_id").legacy_number();
-        if (id_value < -1 || id_value > std::numeric_limits<int>::max() ||
-            std::trunc(id_value) != id_value)
+        const auto submap_member = value.member("submap_id");
+        if (!submap_member) return std::unexpected(submap_member.error());
+        const auto id_value = submap_member->get().number();
+        if (!id_value) return std::unexpected(id_value.error());
+        if (*id_value < -1 || *id_value > std::numeric_limits<int>::max() ||
+            std::trunc(*id_value) != *id_value)
             return std::unexpected(operation_error{"invalid submap identifier"});
-        frame.submap_id = static_cast<int>(id_value);
+        frame.submap_id = static_cast<int>(*id_value);
     }
-    frame.start_stamp_ns = value.legacy_at("header_stamp_ns").legacy_unsigned_integer();
-    frame.end_stamp_ns = value.legacy_at("scan_end_stamp_ns").legacy_unsigned_integer();
-    frame.rows = value.legacy_at("organized_rows").legacy_unsigned_integer();
-    frame.columns = value.legacy_at("organized_cols").legacy_unsigned_integer();
-     frame.beam_count = value.legacy_at("beam_count").legacy_unsigned_integer();
-    frame.hit_count = value.legacy_at("hit_count").legacy_unsigned_integer();
-    frame.dropout_count = value.legacy_at("dropout_count").legacy_unsigned_integer();
-    frame.invalid_count = value.legacy_at("invalid_count").legacy_unsigned_integer();
-    frame.outlier_count = value.legacy_at("outlier_count").legacy_unsigned_integer();
-    const auto count = frame_beam_count(frame);
+    operation_status assigned;
+    if (!(assigned = assign_unsigned_member(value, "header_stamp_ns", frame.start_stamp_ns))) return std::unexpected(assigned.error());
+    if (!(assigned = assign_unsigned_member(value, "scan_end_stamp_ns", frame.end_stamp_ns))) return std::unexpected(assigned.error());
+    if (!(assigned = assign_unsigned_member(value, "organized_rows", frame.rows))) return std::unexpected(assigned.error());
+    if (!(assigned = assign_unsigned_member(value, "organized_cols", frame.columns))) return std::unexpected(assigned.error());
+    if (!(assigned = assign_unsigned_member(value, "beam_count", frame.beam_count))) return std::unexpected(assigned.error());
+    if (!(assigned = assign_unsigned_member(value, "hit_count", frame.hit_count))) return std::unexpected(assigned.error());
+    if (!(assigned = assign_unsigned_member(value, "dropout_count", frame.dropout_count))) return std::unexpected(assigned.error());
+    if (!(assigned = assign_unsigned_member(value, "invalid_count", frame.invalid_count))) return std::unexpected(assigned.error());
+    if (!(assigned = assign_unsigned_member(value, "outlier_count", frame.outlier_count))) return std::unexpected(assigned.error());
+    constexpr std::size_t maximum = 16U * 1024U * 1024U;
+    if (!frame.rows || !frame.columns || frame.rows > maximum / frame.columns)
+        return std::unexpected(operation_error{"frame dimensions exceed the supported bounds"});
+    const auto count = frame.rows * frame.columns;
+    if (frame.beam_count != count || frame.end_stamp_ns <= frame.start_stamp_ns)
+        return std::unexpected(operation_error{"invalid frame beam count or scan interval"});
     if (frame.hit_count > count || frame.dropout_count > count - frame.hit_count ||
         frame.invalid_count != count - frame.hit_count - frame.dropout_count ||
         frame.outlier_count > frame.hit_count)
         return std::unexpected(operation_error{"inconsistent frame counters"});
-    frame.ground_truth_start = detail::legacy_read_pose(value.legacy_at("pose_world_lidar_start"));
-    frame.ground_truth_end = detail::legacy_read_pose(value.legacy_at("pose_world_lidar_end"));
-    frame.odometry_start = value.members.contains("odometry_pose_world_lidar_start")
-        ? detail::legacy_read_pose(value.legacy_at("odometry_pose_world_lidar_start"))
-        : frame.ground_truth_start;
-     frame.odometry_end = value.members.contains("odometry_pose_world_lidar_end")
-        ? detail::legacy_read_pose(value.legacy_at("odometry_pose_world_lidar_end"))
-        : frame.ground_truth_end;
-    const auto& buffers = value.legacy_at("buffers");
+    if (!(assigned = assign_pose_member(value, "pose_world_lidar_start", frame.ground_truth_start))) return std::unexpected(assigned.error());
+    if (!(assigned = assign_pose_member(value, "pose_world_lidar_end", frame.ground_truth_end))) return std::unexpected(assigned.error());
+    frame.odometry_start = frame.ground_truth_start;
+    frame.odometry_end = frame.ground_truth_end;
+    if (value.members.contains("odometry_pose_world_lidar_start") &&
+        !(assigned = assign_pose_member(value, "odometry_pose_world_lidar_start", frame.odometry_start)))
+        return std::unexpected(assigned.error());
+    if (value.members.contains("odometry_pose_world_lidar_end") &&
+        !(assigned = assign_pose_member(value, "odometry_pose_world_lidar_end", frame.odometry_end)))
+        return std::unexpected(assigned.error());
+    const auto buffers_member = value.member("buffers");
+    if (!buffers_member) return std::unexpected(buffers_member.error());
+    const auto& buffers = buffers_member->get();
     const auto rows = frame.rows;
     const auto columns = frame.columns;
-    frame.raw_xyz_path = frame_buffer_path(
+    auto buffer_path = frame_buffer_path(
         buffers, "raw_xyz", "float32", "ring_major", {rows, columns, 3}, root, {}, "zero_xyz");
-    if (buffers.members.contains("deskewed_xyz"))
-        frame.deskewed_xyz_path = frame_buffer_path(
+    if (!buffer_path) return std::unexpected(buffer_path.error());
+    frame.raw_xyz_path = std::move(*buffer_path);
+    if (buffers.members.contains("deskewed_xyz")) {
+        buffer_path = frame_buffer_path(
             buffers, "deskewed_xyz", "float32", "ring_major", {rows, columns, 3}, root, {}, "zero_xyz");
-    frame.range_path = frame_buffer_path(
+        if (!buffer_path) return std::unexpected(buffer_path.error());
+        frame.deskewed_xyz_path = std::move(*buffer_path);
+    }
+    buffer_path = frame_buffer_path(
         buffers, "range", "uint32", "ring_major", {rows, columns}, root, "millimeters", "zero");
-    frame.status_path = frame_buffer_path(
+    if (!buffer_path) return std::unexpected(buffer_path.error());
+    frame.range_path = std::move(*buffer_path);
+    buffer_path = frame_buffer_path(
         buffers, "status", "uint8", "ring_major", {rows, columns}, root);
-    frame.time_offset_ns_path = frame_buffer_path(
+    if (!buffer_path) return std::unexpected(buffer_path.error());
+    frame.status_path = std::move(*buffer_path);
+    buffer_path = frame_buffer_path(
         buffers, "time_offset_ns", "uint32", "one_per_column", {columns}, root, "nanoseconds");
+    if (!buffer_path) return std::unexpected(buffer_path.error());
+    frame.time_offset_ns_path = std::move(*buffer_path);
     return frame;
 }
 
@@ -730,6 +766,25 @@ operation_result<cache_file_identity> checked_file_identity(const std::filesyste
     if (error)
         return std::unexpected(operation_error{"recording input could not be inspected"});
     return cache_file_identity{size, static_cast<std::int64_t>(modified.time_since_epoch().count())};
+}
+
+operation_result<payload_cache_descriptor> checked_hash_file(const std::filesystem::path& path)
+{
+    const auto before = checked_file_identity(path);
+    if (!before) return std::unexpected(before.error());
+    std::ifstream file(path, std::ios::binary);
+    if (!file) return std::unexpected(operation_error{"cannot open recording input"});
+    std::array<std::uint8_t, 65536> bytes;
+    std::uint64_t hash = hash_basis, count{};
+    while (file) {
+        file.read(reinterpret_cast<char*>(bytes.data()), bytes.size());
+        const auto size = static_cast<std::size_t>(file.gcount());
+        hash = hash_bytes(std::span(bytes).first(size), hash); count += size;
+    }
+    const auto after = checked_file_identity(path);
+    if (!file.eof() || file.bad() || count != before->size || !after || *after != *before)
+        return std::unexpected(operation_error{"recording input changed or could not be read"});
+    return payload_cache_descriptor{*before, hash};
 }
 
 payload_cache_descriptor hash_file(const std::filesystem::path& path)

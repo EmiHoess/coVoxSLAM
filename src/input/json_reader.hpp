@@ -39,7 +39,6 @@ operation_result<json_value> read_json(const std::filesystem::path& path);
 operation_result<pose> read_pose(const json_value& value);
 operation_result<std::filesystem::path> dataset_path(const std::filesystem::path& root,
                                                      const std::filesystem::path& relative);
-pose legacy_read_pose(const json_value& value);
 std::filesystem::path legacy_dataset_path(const std::filesystem::path& root,
                                           const std::filesystem::path& relative);
 }

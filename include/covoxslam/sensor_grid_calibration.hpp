@@ -1,7 +1,7 @@
 #pragma once
 
 #include <covoxslam/core/result.hpp>
-#include <covoxslam/dataset.hpp>
+#include <covoxslam/input/calibration.hpp>
 #include <covoxslam/sensor_grid.hpp>
 #include <cmath>
 
