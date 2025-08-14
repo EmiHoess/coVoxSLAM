@@ -311,7 +311,8 @@ inline int run_submap_cli(int argc, char** argv)
         std::cout << "sensor field uses calibrated ranges and scan start poses\n";
         const auto result = run_frame_pipeline(input, options, callbacks);
 
-        if (result.cancelled) return report_error(resident_failure ? resident_failure->message : "mapping cancelled");
+        if (!result) return report_error(result.error().message);
+        if (result->cancelled) return report_error(resident_failure ? resident_failure->message : "mapping cancelled");
         if (pgo_settings.solver.enabled || store_settings.enabled) {
             auto optimized = [&]() -> operation_result<pgo_cli_result> {
                 auto stored = resident_maps->finish(pgo_maps, pgo_settings.solver, pgo_settings.shadow);
@@ -336,7 +337,7 @@ inline int run_submap_cli(int argc, char** argv)
         }
         if (exporter) exporter->finish();
         std::cout << std::setprecision(17);
-        for (const auto& submap : result.submaps) {
+        for (const auto& submap : result->submaps) {
             const auto& anchor = submap.anchor;
             const auto& initial = submap.initial_pose;
              std::cout << "submap " << submap.id << ": " << submap.frame_ids.size()
@@ -347,9 +348,9 @@ inline int run_submap_cli(int argc, char** argv)
                       << ", initial quaternion " << initial.rotation.x << ' ' << initial.rotation.y
                       << ' ' << initial.rotation.z << ' ' << initial.rotation.w << '\n';
         }
-        std::cout << result.frames_loaded << " frames, " << result.submaps.size()
-                   << " submaps, " << result.rays_generated << " rays\n";
-        const auto& timing = result.timing;
+        std::cout << result->frames_loaded << " frames, " << result->submaps.size()
+                   << " submaps, " << result->rays_generated << " rays\n";
+        const auto& timing = result->timing;
         std::cout << "payload bytes " << timing.payload_bytes << ", read ms " << timing.read_ms
             << ", validation ms " << timing.validation_ms << ", decode ms " << timing.decode_ms
             << ", deskew ms " << timing.deskew_ms << ", integration ms " << timing.integration_ms

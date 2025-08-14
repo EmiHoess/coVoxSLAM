@@ -51,7 +51,7 @@ std::vector<ray> deskew_frame(
     return result;
 }
 
-pipeline_result run_frame_pipeline(
+operation_result<pipeline_result> run_frame_pipeline(
     const dataset& input, const pipeline_options& options,
     const pipeline_callbacks& callbacks)
 {
@@ -110,10 +110,11 @@ pipeline_result run_frame_pipeline(
             if (stop_requested()) return result;
             active = true;
         }
-        const auto frame = load_frame(input, index);
-        auto timing = frame.timing;
+        auto frame = load_frame(input, index);
+        if (!frame) return std::unexpected(frame.error());
+        auto timing = frame->timing;
         const auto preparation_started = std::chrono::steady_clock::now();
-        const auto rays = deskew_frame(frame, trajectory, current.anchor,
+        const auto rays = deskew_frame(*frame, trajectory, current.anchor,
                                       options.ring_stride, options.column_stride);
         const auto scan_pose = local_pose(current.anchor,
             sample_pose(trajectory, descriptor.start_stamp_ns));
@@ -128,7 +129,7 @@ pipeline_result run_frame_pipeline(
         current.timing += timing;
         result.timing += timing;
         current.frame_ids.push_back(descriptor.frame_id);
-         current.end_stamp_ns = std::max(current.end_stamp_ns, frame.beam_stamp_ns(
+         current.end_stamp_ns = std::max(current.end_stamp_ns, frame->beam_stamp_ns(
             ((descriptor.columns - 1) / options.column_stride) * options.column_stride));
         ++result.frames_loaded;
         if (rays.size() > std::numeric_limits<std::size_t>::max() - result.rays_generated)

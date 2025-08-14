@@ -233,8 +233,8 @@ operation_status load_dataset_inputs(dataset& input, const detail::json_value& m
 std::uint64_t input_structure_hash(const dataset& input, const detail::json_value& metadata);
 void index_dataset_payloads(dataset& input, std::uint64_t structure_hash);
 void write_input_cache(const dataset& input, std::uint64_t structure_hash);
-void verify_frame_bytes(const dataset& input, const std::filesystem::path& path,
-                        std::span<const std::uint8_t> bytes);
+operation_status verify_frame_bytes(const dataset& input, const std::filesystem::path& path,
+                                    std::span<const std::uint8_t> bytes);
 
 operation_status assign_string_member(
     const detail::json_value& object, std::string_view name, std::string& destination)
@@ -502,29 +502,31 @@ namespace covoxslam
 {
 namespace
 {
-std::vector<std::uint8_t> read_frame_bytes(
+operation_result<std::vector<std::uint8_t>> read_frame_bytes(
     const dataset& input, const std::filesystem::path& path,
     std::size_t count, std::size_t width, input_timing& timing)
 {
     const auto started = std::chrono::steady_clock::now();
     if (path.empty() || width == 0 ||
         count > static_cast<std::size_t>(std::numeric_limits<std::streamsize>::max()) / width)
-        throw std::runtime_error("missing frame buffer or invalid byte count");
-    const auto resolved = detail::legacy_dataset_path(input.root, path.lexically_relative(input.root));
+        return std::unexpected(operation_error{"missing frame buffer or invalid byte count"});
+    const auto resolved = detail::dataset_path(input.root, path.lexically_relative(input.root));
+    if (!resolved) return std::unexpected(resolved.error());
     const auto bytes = count * width;
-     std::ifstream file(resolved, std::ios::binary | std::ios::ate);
+     std::ifstream file(*resolved, std::ios::binary | std::ios::ate);
     if (!file || file.tellg() != static_cast<std::streamoff>(bytes))
-        throw std::runtime_error("frame buffer byte count does not match its shape");
+        return std::unexpected(operation_error{"frame buffer byte count does not match its shape"});
     file.seekg(0);
     std::vector<std::uint8_t> result(bytes);
     file.read(reinterpret_cast<char*>(result.data()), static_cast<std::streamsize>(bytes));
     if (!file || file.gcount() != static_cast<std::streamsize>(bytes) ||
         file.peek() != std::char_traits<char>::eof() || file.bad())
-        throw std::runtime_error("frame buffer could not be read completely");
+        return std::unexpected(operation_error{"frame buffer could not be read completely"});
     const auto loaded = std::chrono::steady_clock::now();
     timing.read_ms += std::chrono::duration<double, std::milli>(loaded - started).count();
     timing.payload_bytes += bytes;
-    verify_frame_bytes(input, resolved, result);
+    const auto verified = verify_frame_bytes(input, *resolved, result);
+    if (!verified) return std::unexpected(verified.error());
     timing.validation_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - loaded).count();
     return result;
 }
@@ -537,36 +539,38 @@ std::uint32_t decode_frame_u32(const std::uint8_t* bytes)
         (static_cast<std::uint32_t>(bytes[3]) << 24U);
 }
 
-std::vector<std::uint32_t> read_frame_u32(
+operation_result<std::vector<std::uint32_t>> read_frame_u32(
     const dataset& input, const std::filesystem::path& path, std::size_t count, input_timing& timing)
 {
-    const auto bytes = read_frame_bytes(input, path, count, 4, timing);
+    auto bytes = read_frame_bytes(input, path, count, 4, timing);
+    if (!bytes) return std::unexpected(bytes.error());
     const auto started = std::chrono::steady_clock::now();
     std::vector<std::uint32_t> result(count);
-        if (!bytes.empty()) std::memcpy(result.data(), bytes.data(), bytes.size());
+        if (!bytes->empty()) std::memcpy(result.data(), bytes->data(), bytes->size());
     timing.decode_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
     return result;
 }
 
-std::vector<vec3f> read_frame_xyz(
+operation_result<std::vector<vec3f>> read_frame_xyz(
     const dataset& input, const std::filesystem::path& path, std::size_t count, input_timing& timing)
 {
-    const auto bytes = read_frame_bytes(input, path, count, 12, timing);
+    auto bytes = read_frame_bytes(input, path, count, 12, timing);
+    if (!bytes) return std::unexpected(bytes.error());
     const auto started = std::chrono::steady_clock::now();
      std::vector<vec3f> result(count);
     constexpr bool native = sizeof(vec3f) == 12 &&
         std::is_trivially_copyable_v<vec3f> && offsetof(vec3f, y) == 4 && offsetof(vec3f, z) == 8;
     if constexpr (native)
-        if (!bytes.empty()) std::memcpy(result.data(), bytes.data(), bytes.size());
+        if (!bytes->empty()) std::memcpy(result.data(), bytes->data(), bytes->size());
 
     for (std::size_t index = 0; index < count; ++index) {
-        const auto* data = bytes.data() + index * 12;
+        const auto* data = bytes->data() + index * 12;
         const vec3f point = native ? result[index] : vec3f{
             std::bit_cast<float>(decode_frame_u32(data)),
             std::bit_cast<float>(decode_frame_u32(data + 4)),
             std::bit_cast<float>(decode_frame_u32(data + 8))};
         if (!std::isfinite(point.x) || !std::isfinite(point.y) || !std::isfinite(point.z))
-            throw std::runtime_error("frame buffer contains a non-finite coordinate");
+            return std::unexpected(operation_error{"frame buffer contains a non-finite coordinate"});
         result[index] = point;
     }
     timing.decode_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
@@ -620,12 +624,17 @@ struct frame_buffer_request {
 }
 ;
 
-void validate_frame_payload_bounds(
+operation_result<std::size_t> validate_frame_payload_bounds(
     const dataset& input, const frame_descriptor& frame, const frame_load_options& options)
 {
     if (options.max_payload_bytes == 0)
-        throw std::invalid_argument("frame payload byte limit must be positive");
-    const auto count = frame_beam_count(frame);
+        return std::unexpected(operation_error{"frame payload byte limit must be positive"});
+    constexpr std::size_t maximum = 16U * 1024U * 1024U;
+    if (!frame.rows || !frame.columns || frame.rows > maximum / frame.columns)
+        return std::unexpected(operation_error{"frame dimensions exceed the supported bounds"});
+    const auto count = frame.rows * frame.columns;
+    if (frame.beam_count != count || frame.end_stamp_ns <= frame.start_stamp_ns)
+        return std::unexpected(operation_error{"invalid frame beam count or scan interval"});
     const std::array<frame_buffer_request, 5> requests{{
         {&frame.raw_xyz_path, count, 12, options.raw_xyz},
         {&frame.deskewed_xyz_path, count, 12, options.deskewed_xyz},
@@ -638,22 +647,29 @@ void validate_frame_payload_bounds(
         if (!request.requested)
             continue;
         if (request.count > (options.max_payload_bytes - total) / request.width)
-            throw std::runtime_error("requested frame buffers exceed the payload byte limit");
+            return std::unexpected(operation_error{"requested frame buffers exceed the payload byte limit"});
         const auto bytes = request.count * request.width;
         total += bytes;
         if (request.path->empty())
-            throw std::runtime_error("a requested frame buffer is absent");
-        const auto path = detail::legacy_dataset_path(
+            return std::unexpected(operation_error{"a requested frame buffer is absent"});
+        const auto path = detail::dataset_path(
             input.root, request.path->lexically_relative(input.root));
-        if (!std::filesystem::is_regular_file(path) || std::filesystem::file_size(path) != bytes)
-            throw std::runtime_error("requested frame buffer has an invalid path or size");
+        if (!path) return std::unexpected(path.error());
+        std::error_code error;
+        const auto regular = std::filesystem::is_regular_file(*path, error);
+        if (error || !regular)
+            return std::unexpected(operation_error{"requested frame buffer has an invalid path or size"});
+        const auto file_bytes = std::filesystem::file_size(*path, error);
+        if (error || file_bytes != bytes)
+            return std::unexpected(operation_error{"requested frame buffer has an invalid path or size"});
     }
+    return count;
 }
 
-void validate_frame_contents(const organized_frame& frame)
+operation_status validate_frame_contents(const organized_frame& frame)
 {
     if (frame.status.empty())
-        return;
+        return {};
     std::array<std::size_t, 4> counts{};
     const auto valid_point = [](vec3f point) {
         return point.x != 0 || point.y != 0 || point.z != 0;
@@ -662,54 +678,76 @@ void validate_frame_contents(const organized_frame& frame)
     {
         const auto status = frame.status[index];
         if (status >= counts.size())
-            throw std::runtime_error("frame buffer contains an unknown status code");
+            return std::unexpected(operation_error{"frame buffer contains an unknown status code"});
         ++counts[status];
         const bool valid = status == static_cast<std::uint8_t>(beam_status::valid_hit) ||
              status == static_cast<std::uint8_t>(beam_status::valid_outlier);
         if ((!frame.range_mm.empty() && (frame.range_mm[index] != 0) != valid) ||
             (!frame.raw_xyz.empty() && valid_point(frame.raw_xyz[index]) != valid) ||
             (!frame.deskewed_xyz.empty() && valid_point(frame.deskewed_xyz[index]) != valid))
-            throw std::runtime_error("frame status disagrees with zero return encoding");
+            return std::unexpected(operation_error{"frame status disagrees with zero return encoding"});
     }
     const auto& descriptor = frame.descriptor;
     if (counts[0] != descriptor.invalid_count || counts[2] != descriptor.dropout_count ||
         counts[1] + counts[3] != descriptor.hit_count || counts[3] != descriptor.outlier_count)
-        throw std::runtime_error("binary status counts disagree with the frame metadata");
+        return std::unexpected(operation_error{"binary status counts disagree with the frame metadata"});
+    return {};
 }
 }
 
-organized_frame load_frame(
+operation_result<organized_frame> load_frame(
     const dataset& input, std::size_t frame_index, frame_load_options options)
 {
+    if (frame_index >= input.frames.size())
+        return std::unexpected(operation_error{"frame index is out of range"});
     organized_frame frame;
-    frame.descriptor = input.frames.at(frame_index);
-    const auto count = frame_beam_count(frame.descriptor);
-    validate_frame_payload_bounds(input, frame.descriptor, options);
+    frame.descriptor = input.frames[frame_index];
+    const auto count = validate_frame_payload_bounds(input, frame.descriptor, options);
+    if (!count) return std::unexpected(count.error());
     if (options.deskewed_xyz && frame.descriptor.deskewed_xyz_path.empty())
-        throw std::runtime_error("the frame has no deskewed XYZ buffer");
-     if (options.raw_xyz)
-        frame.raw_xyz = read_frame_xyz(input, frame.descriptor.raw_xyz_path, count, frame.timing);
-    if (options.deskewed_xyz)
-        frame.deskewed_xyz = read_frame_xyz(input, frame.descriptor.deskewed_xyz_path, count, frame.timing);
-    if (options.range)
-        frame.range_mm = read_frame_u32(input, frame.descriptor.range_path, count, frame.timing);
-    if (options.status)
-        frame.status = read_frame_bytes(input, frame.descriptor.status_path, count, 1, frame.timing);
-    if (options.time_offset_ns)
-        frame.time_offset_ns = read_frame_u32(
+        return std::unexpected(operation_error{"the frame has no deskewed XYZ buffer"});
+     if (options.raw_xyz) {
+        auto loaded = read_frame_xyz(input, frame.descriptor.raw_xyz_path, *count, frame.timing);
+        if (!loaded) return std::unexpected(loaded.error());
+        frame.raw_xyz = std::move(*loaded);
+    }
+    if (options.deskewed_xyz) {
+        auto loaded = read_frame_xyz(input, frame.descriptor.deskewed_xyz_path, *count, frame.timing);
+        if (!loaded) return std::unexpected(loaded.error());
+        frame.deskewed_xyz = std::move(*loaded);
+    }
+    if (options.range) {
+        auto loaded = read_frame_u32(input, frame.descriptor.range_path, *count, frame.timing);
+        if (!loaded) return std::unexpected(loaded.error());
+        frame.range_mm = std::move(*loaded);
+    }
+    if (options.status) {
+        auto loaded = read_frame_bytes(input, frame.descriptor.status_path, *count, 1, frame.timing);
+        if (!loaded) return std::unexpected(loaded.error());
+        frame.status = std::move(*loaded);
+    }
+    if (options.time_offset_ns) {
+        auto loaded = read_frame_u32(
             input, frame.descriptor.time_offset_ns_path, frame.descriptor.columns, frame.timing);
+        if (!loaded) return std::unexpected(loaded.error());
+        frame.time_offset_ns = std::move(*loaded);
+    }
     const auto validation_started = std::chrono::steady_clock::now();
     for (std::size_t column = 0; column < frame.time_offset_ns.size(); ++column)
     {
-        frame.beam_stamp_ns(column);
+        const auto offset = frame.time_offset_ns[column];
+        if (frame.descriptor.end_stamp_ns <= frame.descriptor.start_stamp_ns ||
+            offset >= frame.descriptor.end_stamp_ns - frame.descriptor.start_stamp_ns)
+            return std::unexpected(operation_error{"column time offset is outside the scan interval"});
         if (column != 0 && frame.time_offset_ns[column] <= frame.time_offset_ns[column - 1])
-            throw std::runtime_error("column time offsets are not strictly increasing");
+            return std::unexpected(operation_error{"column time offsets are not strictly increasing"});
     }
     for (const auto value : frame.status) {
         if (value > static_cast<std::uint8_t>(beam_status::valid_outlier))
-            throw std::runtime_error("frame buffer contains an unknown status code");
+            return std::unexpected(operation_error{"frame buffer contains an unknown status code"});
     }
-    validate_frame_contents(frame);
+    const auto valid = validate_frame_contents(frame);
+    if (!valid) return std::unexpected(valid.error());
     frame.timing.validation_ms += std::chrono::duration<double, std::milli>(
         std::chrono::steady_clock::now() - validation_started).count();
     return frame;
@@ -1187,14 +1225,15 @@ void index_dataset_payloads(dataset& input, std::uint64_t structure_hash)
     update_content_fingerprint(input, structure_hash);
 }
 
-void verify_frame_bytes(const dataset& input, const std::filesystem::path& path,
-                         std::span<const std::uint8_t> bytes)
+operation_status verify_frame_bytes(const dataset& input, const std::filesystem::path& path,
+                                    std::span<const std::uint8_t> bytes)
 {
-    if (input.payload_index.empty()) return;
+    if (input.payload_index.empty()) return {};
     const auto entry = input.payload_index.find(path);
     if (entry == input.payload_index.end() || entry->second.identity.size != bytes.size() ||
         entry->second.content_hash != hash_bytes(bytes))
-        throw std::runtime_error("frame payload does not match the verified input index");
+        return std::unexpected(operation_error{"frame payload does not match the verified input index"});
+    return {};
 }
 
 void append_cached_trajectory(cache_buffer& buffer, std::span<const pose_sample> trajectory)

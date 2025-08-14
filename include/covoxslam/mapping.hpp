@@ -65,7 +65,7 @@ std::vector<ray> deskew_frame(
     const organized_frame& frame, std::span<const pose_sample> trajectory,
     const pose4& anchor, std::size_t ring_stride = 1, std::size_t column_stride = 1);
 
-pipeline_result run_frame_pipeline(
+operation_result<pipeline_result> run_frame_pipeline(
     const dataset& input, const pipeline_options& options = {},
      const pipeline_callbacks& callbacks = {});
 

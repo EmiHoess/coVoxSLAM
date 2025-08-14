@@ -32,4 +32,5 @@ struct organized_frame {
 };
 operation_result<frame_descriptor> read_frame_descriptor(const std::filesystem::path& root,
     const std::filesystem::path& metadata_path);
-organized_frame load_frame(const dataset& input, std::size_t frame_index, frame_load_options options = {}); }
+operation_result<organized_frame> load_frame(
+    const dataset& input, std::size_t frame_index, frame_load_options options = {}); }

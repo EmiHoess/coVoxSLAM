@@ -182,10 +182,11 @@ int main(int argc, char** argv)
         options.raw_xyz = source == covoxslam::point_source::raw;
         options.deskewed_xyz = source == covoxslam::point_source::deskewed;
         const auto frame = covoxslam::load_frame(dataset, frame_index, options);
-        const auto& points = options.raw_xyz ? frame.raw_xyz : frame.deskewed_xyz;
+        if (!frame) return report_error(frame.error().message);
+        const auto& points = options.raw_xyz ? frame->raw_xyz : frame->deskewed_xyz;
         if (points.empty()) return report_error("requested point source is unavailable");
-        const auto rings = sampled_extent(frame.descriptor.rows, ring_stride);
-         const auto columns = sampled_extent(frame.descriptor.columns, column_stride);
+        const auto rings = sampled_extent(frame->descriptor.rows, ring_stride);
+         const auto columns = sampled_extent(frame->descriptor.columns, column_stride);
         std::size_t selected{}, valid{};
         for (std::size_t column_sample = 0; column_sample < columns; ++column_sample)
         {
@@ -193,18 +194,18 @@ int main(int argc, char** argv)
             for (std::size_t ring_sample = 0; ring_sample < rings; ++ring_sample) {
                 const auto ring = ring_sample * ring_stride;
                 ++selected;
-                if (!frame.valid_return(ring, column)) continue;
-                const auto point = frame.point(source, ring, column);
+                if (!frame->valid_return(ring, column)) continue;
+                const auto point = frame->point(source, ring, column);
                  if (std::isfinite(point.x) && std::isfinite(point.y) && std::isfinite(point.z)) ++valid;
             }
         }
-        std::cout << "frame " << frame_index << " id " << frame.descriptor.frame_id << '\n'
-                  << "shape " << frame.descriptor.rows << ' ' << frame.descriptor.columns << '\n'
+        std::cout << "frame " << frame_index << " id " << frame->descriptor.frame_id << '\n'
+                  << "shape " << frame->descriptor.rows << ' ' << frame->descriptor.columns << '\n'
                   << "selected beams " << selected << '\n' << "valid selected returns " << valid << '\n';
         if (columns != 0)
         {
-            std::cout << "selected column stamps " << frame.beam_stamp_ns(0) << ' '
-                      << frame.beam_stamp_ns((columns - 1) * column_stride) << '\n';
+            std::cout << "selected column stamps " << frame->beam_stamp_ns(0) << ' '
+                      << frame->beam_stamp_ns((columns - 1) * column_stride) << '\n';
         }
         return 0;
     }
