@@ -10,40 +10,60 @@
 namespace covoxslam
 {
 
-std::vector<ray> deskew_frame(
+operation_result<std::vector<ray>> deskew_frame(
     const organized_frame& frame, std::span<const pose_sample> trajectory,
     const pose4& anchor, std::size_t ring_stride, std::size_t column_stride)
 {
     const auto& descriptor = frame.descriptor;
     if (!ring_stride || !column_stride || !descriptor.rows || !descriptor.columns)
-        throw std::invalid_argument("invalid frame dimensions or sampling strides");
+        return std::unexpected(operation_error{"invalid frame dimensions or sampling strides"});
      if (!std::isfinite(anchor.x) || !std::isfinite(anchor.y) ||
         !std::isfinite(anchor.z) || !std::isfinite(anchor.yaw))
-        throw std::invalid_argument("invalid submap anchor");
-    frame.flat_index(descriptor.rows - 1, descriptor.columns - 1);
+        return std::unexpected(operation_error{"invalid submap anchor"});
+    const auto last = frame.flat_index(descriptor.rows - 1, descriptor.columns - 1);
+    if (!last) return std::unexpected(last.error());
     const auto rows = 1 + (descriptor.rows - 1) / ring_stride;
     const auto columns = 1 + (descriptor.columns - 1) / column_stride;
     if (rows > std::numeric_limits<std::size_t>::max() / columns)
-        throw std::length_error("selected ray count exceeds addressable size");
+        return std::unexpected(operation_error{"selected ray count exceeds addressable size"});
+    const auto count = *last + 1;
+    if (frame.raw_xyz.size() < count)
+        return std::unexpected(operation_error{"requested point source is unavailable"});
+    if (frame.status.size() < count)
+        return std::unexpected(operation_error{"frame status buffer is unavailable"});
+    if (!frame.range_mm.empty() && frame.range_mm.size() < count)
+        return std::unexpected(operation_error{"frame range buffer is unavailable"});
+    if (frame.time_offset_ns.size() < descriptor.columns)
+        return std::unexpected(operation_error{"frame time offset buffer is unavailable"});
+    for (std::size_t column = 0; column < descriptor.columns; ++column) {
+        const auto stamp = frame.beam_stamp_ns(column);
+        if (!stamp) return std::unexpected(stamp.error());
+    }
+    for (std::size_t index = 0; index < count; ++index)
+        if (frame.status[index] > static_cast<std::uint8_t>(beam_status::valid_outlier))
+            return std::unexpected(operation_error{"frame buffer contains an unknown status code"});
     std::vector<ray> result;
     result.reserve(rows * columns);
     for (std::size_t selected_column = 0; selected_column < columns; ++selected_column)
     {
         const auto column = selected_column * column_stride;
-         const auto stamp = frame.beam_stamp_ns(column);
+         const auto stamp = descriptor.start_stamp_ns + frame.time_offset_ns[column];
         const auto world_from_lidar = sample_pose(trajectory, stamp);
         const auto local_from_lidar = local_pose(anchor, world_from_lidar);
         const auto origin = local_from_lidar.translation;
         for (std::size_t selected_ring = 0; selected_ring < rows; ++selected_ring) {
             const auto ring = selected_ring * ring_stride;
-            if (!frame.valid_return(ring, column)) continue;
-            const auto point = frame.point(point_source::raw, ring, column);
+            const auto index = ring * descriptor.columns + column;
+            const auto status = frame.status[index];
+            if (status != static_cast<std::uint8_t>(beam_status::valid_hit) &&
+                status != static_cast<std::uint8_t>(beam_status::valid_outlier)) continue;
+            const auto& point = frame.raw_xyz[index];
             const auto endpoint = transform_point(local_from_lidar, point);
             if (!std::isfinite(endpoint.x) || !std::isfinite(endpoint.y) ||
                  !std::isfinite(endpoint.z))
-                throw std::runtime_error("deskew produced a non-finite endpoint");
+                return std::unexpected(operation_error{"deskew produced a non-finite endpoint"});
             const auto measured_range = frame.range_mm.empty() ? length(point) :
-                static_cast<float>(frame.range_mm.at(frame.flat_index(ring, column))) * 0.001F;
+                static_cast<float>(frame.range_mm[index]) * 0.001F;
             result.push_back({origin, endpoint, 1.0F, stamp, descriptor.frame_id,
                               column, ring, measured_range});
         }
@@ -114,14 +134,15 @@ operation_result<pipeline_result> run_frame_pipeline(
         if (!frame) return std::unexpected(frame.error());
         auto timing = frame->timing;
         const auto preparation_started = std::chrono::steady_clock::now();
-        const auto rays = deskew_frame(*frame, trajectory, current.anchor,
-                                      options.ring_stride, options.column_stride);
+        auto rays = deskew_frame(*frame, trajectory, current.anchor,
+                                 options.ring_stride, options.column_stride);
+        if (!rays) return std::unexpected(rays.error());
         const auto scan_pose = local_pose(current.anchor,
             sample_pose(trajectory, descriptor.start_stamp_ns));
         const auto integration_started = std::chrono::steady_clock::now();
         timing.deskew_ms = std::chrono::duration<double, std::milli>(integration_started - preparation_started).count();
         if (callbacks.integrate_scan)
-            callbacks.integrate_scan(current, descriptor, rays, scan_pose);
+            callbacks.integrate_scan(current, descriptor, *rays, scan_pose);
         timing.integration_ms = std::chrono::duration<double, std::milli>(
             std::chrono::steady_clock::now() - integration_started).count();
 
@@ -129,12 +150,14 @@ operation_result<pipeline_result> run_frame_pipeline(
         current.timing += timing;
         result.timing += timing;
         current.frame_ids.push_back(descriptor.frame_id);
-         current.end_stamp_ns = std::max(current.end_stamp_ns, frame->beam_stamp_ns(
-            ((descriptor.columns - 1) / options.column_stride) * options.column_stride));
+        const auto end_stamp = frame->beam_stamp_ns(
+            ((descriptor.columns - 1) / options.column_stride) * options.column_stride);
+        if (!end_stamp) return std::unexpected(end_stamp.error());
+         current.end_stamp_ns = std::max(current.end_stamp_ns, *end_stamp);
         ++result.frames_loaded;
-        if (rays.size() > std::numeric_limits<std::size_t>::max() - result.rays_generated)
+        if (rays->size() > std::numeric_limits<std::size_t>::max() - result.rays_generated)
             throw std::overflow_error("ray counter exceeds addressable size");
-        result.rays_generated += rays.size();
+        result.rays_generated += rays->size();
     }
     if (active) finish();
     return result;

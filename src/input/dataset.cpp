@@ -578,38 +578,55 @@ operation_result<std::vector<vec3f>> read_frame_xyz(
 }
 }
 
-std::size_t organized_frame::flat_index(std::size_t ring, std::size_t column) const
+operation_result<std::size_t> organized_frame::flat_index(
+    std::size_t ring, std::size_t column) const
 {
-    frame_beam_count(descriptor);
+    constexpr std::size_t maximum = 16U * 1024U * 1024U;
+    if (!descriptor.rows || !descriptor.columns || descriptor.rows > maximum / descriptor.columns)
+        return std::unexpected(operation_error{"frame dimensions exceed the supported bounds"});
+    if (descriptor.beam_count != descriptor.rows * descriptor.columns ||
+        descriptor.end_stamp_ns <= descriptor.start_stamp_ns)
+        return std::unexpected(operation_error{"invalid frame beam count or scan interval"});
     if (ring >= descriptor.rows || column >= descriptor.columns)
-        throw std::out_of_range("organized frame index is out of range");
+        return std::unexpected(operation_error{"organized frame index is out of range"});
      return ring * descriptor.columns + column;
 }
 
-const vec3f& organized_frame::point(
+operation_result<std::reference_wrapper<const vec3f>> organized_frame::point(
     point_source source, std::size_t ring, std::size_t column) const
 {
     const auto index = flat_index(ring, column);
-    if (source == point_source::raw)
-        return raw_xyz.at(index);
-    if (source == point_source::deskewed)
-        return deskewed_xyz.at(index);
-    throw std::invalid_argument("unsupported point source");
+    if (!index) return std::unexpected(index.error());
+    const std::vector<vec3f>* points{};
+    if (source == point_source::raw) points = &raw_xyz;
+    else if (source == point_source::deskewed) points = &deskewed_xyz;
+    else return std::unexpected(operation_error{"unsupported point source"});
+    if (*index >= points->size())
+        return std::unexpected(operation_error{"requested point source is unavailable"});
+    return std::cref((*points)[*index]);
 }
 
-std::uint64_t organized_frame::beam_stamp_ns(std::size_t column) const
+operation_result<std::uint64_t> organized_frame::beam_stamp_ns(std::size_t column) const
 {
     if (column >= descriptor.columns)
-        throw std::out_of_range("organized frame column is out of range");
-    const auto offset = time_offset_ns.at(column);
+        return std::unexpected(operation_error{"organized frame column is out of range"});
+    if (column >= time_offset_ns.size())
+        return std::unexpected(operation_error{"frame time offset buffer is unavailable"});
+    const auto offset = time_offset_ns[column];
      if (descriptor.end_stamp_ns <= descriptor.start_stamp_ns ||
         offset >= descriptor.end_stamp_ns - descriptor.start_stamp_ns)
-        throw std::runtime_error("column time offset is outside the scan interval");
+        return std::unexpected(operation_error{"column time offset is outside the scan interval"});
     return descriptor.start_stamp_ns + offset;
 }
 
-bool organized_frame::valid_return(std::size_t ring, std::size_t column) const {
-    const auto value = status.at(flat_index(ring, column));
+operation_result<bool> organized_frame::valid_return(std::size_t ring, std::size_t column) const {
+    const auto index = flat_index(ring, column);
+    if (!index) return std::unexpected(index.error());
+    if (*index >= status.size())
+        return std::unexpected(operation_error{"frame status buffer is unavailable"});
+    const auto value = status[*index];
+    if (value > static_cast<std::uint8_t>(beam_status::valid_outlier))
+        return std::unexpected(operation_error{"frame buffer contains an unknown status code"});
     return value == static_cast<std::uint8_t>(beam_status::valid_hit) ||
         value == static_cast<std::uint8_t>(beam_status::valid_outlier);
 }

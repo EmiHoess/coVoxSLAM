@@ -194,9 +194,13 @@ int main(int argc, char** argv)
             for (std::size_t ring_sample = 0; ring_sample < rings; ++ring_sample) {
                 const auto ring = ring_sample * ring_stride;
                 ++selected;
-                if (!frame->valid_return(ring, column)) continue;
+                const auto returned = frame->valid_return(ring, column);
+                if (!returned) return report_error(returned.error().message);
+                if (!*returned) continue;
                 const auto point = frame->point(source, ring, column);
-                 if (std::isfinite(point.x) && std::isfinite(point.y) && std::isfinite(point.z)) ++valid;
+                if (!point) return report_error(point.error().message);
+                 if (std::isfinite(point->get().x) && std::isfinite(point->get().y) &&
+                     std::isfinite(point->get().z)) ++valid;
             }
         }
         std::cout << "frame " << frame_index << " id " << frame->descriptor.frame_id << '\n'
@@ -204,8 +208,11 @@ int main(int argc, char** argv)
                   << "selected beams " << selected << '\n' << "valid selected returns " << valid << '\n';
         if (columns != 0)
         {
-            std::cout << "selected column stamps " << frame->beam_stamp_ns(0) << ' '
-                      << frame->beam_stamp_ns((columns - 1) * column_stride) << '\n';
+            const auto first = frame->beam_stamp_ns(0);
+            if (!first) return report_error(first.error().message);
+            const auto last = frame->beam_stamp_ns((columns - 1) * column_stride);
+            if (!last) return report_error(last.error().message);
+            std::cout << "selected column stamps " << *first << ' ' << *last << '\n';
         }
         return 0;
     }

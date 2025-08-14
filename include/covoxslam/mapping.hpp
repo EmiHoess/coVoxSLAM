@@ -61,7 +61,7 @@ struct pipeline_result {
 }
 ;
 
-std::vector<ray> deskew_frame(
+operation_result<std::vector<ray>> deskew_frame(
     const organized_frame& frame, std::span<const pose_sample> trajectory,
     const pose4& anchor, std::size_t ring_stride = 1, std::size_t column_stride = 1);
 

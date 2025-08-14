@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <vector>
 namespace covoxslam {
 struct dataset; struct frame_descriptor {
@@ -25,10 +26,11 @@ struct organized_frame {
     std::vector<vec3f> raw_xyz, deskewed_xyz;
     std::vector<std::uint32_t> range_mm, time_offset_ns;
     std::vector<std::uint8_t> status;
-    std::size_t flat_index(std::size_t ring, std::size_t column) const;
-    const vec3f& point(point_source source, std::size_t ring, std::size_t column) const;
-    std::uint64_t beam_stamp_ns(std::size_t column) const;
-    bool valid_return(std::size_t ring, std::size_t column) const;
+    operation_result<std::size_t> flat_index(std::size_t ring, std::size_t column) const;
+    operation_result<std::reference_wrapper<const vec3f>> point(
+        point_source source, std::size_t ring, std::size_t column) const;
+    operation_result<std::uint64_t> beam_stamp_ns(std::size_t column) const;
+    operation_result<bool> valid_return(std::size_t ring, std::size_t column) const;
 };
 operation_result<frame_descriptor> read_frame_descriptor(const std::filesystem::path& root,
     const std::filesystem::path& metadata_path);
