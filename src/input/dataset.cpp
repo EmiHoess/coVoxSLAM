@@ -9,7 +9,6 @@
 #include <chrono>
 #include <cstring>
 #include <limits>
-#include <stdexcept>
 
 namespace covoxslam
 {
@@ -60,8 +59,7 @@ operation_result<pose> read_pose(const json_value& value)
 
 namespace
 {
-payload_cache_descriptor hash_file(const std::filesystem::path& path);
-operation_result<payload_cache_descriptor> checked_hash_file(const std::filesystem::path& path);
+operation_result<payload_cache_descriptor> hash_file(const std::filesystem::path& path);
 template<class integer> operation_status assign_unsigned_member(
     const detail::json_value& object, std::string_view name, integer& destination);
 operation_status expect_string_member(const detail::json_value& object, std::string_view name,
@@ -117,15 +115,15 @@ operation_status assign_pose_member(
     return {};
 }
 
-std::size_t frame_beam_count(const frame_descriptor& frame)
+operation_result<std::size_t> frame_beam_count(const frame_descriptor& frame)
 {
     constexpr std::size_t maximum = 16U * 1024U * 1024U;
     if (frame.rows == 0 || frame.columns == 0 ||
         frame.rows > maximum / frame.columns)
-        throw std::runtime_error("frame dimensions exceed the supported bounds");
+        return std::unexpected(operation_error{"frame dimensions exceed the supported bounds"});
     const auto count = frame.rows * frame.columns;
     if (frame.beam_count != count || frame.end_stamp_ns <= frame.start_stamp_ns)
-        throw std::runtime_error("invalid frame beam count or scan interval");
+        return std::unexpected(operation_error{"invalid frame beam count or scan interval"});
      return count;
 }
 }
@@ -137,7 +135,7 @@ operation_result<frame_descriptor> read_frame_descriptor(
     const auto checked_path = detail::dataset_path(root, metadata_path.lexically_relative(root));
     if (!checked_path) return std::unexpected(checked_path.error());
     frame.metadata_path = *checked_path;
-    const auto hash = checked_hash_file(frame.metadata_path);
+    const auto hash = hash_file(frame.metadata_path);
     if (!hash) return std::unexpected(hash.error());
     frame.metadata_content_hash = hash->content_hash;
     const auto parsed = detail::read_metadata(frame.metadata_path);
@@ -230,8 +228,9 @@ operation_status load_json_trajectories(dataset& input, const detail::json_value
 operation_status validate_trajectory_coverage(const dataset& input);
 operation_status load_dataset_inputs(dataset& input, const detail::json_value& metadata,
                                      dataset_load_options options);
-std::uint64_t input_structure_hash(const dataset& input, const detail::json_value& metadata);
-void index_dataset_payloads(dataset& input, std::uint64_t structure_hash);
+operation_result<std::uint64_t> input_structure_hash(
+    const dataset& input, const detail::json_value& metadata);
+operation_status index_dataset_payloads(dataset& input, std::uint64_t structure_hash);
 operation_status write_input_cache(const dataset& input, std::uint64_t structure_hash);
 operation_status verify_frame_bytes(const dataset& input, const std::filesystem::path& path,
                                     std::span<const std::uint8_t> bytes);
@@ -306,7 +305,9 @@ operation_result<dataset> load_dataset(const std::filesystem::path& root, datase
     auto parsed = read_metadata(selected);
     if (!parsed) return std::unexpected(parsed.error());
     const auto& metadata = *parsed;
-    const auto manifest_hash = hash_file(selected).content_hash;
+    const auto manifest_source = hash_file(selected);
+    if (!manifest_source) return std::unexpected(manifest_source.error());
+    const auto manifest_hash = manifest_source->content_hash;
     const auto encoding = selected.extension() == ".toml" ? "toml" : "json";
     if (metadata.members.contains("metadata_format")) {
         const auto format = expect_string_member(metadata, "metadata_format", encoding,
@@ -339,7 +340,9 @@ operation_result<dataset> load_dataset(const std::filesystem::path& root, datase
     const auto checked_sensor_path = dataset_path(result.root, sensor_file);
     if (!checked_sensor_path) return std::unexpected(checked_sensor_path.error());
     const auto sensor_path = *checked_sensor_path;
-    const auto sensor_hash = hash_file(sensor_path).content_hash;
+    const auto sensor_source = hash_file(sensor_path);
+    if (!sensor_source) return std::unexpected(sensor_source.error());
+    const auto sensor_hash = sensor_source->content_hash;
     const auto parsed_calibration = read_metadata(sensor_path);
     if (!parsed_calibration) return std::unexpected(parsed_calibration.error());
     const auto& calibration = *parsed_calibration;
@@ -486,11 +489,18 @@ operation_result<dataset> load_dataset(const std::filesystem::path& root, datase
             return std::unexpected(operation_error{"duplicate frame identifier"});
     auto inputs = load_dataset_inputs(result, metadata, options);
     if (!inputs) return std::unexpected(inputs.error());
-    if (manifest_hash != hash_file(selected).content_hash ||
-        sensor_hash != hash_file(sensor_path).content_hash)
+    const auto final_manifest = hash_file(selected);
+    if (!final_manifest) return std::unexpected(final_manifest.error());
+    const auto final_sensor = hash_file(sensor_path);
+    if (!final_sensor) return std::unexpected(final_sensor.error());
+    if (manifest_hash != final_manifest->content_hash ||
+        sensor_hash != final_sensor->content_hash)
         return std::unexpected(operation_error{"recording metadata changed while inputs were loaded"});
-    if (options.update_cache && result.input_source == dataset_input_source::full_scan)
-        static_cast<void>(write_input_cache(result, input_structure_hash(result, metadata)));
+    if (options.update_cache && result.input_source == dataset_input_source::full_scan) {
+        const auto structure_hash = input_structure_hash(result, metadata);
+        if (!structure_hash) return std::unexpected(structure_hash.error());
+        static_cast<void>(write_input_cache(result, *structure_hash));
+    }
     return result;
 }
 }
@@ -800,15 +810,7 @@ std::uint64_t hash_bytes(std::span<const std::uint8_t> bytes, std::uint64_t hash
     return hash;
 }
 
-cache_file_identity file_identity(const std::filesystem::path& path)
-{
-    if (!std::filesystem::is_regular_file(path))
-        throw std::runtime_error("recording input is not a regular file");
-    const auto modified = std::filesystem::last_write_time(path).time_since_epoch().count();
-    return {std::filesystem::file_size(path), static_cast<std::int64_t>(modified)};
-}
-
-operation_result<cache_file_identity> checked_file_identity(const std::filesystem::path& path)
+operation_result<cache_file_identity> file_identity(const std::filesystem::path& path)
 {
     std::error_code error;
     const auto regular = std::filesystem::is_regular_file(path, error);
@@ -823,9 +825,9 @@ operation_result<cache_file_identity> checked_file_identity(const std::filesyste
     return cache_file_identity{size, static_cast<std::int64_t>(modified.time_since_epoch().count())};
 }
 
-operation_result<payload_cache_descriptor> checked_hash_file(const std::filesystem::path& path)
+operation_result<payload_cache_descriptor> hash_file(const std::filesystem::path& path)
 {
-    const auto before = checked_file_identity(path);
+    const auto before = file_identity(path);
     if (!before) return std::unexpected(before.error());
     std::ifstream file(path, std::ios::binary);
     if (!file) return std::unexpected(operation_error{"cannot open recording input"});
@@ -836,30 +838,10 @@ operation_result<payload_cache_descriptor> checked_hash_file(const std::filesyst
         const auto size = static_cast<std::size_t>(file.gcount());
         hash = hash_bytes(std::span(bytes).first(size), hash); count += size;
     }
-    const auto after = checked_file_identity(path);
+    const auto after = file_identity(path);
     if (!file.eof() || file.bad() || count != before->size || !after || *after != *before)
         return std::unexpected(operation_error{"recording input changed or could not be read"});
     return payload_cache_descriptor{*before, hash};
-}
-
-payload_cache_descriptor hash_file(const std::filesystem::path& path)
-{
-    const auto before = file_identity(path);
-    std::ifstream file(path, std::ios::binary);
-    if (!file) throw std::runtime_error("cannot open recording input");
-    std::array<std::uint8_t, 65536> bytes;
-    std::uint64_t hash = hash_basis;
-     std::uint64_t count{};
-    while (file)
-    {
-        file.read(reinterpret_cast<char*>(bytes.data()), bytes.size());
-        const auto size = static_cast<std::size_t>(file.gcount());
-        hash = hash_bytes(std::span(bytes).first(size), hash);
-        count += size;
-    }
-    if (!file.eof() || file.bad() || count != before.size || file_identity(path) != before)
-        throw std::runtime_error("recording input changed or could not be read");
-    return {before, hash};
 }
 
 class cache_buffer
@@ -960,7 +942,7 @@ namespace covoxslam
 {
 namespace
 {
-void validate_pose_sample(const pose_sample& sample)
+operation_status validate_pose_sample(const pose_sample& sample)
 {
     const auto& position = sample.pose.translation;
     const auto& rotation = sample.pose.rotation;
@@ -968,7 +950,8 @@ void validate_pose_sample(const pose_sample& sample)
                                   std::hypot(double(rotation.z), double(rotation.w)));
     if (!std::isfinite(position.x) || !std::isfinite(position.y) || !std::isfinite(position.z) ||
          !std::isfinite(norm) || std::abs(norm - 1) > 0.001)
-        throw std::runtime_error("invalid trajectory pose");
+        return std::unexpected(operation_error{"invalid trajectory pose"});
+    return {};
 }
 
 operation_error trajectory_record_error(
@@ -982,7 +965,7 @@ operation_result<std::vector<pose_sample>> read_trajectory(
     const std::filesystem::path& path, std::string_view kind,
     std::string_view parent_frame, std::string_view child_frame)
 {
-    const auto before = checked_file_identity(path);
+    const auto before = file_identity(path);
     if (!before) return std::unexpected(before.error());
     std::ifstream file(path, std::ios::binary);
     if (!file) return std::unexpected(operation_error{"cannot open trajectory"});
@@ -1033,7 +1016,7 @@ operation_result<std::vector<pose_sample>> read_trajectory(
                 operation_error{"trajectory timestamps are not strictly increasing"}));
         result.push_back(sample);
     }
-    const auto after = checked_file_identity(path);
+    const auto after = file_identity(path);
     if (!file.eof() || file.bad() || result.empty() || !after || *after != *before)
         return std::unexpected(operation_error{"trajectory is empty, changed or could not be read"});
     return result;
@@ -1101,20 +1084,25 @@ operation_status validate_trajectory_coverage(const dataset& input)
 }
 }
 
-pose sample_pose(std::span<const pose_sample> trajectory, std::uint64_t stamp_ns)
+operation_result<pose> sample_pose(
+    std::span<const pose_sample> trajectory, std::uint64_t stamp_ns)
 {
-    if (trajectory.empty()) throw std::invalid_argument("cannot sample an empty trajectory");
+    if (trajectory.empty())
+        return std::unexpected(operation_error{"cannot sample an empty trajectory"});
     if (stamp_ns < trajectory.front().stamp_ns || stamp_ns > trajectory.back().stamp_ns)
-        throw std::out_of_range("pose timestamp is outside trajectory coverage");
+        return std::unexpected(operation_error{"pose timestamp is outside trajectory coverage"});
     const auto upper = std::lower_bound(trajectory.begin(), trajectory.end(), stamp_ns,
         [](const auto& sample, std::uint64_t stamp) { return sample.stamp_ns < stamp; });
-    if (upper == trajectory.end()) throw std::invalid_argument("invalid trajectory ordering");
-    validate_pose_sample(*upper);
+    if (upper == trajectory.end())
+        return std::unexpected(operation_error{"invalid trajectory ordering"});
+    const auto upper_valid = validate_pose_sample(*upper);
+    if (!upper_valid) return std::unexpected(upper_valid.error());
      if (upper == trajectory.begin() || upper->stamp_ns == stamp_ns) return upper->pose;
     const auto& left = *(upper - 1);
-    validate_pose_sample(left);
+    const auto left_valid = validate_pose_sample(left);
+    if (!left_valid) return std::unexpected(left_valid.error());
     if (left.stamp_ns >= upper->stamp_ns)
-        throw std::invalid_argument("invalid trajectory interval");
+        return std::unexpected(operation_error{"invalid trajectory interval"});
     const double alpha = static_cast<double>(stamp_ns - left.stamp_ns) /
                          static_cast<double>(upper->stamp_ns - left.stamp_ns);
     const auto a = normalized(left.pose.rotation);
@@ -1146,11 +1134,12 @@ pose sample_pose(std::span<const pose_sample> trajectory, std::uint64_t stamp_ns
     return result;
 }
 
-std::span<const pose_sample> pose_stream(const dataset& input, pose_source source)
+operation_result<std::span<const pose_sample>> pose_stream(
+    const dataset& input, pose_source source)
 {
     const auto* result = source == pose_source::ground_truth ? &input.ground_truth : &input.odometry;
     if ((source != pose_source::ground_truth && source != pose_source::odometry) || result->empty())
-        throw std::invalid_argument("requested trajectory is unavailable");
+        return std::unexpected(operation_error{"requested trajectory is unavailable"});
      return *result;
 }
 }
@@ -1161,20 +1150,29 @@ namespace covoxslam
 {
 namespace
 {
-std::size_t frame_beam_count(const frame_descriptor& frame);
+operation_result<std::size_t> frame_beam_count(const frame_descriptor& frame);
 
-std::uint64_t input_structure_hash(const dataset& input, const detail::json_value& metadata)
+operation_result<std::uint64_t> input_structure_hash(
+    const dataset& input, const detail::json_value& metadata)
 {
     std::vector<std::filesystem::path> paths{input.manifest_path};
     for (const auto key : {"sensor_file", "world_file", "timeline_file"})
     {
-        if (metadata.members.contains(key))
-            paths.push_back(detail::legacy_dataset_path(input.root, metadata.legacy_at(key).legacy_string()));
+        if (!metadata.members.contains(key)) continue;
+        const auto member = metadata.member(key);
+        if (!member) return std::unexpected(member.error());
+        const auto relative = member->get().string();
+        if (!relative) return std::unexpected(relative.error());
+        const auto path = detail::dataset_path(input.root, relative->get());
+        if (!path) return std::unexpected(path.error());
+        paths.push_back(*path);
     }
     for (const auto& frame : input.frames)
     {
-        if (hash_file(frame.metadata_path).content_hash != frame.metadata_content_hash)
-            throw std::runtime_error("frame metadata changed after parsing");
+        const auto source = hash_file(frame.metadata_path);
+        if (!source) return std::unexpected(source.error());
+        if (source->content_hash != frame.metadata_content_hash)
+            return std::unexpected(operation_error{"frame metadata changed after parsing"});
         paths.push_back(frame.metadata_path);
     }
     auto hash = hash_basis;
@@ -1183,41 +1181,54 @@ std::uint64_t input_structure_hash(const dataset& input, const detail::json_valu
     };
     for (const auto& path : paths) {
         const auto relative = path.lexically_relative(input.root).generic_string();
-         const auto source = hash_file(path);
+        const auto source = hash_file(path);
+        if (!source) return std::unexpected(source.error());
         append(static_cast<std::uint64_t>(relative.size()));
         append(hash_bytes({reinterpret_cast<const std::uint8_t*>(relative.data()), relative.size()}));
-        append(source.identity.size);
-        append(source.content_hash);
+        append(source->identity.size);
+        append(source->content_hash);
     }
     for (const auto key : {"trajectory_ground_truth_file", "odometry_file"})
     {
         if (!metadata.members.contains(key)) continue;
-        const auto identity = file_identity(detail::legacy_dataset_path(input.root, metadata.legacy_at(key).legacy_string()));
-        append(identity.size);
-        append(identity.modified);
+        const auto member = metadata.member(key);
+        if (!member) return std::unexpected(member.error());
+        const auto relative = member->get().string();
+        if (!relative) return std::unexpected(relative.error());
+        const auto path = detail::dataset_path(input.root, relative->get());
+        if (!path) return std::unexpected(path.error());
+        const auto identity = file_identity(*path);
+        if (!identity) return std::unexpected(identity.error());
+        append(identity->size);
+        append(identity->modified);
     }
     return hash;
 }
 
-void prepare_payload_index(dataset& input)
+operation_status prepare_payload_index(dataset& input)
 {
-    input.payload_index.clear();
+    decltype(input.payload_index) payload_index;
     for (const auto& frame : input.frames)
     {
         const auto count = frame_beam_count(frame);
+        if (!count) return std::unexpected(count.error());
         const std::array<std::pair<std::filesystem::path, std::uint64_t>, 5> payloads{{
-            {frame.raw_xyz_path, count * 12ULL}, {frame.deskewed_xyz_path, count * 12ULL},
-             {frame.range_path, count * 4ULL}, {frame.status_path, count},
+            {frame.raw_xyz_path, *count * 12ULL}, {frame.deskewed_xyz_path, *count * 12ULL},
+             {frame.range_path, *count * 4ULL}, {frame.status_path, *count},
             {frame.time_offset_ns_path, frame.columns * 4ULL}}};
         for (const auto& [path, size] : payloads) {
             if (path.empty()) continue;
-            const auto resolved = detail::legacy_dataset_path(input.root, path.lexically_relative(input.root));
-            const auto identity = file_identity(resolved);
-            if (identity.size != size)
-                throw std::runtime_error("indexed payload size disagrees with frame metadata");
-            input.payload_index.emplace(resolved, payload_cache_descriptor{identity, 0});
+            const auto resolved = detail::dataset_path(input.root, path.lexically_relative(input.root));
+            if (!resolved) return std::unexpected(resolved.error());
+            const auto identity = file_identity(*resolved);
+            if (!identity) return std::unexpected(identity.error());
+            if (identity->size != size)
+                return std::unexpected(operation_error{"indexed payload size disagrees with frame metadata"});
+            payload_index.emplace(*resolved, payload_cache_descriptor{*identity, 0});
         }
     }
+    input.payload_index = std::move(payload_index);
+    return {};
 }
 
 void update_content_fingerprint(dataset& input, std::uint64_t structure_hash)
@@ -1248,17 +1259,27 @@ void update_content_fingerprint(dataset& input, std::uint64_t structure_hash)
     input.content_fingerprint = "dataset-native-v1-" + std::string(hexadecimal.data(), result.ptr);
 }
 
-void index_dataset_payloads(dataset& input, std::uint64_t structure_hash)
+operation_status index_dataset_payloads(dataset& input, std::uint64_t structure_hash)
 {
-    prepare_payload_index(input);
-    for (auto& [path, payload] : input.payload_index)
+    auto previous_index = std::move(input.payload_index);
+    const auto prepared = prepare_payload_index(input);
+    if (!prepared) {
+        input.payload_index = std::move(previous_index);
+        return std::unexpected(prepared.error());
+    }
+    auto payload_index = std::move(input.payload_index);
+    input.payload_index = std::move(previous_index);
+    for (auto& [path, payload] : payload_index)
     {
         const auto verified = hash_file(path);
-        if (verified.identity != payload.identity)
-            throw std::runtime_error("payload changed while the input index was built");
-         payload = verified;
+        if (!verified) return std::unexpected(verified.error());
+        if (verified->identity != payload.identity)
+            return std::unexpected(operation_error{"payload changed while the input index was built"});
+        payload = *verified;
     }
+    input.payload_index = std::move(payload_index);
     update_content_fingerprint(input, structure_hash);
+    return {};
 }
 
 operation_status verify_frame_bytes(const dataset& input, const std::filesystem::path& path,
@@ -1272,18 +1293,6 @@ operation_status verify_frame_bytes(const dataset& input, const std::filesystem:
     return {};
 }
 
-operation_status validate_cached_pose_sample(const pose_sample& sample)
-{
-    const auto& position = sample.pose.translation;
-    const auto& rotation = sample.pose.rotation;
-    const double norm = std::hypot(std::hypot(double(rotation.x), double(rotation.y)),
-                                   std::hypot(double(rotation.z), double(rotation.w)));
-    if (!std::isfinite(position.x) || !std::isfinite(position.y) || !std::isfinite(position.z) ||
-        !std::isfinite(norm) || std::abs(norm - 1) > 0.001)
-        return std::unexpected(operation_error{"invalid trajectory pose"});
-    return {};
-}
-
 operation_status append_cached_trajectory(cache_buffer& buffer, std::span<const pose_sample> trajectory)
 {
     if (trajectory.size() > maximum_trajectory_samples)
@@ -1291,7 +1300,7 @@ operation_status append_cached_trajectory(cache_buffer& buffer, std::span<const 
     auto appended = buffer.append(static_cast<std::uint64_t>(trajectory.size()));
     if (!appended) return std::unexpected(appended.error());
     for (const auto& sample : trajectory) {
-        const auto valid = validate_cached_pose_sample(sample);
+        const auto valid = validate_pose_sample(sample);
         if (!valid) return std::unexpected(valid.error());
         appended = buffer.append(sample.stamp_ns);
         if (!appended) return std::unexpected(appended.error());
@@ -1315,7 +1324,7 @@ operation_status write_input_cache(const dataset& input, std::uint64_t structure
     appended = buffer.append(static_cast<std::uint64_t>(input.payload_index.size()));
     if (!appended) return std::unexpected(appended.error());
     for (const auto& [path, payload] : input.payload_index) {
-        const auto identity = checked_file_identity(path);
+        const auto identity = file_identity(path);
         if (!identity) return std::unexpected(identity.error());
         if (*identity != payload.identity)
             return std::unexpected(operation_error{"payload changed while the input cache was built"});
@@ -1360,7 +1369,7 @@ operation_result<std::vector<pose_sample>> read_cached_trajectory(cache_buffer& 
             if (!value) return std::unexpected(value.error());
             *component = *value;
         }
-        const auto valid = validate_cached_pose_sample(sample);
+        const auto valid = validate_pose_sample(sample);
         if (!valid) return std::unexpected(valid.error());
         if (!result.empty() && sample.stamp_ns <= result.back().stamp_ns)
             return std::unexpected(operation_error{"cached trajectory timestamps are not strictly increasing"});
@@ -1401,7 +1410,7 @@ operation_result<bool> read_input_cache(
     if (buffer->remaining() != 0 || odometry->empty() ||
         ground_truth_expected == ground_truth->empty()) return false;
     for (const auto& [path, payload] : payloads) {
-        const auto identity = checked_file_identity(path);
+        const auto identity = file_identity(path);
         if (!identity) return std::unexpected(identity.error());
         if (*identity != payload.identity) return false;
     }
@@ -1416,26 +1425,31 @@ operation_status load_dataset_inputs(dataset& input, const detail::json_value& m
 {
     if (options.verification != dataset_verification_mode::prefer_cache &&
         options.verification != dataset_verification_mode::force_full)
-        throw std::invalid_argument("unsupported input verification mode");
+        return std::unexpected(operation_error{"unsupported input verification mode"});
     const auto structure_hash = input_structure_hash(input, metadata);
-    prepare_payload_index(input);
+    if (!structure_hash) return std::unexpected(structure_hash.error());
+    const auto prepared = prepare_payload_index(input);
+    if (!prepared) return std::unexpected(prepared.error());
     bool cached{};
     if (options.verification == dataset_verification_mode::prefer_cache) {
         const auto loaded = read_input_cache(
-            input, structure_hash, metadata.members.contains("trajectory_ground_truth_file"));
+            input, *structure_hash, metadata.members.contains("trajectory_ground_truth_file"));
         cached = loaded && *loaded;
     }
     if (!cached) {
         auto loaded = load_json_trajectories(input, metadata);
         if (!loaded) return std::unexpected(loaded.error());
-         index_dataset_payloads(input, structure_hash);
+        const auto indexed = index_dataset_payloads(input, *structure_hash);
+        if (!indexed) return std::unexpected(indexed.error());
     }
-    if (input_structure_hash(input, metadata) != structure_hash)
-        throw std::runtime_error("recording metadata changed while inputs were loaded");
+    const auto final_structure_hash = input_structure_hash(input, metadata);
+    if (!final_structure_hash) return std::unexpected(final_structure_hash.error());
+    if (*final_structure_hash != *structure_hash)
+        return std::unexpected(operation_error{"recording metadata changed while inputs were loaded"});
     const auto coverage = validate_trajectory_coverage(input);
     if (!coverage) return std::unexpected(coverage.error());
     input.input_source = cached ? dataset_input_source::validated_cache : dataset_input_source::full_scan;
-    update_content_fingerprint(input, structure_hash);
+    update_content_fingerprint(input, *structure_hash);
     return {};
 }
 }

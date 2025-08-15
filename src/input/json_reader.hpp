@@ -27,10 +27,6 @@ struct json_value
     operation_result<std::reference_wrapper<const std::string>> string() const;
     operation_result<std::uint64_t> unsigned_integer() const;
     operation_result<double> number() const;
-    const json_value& legacy_at(std::string_view key) const;
-    const std::string& legacy_string() const;
-    std::uint64_t legacy_unsigned_integer() const;
-    double legacy_number() const;
 }
 ;
 
@@ -39,6 +35,4 @@ operation_result<json_value> read_json(const std::filesystem::path& path);
 operation_result<pose> read_pose(const json_value& value);
 operation_result<std::filesystem::path> dataset_path(const std::filesystem::path& root,
                                                      const std::filesystem::path& relative);
-std::filesystem::path legacy_dataset_path(const std::filesystem::path& root,
-                                          const std::filesystem::path& relative);
 }

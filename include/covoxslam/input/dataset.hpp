@@ -34,5 +34,5 @@ struct dataset {
     std::string content_fingerprint;
 };
 operation_result<dataset> load_dataset(const std::filesystem::path& root, dataset_load_options options = {});
-pose sample_pose(std::span<const pose_sample> trajectory, std::uint64_t stamp_ns);
-std::span<const pose_sample> pose_stream(const dataset& input, pose_source source); }
+operation_result<pose> sample_pose(std::span<const pose_sample> trajectory, std::uint64_t stamp_ns);
+operation_result<std::span<const pose_sample>> pose_stream(const dataset& input, pose_source source); }

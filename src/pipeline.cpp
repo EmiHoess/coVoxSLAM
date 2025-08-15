@@ -4,7 +4,6 @@
 #include <chrono>
 #include <cmath>
 #include <limits>
-#include <stdexcept>
 #include <utility>
 
 namespace covoxslam
@@ -49,7 +48,8 @@ operation_result<std::vector<ray>> deskew_frame(
         const auto column = selected_column * column_stride;
          const auto stamp = descriptor.start_stamp_ns + frame.time_offset_ns[column];
         const auto world_from_lidar = sample_pose(trajectory, stamp);
-        const auto local_from_lidar = local_pose(anchor, world_from_lidar);
+        if (!world_from_lidar) return std::unexpected(world_from_lidar.error());
+        const auto local_from_lidar = local_pose(anchor, *world_from_lidar);
         const auto origin = local_from_lidar.translation;
         for (std::size_t selected_ring = 0; selected_ring < rows; ++selected_ring) {
             const auto ring = selected_ring * ring_stride;
@@ -76,7 +76,7 @@ operation_result<pipeline_result> run_frame_pipeline(
     const pipeline_callbacks& callbacks)
 {
     if (!options.submap_duration_ns || !options.ring_stride || !options.column_stride)
-        throw std::invalid_argument("invalid submap duration or sampling strides");
+        return std::unexpected(operation_error{"invalid submap duration or sampling strides"});
      pipeline_result result;
     const auto stop_requested = [&] {
         result.cancelled = result.cancelled || (callbacks.cancelled && callbacks.cancelled());
@@ -86,7 +86,7 @@ operation_result<pipeline_result> run_frame_pipeline(
     if (stop_requested()) return result;
     if (input.frames.empty()) return result;
     const auto trajectory = pose_stream(input, options.pose_source);
-    if (trajectory.empty()) throw std::invalid_argument("selected trajectory is empty");
+    if (!trajectory) return std::unexpected(trajectory.error());
     submap_frame current;
     bool active = false;
     const auto finish = [&]
@@ -109,7 +109,7 @@ operation_result<pipeline_result> run_frame_pipeline(
         const auto& descriptor = input.frames[index];
          if (descriptor.end_stamp_ns <= descriptor.start_stamp_ns ||
             (index && descriptor.start_stamp_ns <= input.frames[index - 1].start_stamp_ns))
-            throw std::runtime_error("frame timestamps are not ordered scan intervals");
+            return std::unexpected(operation_error{"frame timestamps are not ordered scan intervals"});
         if (active && descriptor.start_stamp_ns - current.start_stamp_ns >=
             options.submap_duration_ns)
         {
@@ -123,7 +123,9 @@ operation_result<pipeline_result> run_frame_pipeline(
             current.id = result.submaps.size();
             current.start_stamp_ns = descriptor.start_stamp_ns;
             current.end_stamp_ns = descriptor.start_stamp_ns;
-             current.initial_pose = sample_pose(trajectory, descriptor.start_stamp_ns);
+            const auto initial_pose = sample_pose(*trajectory, descriptor.start_stamp_ns);
+            if (!initial_pose) return std::unexpected(initial_pose.error());
+            current.initial_pose = *initial_pose;
             current.anchor = to_pose4(current.initial_pose);
             if (callbacks.begin) callbacks.begin(current);
 
@@ -134,11 +136,12 @@ operation_result<pipeline_result> run_frame_pipeline(
         if (!frame) return std::unexpected(frame.error());
         auto timing = frame->timing;
         const auto preparation_started = std::chrono::steady_clock::now();
-        auto rays = deskew_frame(*frame, trajectory, current.anchor,
+        auto rays = deskew_frame(*frame, *trajectory, current.anchor,
                                  options.ring_stride, options.column_stride);
         if (!rays) return std::unexpected(rays.error());
-        const auto scan_pose = local_pose(current.anchor,
-            sample_pose(trajectory, descriptor.start_stamp_ns));
+        const auto world_scan_pose = sample_pose(*trajectory, descriptor.start_stamp_ns);
+        if (!world_scan_pose) return std::unexpected(world_scan_pose.error());
+        const auto scan_pose = local_pose(current.anchor, *world_scan_pose);
         const auto integration_started = std::chrono::steady_clock::now();
         timing.deskew_ms = std::chrono::duration<double, std::milli>(integration_started - preparation_started).count();
         if (callbacks.integrate_scan)
@@ -156,7 +159,7 @@ operation_result<pipeline_result> run_frame_pipeline(
          current.end_stamp_ns = std::max(current.end_stamp_ns, *end_stamp);
         ++result.frames_loaded;
         if (rays->size() > std::numeric_limits<std::size_t>::max() - result.rays_generated)
-            throw std::overflow_error("ray counter exceeds addressable size");
+            return std::unexpected(operation_error{"ray counter exceeds addressable size"});
         result.rays_generated += rays->size();
     }
     if (active) finish();

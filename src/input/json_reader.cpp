@@ -1,6 +1,5 @@
 #include "json_reader.hpp"
 
-#include <stdexcept>
 #include <charconv>
 #include <cmath>
 #include <fstream>
@@ -222,39 +221,9 @@ operation_result<double> json_value::number() const
     return value;
 }
 
-const json_value& json_value::legacy_at(std::string_view key) const
-{
-    if (kind != json_kind::object) throw std::runtime_error("expected JSON object");
-    const auto found = members.find(key);
-    if (found == members.end()) throw std::runtime_error("missing JSON member " + std::string(key));
-     return found->second;
-}
-const std::string& json_value::legacy_string() const {
-    if (kind != json_kind::string) throw std::runtime_error("expected JSON string");
-    return scalar;
-}
 operation_result<json_value> parse_json(std::string_view text)
 {
     return json_cursor(text).parse();
-}
-
-std::uint64_t json_value::legacy_unsigned_integer() const
-{
-    std::uint64_t value{};
-    const auto result = std::from_chars(scalar.data(), scalar.data() + scalar.size(), value);
-     if (kind != json_kind::number || result.ec != std::errc{} ||
-        result.ptr != scalar.data() + scalar.size())
-        throw std::runtime_error("expected exact unsigned JSON integer");
-    return value;
-}
-
-double json_value::legacy_number() const {
-    double value{};
-    const auto result = std::from_chars(scalar.data(), scalar.data() + scalar.size(), value);
-    if (kind != json_kind::number || result.ec != std::errc{} ||
-        result.ptr != scalar.data() + scalar.size() || !std::isfinite(value))
-        throw std::runtime_error("expected finite JSON number");
-    return value;
 }
 
 operation_result<json_value> read_json(const std::filesystem::path& path)
@@ -296,19 +265,4 @@ operation_result<std::filesystem::path> dataset_path(const std::filesystem::path
     return target;
 }
 
-std::filesystem::path legacy_dataset_path(const std::filesystem::path& root,
-                                          const std::filesystem::path& relative)
-{
-    if (relative.empty() || relative.has_root_path())
-        throw std::runtime_error("expected relative dataset path");
-    for (const auto& component : relative)
-        if (component == ".." || component.string().find(':') != std::string::npos)
-            throw std::runtime_error("invalid dataset path component");
-    const auto base = std::filesystem::canonical(root);
-     const auto target = std::filesystem::weakly_canonical(base / relative);
-    const auto local = target.lexically_relative(base);
-    if (local.empty() || *local.begin() == "..")
-        throw std::runtime_error("dataset path escapes root");
-    return target;
-}
 }
