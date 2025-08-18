@@ -1,4 +1,5 @@
 #include <covoxslam/export.hpp>
+#include <covoxslam/voxel/flags.hpp>
 
 #include <algorithm>
 #include <bit>

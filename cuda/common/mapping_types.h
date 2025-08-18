@@ -1,5 +1,5 @@
 #pragma once
-#include <covoxslam/voxel_records.h>
+#include <covoxslam/voxel/records.hpp>
 #include <cstddef>
 #include <cstdint>
 

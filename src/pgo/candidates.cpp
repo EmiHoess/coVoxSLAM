@@ -1,4 +1,5 @@
 #include <covoxslam/pgo.hpp>
+#include <covoxslam/voxel/flags.hpp>
 #include <algorithm>
 #include <cmath>
 #include <set>

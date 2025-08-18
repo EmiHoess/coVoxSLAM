@@ -1,4 +1,5 @@
 #include <covoxslam/pgo.hpp>
+#include <covoxslam/voxel/flags.hpp>
 #include <cmath>
 
 namespace covoxslam::pgo

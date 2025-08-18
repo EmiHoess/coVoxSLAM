@@ -3,7 +3,8 @@
 #include <covoxslam/core/geometry.hpp>
 #include <covoxslam/input/dataset.hpp>
 #include <covoxslam/input_timing.hpp>
-#include <covoxslam/voxel_records.h>
+#include <covoxslam/voxel/flags.hpp>
+#include <covoxslam/voxel/records.hpp>
 
 #include <functional>
 #include <span>
@@ -78,12 +79,6 @@ namespace covoxslam
 {
 inline constexpr int tile_edge = 8;
 inline constexpr std::size_t tile_voxels = 512;
-inline constexpr std::uint32_t observed_flag = 1;
-inline constexpr std::uint32_t near_surface_flag = 2;
-inline constexpr std::uint32_t esdf_site_flag = 4;
-
-using tsdf_voxel = tsdf_record;
-using esdf_voxel = esdf_record;
 
 struct tsdf_tile
 {
