@@ -1,5 +1,7 @@
 #pragma once
 #include "band_esdf_index.cuh"
+#include <covoxslam/voxel/esdf_encodings.hpp>
+#include <covoxslam/voxel/flags.hpp>
 
 namespace covoxslam::store
 {
@@ -27,10 +29,14 @@ __global__ void publish_band_fields(band_work_view input, band_output_view outpu
     storage::esdf_value result{};
     const float distance = clipped ? maximum : fminf(maximum, voxel_size * sqrtf(value.squared_distance_voxels));
     result.signed_distance_m = copysignf(distance, value.flags & detail::cuda_esdf_inside ? -1.f : 1.f);
-    result.flags = value.flags & 5U;
+    result.flags = value.flags & (observed_flag | esdf_site_flag);
+    constexpr auto valid_flags = detail::cuda_esdf_observed | detail::cuda_esdf_inside |
+        detail::cuda_esdf_site | detail::cuda_esdf_parent_assigned;
     bool valid = isfinite(value.squared_distance_voxels) && value.squared_distance_voxels >= 0 &&
-        !(value.flags & ~15U) && ((value.flags & 1U) || !(value.flags & ~1U)) &&
-        (assigned || clipped) && (!site || (assigned && (value.flags & 2U) && value.squared_distance_voxels == 0));
+        !(value.flags & ~valid_flags) &&
+        ((value.flags & detail::cuda_esdf_observed) || !(value.flags & ~detail::cuda_esdf_observed)) &&
+        (assigned || clipped) &&
+        (!site || (assigned && (value.flags & detail::cuda_esdf_inside) && value.squared_distance_voxels == 0));
 
     if (assigned && !clipped) {
         int position[3]{};

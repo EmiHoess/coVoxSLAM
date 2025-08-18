@@ -2,6 +2,8 @@
 #include <covoxslam/core/geometry.hpp>
 #include <covoxslam/core/result.hpp>
 #include <covoxslam/store/geometry.hpp>
+#include <covoxslam/voxel/esdf_encodings.hpp>
+#include <covoxslam/voxel/flags.hpp>
 
 namespace covoxslam::store
 {
@@ -17,21 +19,29 @@ template<storage::schema s> operation_result<esdf_voxel> geometry_esdf(storage::
     if constexpr (s == storage::schema::esdf)
         result = {source.signed_distance_m, source.parent_dx, source.parent_dy, source.parent_dz, source.flags};
     else if constexpr (s == storage::schema::blocks_esdf) {
-        if (source.flags & ~7U) return std::unexpected(operation_error{"invalid signed ESDF flags"});
-        result = {source.distance_m, source.parent_dx, source.parent_dy, source.parent_dz, source.flags & 5U};
+        if (source.flags & ~(detail::cuda_esdf_observed | detail::cuda_esdf_inside | detail::cuda_esdf_site))
+            return std::unexpected(operation_error{"invalid signed ESDF flags"});
+        result = {source.distance_m, source.parent_dx, source.parent_dy, source.parent_dz,
+                  source.flags & (observed_flag | esdf_site_flag)};
     }
     else {
         const auto squared = source.squared_distance_voxels;
         const float maximum = parameters.distance_limit / parameters.voxel_size;
-        if (!std::isfinite(squared) || squared < 0 || (source.flags & ~15U) || !std::isfinite(maximum * maximum))
+        constexpr auto valid_flags = detail::cuda_esdf_observed | detail::cuda_esdf_inside |
+            detail::cuda_esdf_site | detail::cuda_esdf_parent_assigned;
+        if (!std::isfinite(squared) || squared < 0 || (source.flags & ~valid_flags) ||
+            !std::isfinite(maximum * maximum))
             return std::unexpected(operation_error{"invalid squared ESDF value"});
-        const bool assigned = source.flags & 8U, site = source.flags & 4U;
+        const bool assigned = source.flags & detail::cuda_esdf_parent_assigned;
+        const bool site = source.flags & detail::cuda_esdf_site;
         const bool clipped = squared >= maximum * maximum;
-        if ((site && (!assigned || !(source.flags & 2U) || squared != 0)) || (!assigned && !clipped))
+        if ((site && (!assigned || !(source.flags & detail::cuda_esdf_inside) || squared != 0)) ||
+            (!assigned && !clipped))
             return std::unexpected(operation_error{"invalid squared ESDF parent"});
         const auto distance = clipped ? parameters.distance_limit : std::min(parameters.distance_limit, parameters.voxel_size * std::sqrt(squared));
-        result.signed_distance_m = std::copysign(distance, source.flags & 2U ? -1.f : 1.f);
-        result.flags = source.flags & 5U;
+        result.signed_distance_m = std::copysign(
+            distance, source.flags & detail::cuda_esdf_inside ? -1.f : 1.f);
+        result.flags = source.flags & (observed_flag | esdf_site_flag);
         if (assigned && !clipped) {
             const std::int64_t delta[]{std::int64_t(source.parent_x) - position.x,
                 std::int64_t(source.parent_y) - position.y, std::int64_t(source.parent_z) - position.z};
@@ -42,7 +52,9 @@ template<storage::schema s> operation_result<esdf_voxel> geometry_esdf(storage::
             result.parent_dx = int(delta[0]); result.parent_dy = int(delta[1]); result.parent_dz = int(delta[2]);
         }
     }
-    if (!std::isfinite(result.signed_distance_m) || (result.flags & ~5U) || (!(source.flags & 1U) && (source.flags & ~1U)))
+    if (!std::isfinite(result.signed_distance_m) ||
+        (result.flags & ~(observed_flag | esdf_site_flag)) ||
+        (!(source.flags & observed_flag) && (source.flags & ~observed_flag)))
         return std::unexpected(operation_error{"invalid ESDF geometry value"});
     if (std::abs(result.signed_distance_m) >= parameters.distance_limit) {
         result.signed_distance_m = std::copysign(parameters.distance_limit, result.signed_distance_m);
@@ -59,7 +71,7 @@ operation_result<std::optional<float>> query_distance(const geometry_snapshot<l,
     auto value = source.template voxel<s>(id, *index);
     if (!value) return std::unexpected(value.error());
     if (!*value || !(**value).flags) return std::optional<float>{};
-    if (!((**value).flags & 1U)) return std::optional<float>{};
+    if (!((**value).flags & observed_flag)) return std::optional<float>{};
     if constexpr (s == storage::schema::tsdf) {
         if (!std::isfinite((**value).distance) || !std::isfinite((**value).weight) || (**value).weight <= 0)
             return std::unexpected(operation_error{"invalid TSDF geometry value"});
@@ -100,7 +112,8 @@ operation_result<geometry_volume_data> geometry_volume(const geometry_snapshot<l
         for (unsigned j = 0; j < 512; ++j) {
             const auto& value = packed[j];
             if constexpr (s == storage::schema::tsdf) {
-                if (!std::isfinite(value.distance) || !std::isfinite(value.weight) || value.weight < 0 || (value.flags & ~3U))
+                if (!std::isfinite(value.distance) || !std::isfinite(value.weight) || value.weight < 0 ||
+                    (value.flags & ~(observed_flag | near_surface_flag)))
                     return std::unexpected(operation_error{"invalid TSDF geometry value"});
                 tile.voxels[j] = {value.distance, value.weight, value.sample_count, value.flags};
             }

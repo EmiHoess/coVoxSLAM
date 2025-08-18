@@ -1,4 +1,5 @@
 #pragma once
+#include <covoxslam/voxel/esdf_encodings.hpp>
 #include <covoxslam/voxel/records.hpp>
 #include <array>
 #include <cstddef>
@@ -12,18 +13,6 @@ enum class schema { tsdf = 0, esdf = 1, blocks_esdf = 2, projective_esdf = 3 };
 enum class layout { pooled_aos = 0, tile_aosoa = 1, pool_soa = 2 };
 using tsdf_value = tsdf_record;
 using esdf_value = esdf_record;
-struct blocks_esdf_value
-{
-    float distance_m{};
-    std::int32_t parent_dx{}, parent_dy{}, parent_dz{};
-    std::uint32_t flags{};
-};
-struct projective_esdf_value
-{
-    float squared_distance_voxels{};
-    std::int32_t parent_x{}, parent_y{}, parent_z{};
-     std::uint32_t flags{};
-};
 template<schema s> struct schema_traits;
 template<> struct schema_traits<schema::tsdf> { using value_type = tsdf_value; static constexpr std::size_t fields = 4; };
 template<> struct schema_traits<schema::esdf> { using value_type = esdf_value; static constexpr std::size_t fields = 5; };
