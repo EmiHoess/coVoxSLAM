@@ -4,7 +4,8 @@
 #include <covoxslam/input/dataset.hpp>
 #include <covoxslam/input_timing.hpp>
 #include <covoxslam/voxel/flags.hpp>
-#include <covoxslam/voxel/records.hpp>
+#include <covoxslam/voxel/sparse_map.hpp>
+#include <covoxslam/voxel/tile_geometry.hpp>
 
 #include <functional>
 #include <span>
@@ -70,39 +71,6 @@ operation_result<pipeline_result> run_frame_pipeline(
     const dataset& input, const pipeline_options& options = {},
      const pipeline_callbacks& callbacks = {});
 
-}
-
-#include <array>
-#include <unordered_map>
-
-namespace covoxslam
-{
-inline constexpr int tile_edge = 8;
-inline constexpr std::size_t tile_voxels = 512;
-
-struct tsdf_tile
-{
-    std::array<tsdf_voxel, tile_voxels> voxels{};
-};
-
-struct esdf_tile
-{
-     std::array<esdf_voxel, tile_voxels> voxels{};
-};
-
-struct int3_hash {
-    std::size_t operator()(int3 value) const noexcept;
-};
-
-using tsdf_tiles = std::unordered_map<int3, tsdf_tile, int3_hash>;
-using esdf_tiles = std::unordered_map<int3, esdf_tile, int3_hash>;
-
-int3 block_index(int3 voxel) noexcept;
-int3 global_index(int3 block, std::size_t local);
-vec3f voxel_center(int3 index, float size) noexcept;
-std::size_t local_index(int3 voxel) noexcept;
-bool block_index_less(int3 left, int3 right) noexcept;
-const tsdf_voxel* find_voxel(const tsdf_tiles& tiles, int3 voxel) noexcept;
 }
 
 #include <optional>

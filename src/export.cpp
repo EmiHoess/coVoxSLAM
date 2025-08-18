@@ -171,7 +171,8 @@ void validate_export_submap(const submap& value)
             const bool site = (voxel.flags & esdf_site_flag) != 0;
             const bool signed_seed = site && config.esdf_generator == esdf_backend::cuda_blocks_batch;
             if (signed_seed) {
-                const auto* source = find_voxel(value.tsdf, global_index(block, local));
+                const auto source_index = global_index(block, local);
+                const auto* source = source_index ? find_voxel(value.tsdf, *source_index) : nullptr;
                 if (!source || !(source->flags & observed_flag) ||
                     source->weight < config.esdf_minimum_weight || std::abs(source->distance) >= config.esdf_site_band_m ||
                     std::bit_cast<std::uint32_t>(source->distance) !=
