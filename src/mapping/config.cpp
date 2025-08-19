@@ -1,5 +1,7 @@
-#include <covoxslam/mapping.hpp>
+#include <covoxslam/mapping/config.hpp>
+
 #include <cmath>
+#include <initializer_list>
 #include <limits>
 
 namespace covoxslam

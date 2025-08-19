@@ -4,8 +4,12 @@
 #include <covoxslam/core/result.hpp>
 #include <covoxslam/sensor_grid_cuda.hpp>
 #include <covoxslam/sensor_grid_sampling.h>
-#include <covoxslam/mapping.hpp>
 #include <covoxslam/storage/schema.hpp>
+#include <covoxslam/voxel/sparse_map.hpp>
+
+#include <cstddef>
+#include <cstdint>
+#include <memory>
 
 namespace covoxslam::store
 {

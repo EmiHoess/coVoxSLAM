@@ -1,9 +1,15 @@
 #pragma once
 #include <covoxslam/core/geometry.hpp>
-#include <covoxslam/mapping.hpp>
 #include <covoxslam/core/result.hpp>
-#include <span>
+#include <covoxslam/pipeline/submap.hpp>
+
+#include <array>
+#include <cstddef>
+#include <cstdint>
 #include <iosfwd>
+#include <optional>
+#include <span>
+#include <vector>
 
 namespace covoxslam::pgo
 {

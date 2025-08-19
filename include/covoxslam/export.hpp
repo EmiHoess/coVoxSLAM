@@ -1,6 +1,7 @@
 #pragma once
 
-#include <covoxslam/mapping.hpp>
+#include <covoxslam/mapping/config.hpp>
+#include <covoxslam/pipeline/submap.hpp>
 
 #include <filesystem>
 #include <fstream>

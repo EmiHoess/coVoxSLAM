@@ -1,7 +1,7 @@
 #pragma once
 #include <covoxslam/core/result.hpp>
+#include <covoxslam/pipeline/submap.hpp>
 #include <covoxslam/store/coordinator.hpp>
-#include <covoxslam/mapping.hpp>
 
 namespace covoxslam::store
 {

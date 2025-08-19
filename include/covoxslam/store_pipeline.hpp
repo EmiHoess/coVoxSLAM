@@ -1,8 +1,13 @@
 #pragma once
 #include <covoxslam/core/result.hpp>
+#include <covoxslam/mapping/config.hpp>
 #include <covoxslam/pgo.hpp>
+#include <covoxslam/pipeline/submap.hpp>
 #include <covoxslam/storage/schema.hpp>
+
 #include <filesystem>
+#include <span>
+#include <string>
 
 namespace covoxslam
 {

@@ -4,6 +4,7 @@
 #include <covoxslam/store/geometry.hpp>
 #include <covoxslam/voxel/esdf_encodings.hpp>
 #include <covoxslam/voxel/flags.hpp>
+#include <covoxslam/voxel/sparse_map.hpp>
 
 namespace covoxslam::store
 {
