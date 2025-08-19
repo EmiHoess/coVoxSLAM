@@ -1,6 +1,7 @@
 #pragma once
 #include <covoxslam/core/geometry.hpp>
 #include <covoxslam/core/result.hpp>
+#include <covoxslam/pipeline/frame_pipeline.hpp>
 #include <covoxslam/sensor_grid_map.hpp>
 #include <covoxslam/sensor_grid_combined.hpp>
 #include <covoxslam/sensor_grid_calibration.hpp>

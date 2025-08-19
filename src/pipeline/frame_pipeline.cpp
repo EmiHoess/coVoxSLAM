@@ -1,4 +1,4 @@
-#include <covoxslam/mapping.hpp>
+#include <covoxslam/pipeline/frame_pipeline.hpp>
 
 #include <algorithm>
 #include <chrono>
@@ -8,6 +8,31 @@
 
 namespace covoxslam
 {
+namespace
+{
+operation_status validate_pipeline_options(const pipeline_options& options)
+{
+    if (!options.submap_duration_ns || !options.ring_stride || !options.column_stride)
+        return std::unexpected(operation_error{"invalid submap duration or sampling strides"});
+    return {};
+}
+
+operation_status validate_pipeline_frame(const dataset& input, std::size_t index)
+{
+    const auto& descriptor = input.frames[index];
+    if (descriptor.end_stamp_ns <= descriptor.start_stamp_ns ||
+        (index && descriptor.start_stamp_ns <= input.frames[index - 1].start_stamp_ns))
+        return std::unexpected(operation_error{"frame timestamps are not ordered scan intervals"});
+    return {};
+}
+
+operation_status validate_ray_counter(std::size_t current, std::size_t additional)
+{
+    if (additional > std::numeric_limits<std::size_t>::max() - current)
+        return std::unexpected(operation_error{"ray counter exceeds addressable size"});
+    return {};
+}
+}
 
 operation_result<std::vector<ray>> deskew_frame(
     const organized_frame& frame, std::span<const pose_sample> trajectory,
@@ -75,8 +100,8 @@ operation_result<pipeline_result> run_frame_pipeline(
     const dataset& input, const pipeline_options& options,
     const pipeline_callbacks& callbacks)
 {
-    if (!options.submap_duration_ns || !options.ring_stride || !options.column_stride)
-        return std::unexpected(operation_error{"invalid submap duration or sampling strides"});
+    const auto valid_options = validate_pipeline_options(options);
+    if (!valid_options) return std::unexpected(valid_options.error());
      pipeline_result result;
     const auto stop_requested = [&] {
         result.cancelled = result.cancelled || (callbacks.cancelled && callbacks.cancelled());
@@ -107,9 +132,8 @@ operation_result<pipeline_result> run_frame_pipeline(
         if (options.maximum_frames && result.frames_loaded >= options.maximum_frames)
             break;
         const auto& descriptor = input.frames[index];
-         if (descriptor.end_stamp_ns <= descriptor.start_stamp_ns ||
-            (index && descriptor.start_stamp_ns <= input.frames[index - 1].start_stamp_ns))
-            return std::unexpected(operation_error{"frame timestamps are not ordered scan intervals"});
+        const auto valid_frame = validate_pipeline_frame(input, index);
+        if (!valid_frame) return std::unexpected(valid_frame.error());
         if (active && descriptor.start_stamp_ns - current.start_stamp_ns >=
             options.submap_duration_ns)
         {
@@ -118,7 +142,8 @@ operation_result<pipeline_result> run_frame_pipeline(
             if (options.maximum_submaps && result.submaps.size() >= options.maximum_submaps)
                 break;
         }
-        if (!active) {
+        const auto opening_submap = !active;
+        if (opening_submap) {
             current = {};
             current.id = result.submaps.size();
             current.start_stamp_ns = descriptor.start_stamp_ns;
@@ -127,10 +152,6 @@ operation_result<pipeline_result> run_frame_pipeline(
             if (!initial_pose) return std::unexpected(initial_pose.error());
             current.initial_pose = *initial_pose;
             current.anchor = to_pose4(current.initial_pose);
-            if (callbacks.begin) callbacks.begin(current);
-
-            if (stop_requested()) return result;
-            active = true;
         }
         auto frame = load_frame(input, index);
         if (!frame) return std::unexpected(frame.error());
@@ -142,8 +163,19 @@ operation_result<pipeline_result> run_frame_pipeline(
         const auto world_scan_pose = sample_pose(*trajectory, descriptor.start_stamp_ns);
         if (!world_scan_pose) return std::unexpected(world_scan_pose.error());
         const auto scan_pose = local_pose(current.anchor, *world_scan_pose);
+        const auto end_stamp = frame->beam_stamp_ns(
+            ((descriptor.columns - 1) / options.column_stride) * options.column_stride);
+        if (!end_stamp) return std::unexpected(end_stamp.error());
+        const auto available_counter = validate_ray_counter(result.rays_generated, rays->size());
+        if (!available_counter) return std::unexpected(available_counter.error());
         const auto integration_started = std::chrono::steady_clock::now();
         timing.deskew_ms = std::chrono::duration<double, std::milli>(integration_started - preparation_started).count();
+        if (opening_submap) {
+            if (callbacks.begin) callbacks.begin(current);
+
+            if (stop_requested()) return result;
+            active = true;
+        }
         if (callbacks.integrate_scan)
             callbacks.integrate_scan(current, descriptor, *rays, scan_pose);
         timing.integration_ms = std::chrono::duration<double, std::milli>(
@@ -153,13 +185,8 @@ operation_result<pipeline_result> run_frame_pipeline(
         current.timing += timing;
         result.timing += timing;
         current.frame_ids.push_back(descriptor.frame_id);
-        const auto end_stamp = frame->beam_stamp_ns(
-            ((descriptor.columns - 1) / options.column_stride) * options.column_stride);
-        if (!end_stamp) return std::unexpected(end_stamp.error());
          current.end_stamp_ns = std::max(current.end_stamp_ns, *end_stamp);
         ++result.frames_loaded;
-        if (rays->size() > std::numeric_limits<std::size_t>::max() - result.rays_generated)
-            return std::unexpected(operation_error{"ray counter exceeds addressable size"});
         result.rays_generated += rays->size();
     }
     if (active) finish();

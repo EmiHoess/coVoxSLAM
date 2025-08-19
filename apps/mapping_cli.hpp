@@ -1,7 +1,7 @@
 #pragma once
 
-#include <covoxslam/mapping.hpp>
 #include <covoxslam/core/result.hpp>
+#include <covoxslam/mapping/config.hpp>
 #include "cli_lookup.hpp"
 
 #include <charconv>

@@ -1,7 +1,7 @@
 #pragma once
 
 #include <covoxslam/core/geometry.hpp>
-#include <covoxslam/input_timing.hpp>
+#include <covoxslam/input/lidar.hpp>
 #include <covoxslam/mapping/config.hpp>
 #include <covoxslam/voxel/sparse_map.hpp>
 

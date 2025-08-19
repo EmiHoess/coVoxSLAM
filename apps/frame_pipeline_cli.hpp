@@ -2,7 +2,8 @@
 
 #include <covoxslam/core/geometry.hpp>
 #include <covoxslam/core/result.hpp>
-#include <covoxslam/mapping.hpp>
+#include <covoxslam/mapping/config.hpp>
+#include <covoxslam/pipeline/frame_pipeline.hpp>
 #include "mapping_cli.hpp"
 #include "map_export_cli.hpp"
 #include "sensor_mapping_cli.hpp"
