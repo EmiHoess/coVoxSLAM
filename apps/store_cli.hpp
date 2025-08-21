@@ -1,6 +1,6 @@
 #pragma once
 #include <covoxslam/core/result.hpp>
-#include <covoxslam/store_pipeline.hpp>
+#include <covoxslam/pipeline/mapping_session.hpp>
 #include "cli_lookup.hpp"
 #include <charconv>
 #include <limits>

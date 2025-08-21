@@ -4,6 +4,7 @@
 #include <covoxslam/core/result.hpp>
 #include <covoxslam/mapping/config.hpp>
 #include <covoxslam/pipeline/frame_pipeline.hpp>
+#include <covoxslam/pipeline/mapping_session.hpp>
 #include "mapping_cli.hpp"
 #include "map_export_cli.hpp"
 #include "sensor_mapping_cli.hpp"

@@ -2,11 +2,11 @@
 #include <covoxslam/core/geometry.hpp>
 #include <covoxslam/core/result.hpp>
 #include <covoxslam/pipeline/frame_pipeline.hpp>
+#include <covoxslam/pipeline/mapping_session.hpp>
 #include <covoxslam/sensor_grid_map.hpp>
 #include <covoxslam/sensor_grid_combined.hpp>
 #include <covoxslam/sensor_grid_calibration.hpp>
 #include <covoxslam/sensor_grid_precision.h>
-#include <covoxslam/resident_pipeline.hpp>
 #include "cli_lookup.hpp"
 #include "sensor_gather_cli.hpp"
 #include <algorithm>

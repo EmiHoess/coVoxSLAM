@@ -1,4 +1,4 @@
-#include <covoxslam/resident_pipeline.hpp>
+#include <covoxslam/pipeline/mapping_session.hpp>
 #include <unordered_map>
 #include <unordered_set>
 #if defined(covoxslam_has_cuda) && defined(covoxslam_has_urd)
