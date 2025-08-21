@@ -34,13 +34,17 @@ struct pipeline_options {
     std::size_t maximum_submaps{};
 };
 
+using submap_pipeline_callback = std::function<operation_status(const submap_frame&)>;
+using scan_pipeline_callback = std::function<operation_status(
+    const submap_frame&, const frame_descriptor&, std::span<const ray>, const pose&)>;
+using cancellation_pipeline_callback = std::function<bool()>;
+
 struct pipeline_callbacks
 {
-    std::function<void(const submap_frame&)> begin;
-    std::function<void(const submap_frame&, const frame_descriptor&,
-                       std::span<const ray>, const pose&)> integrate_scan;
-    std::function<void(const submap_frame&)> finish;
-    std::function<bool()> cancelled;
+    submap_pipeline_callback begin;
+    scan_pipeline_callback integrate_scan;
+    submap_pipeline_callback finish;
+    cancellation_pipeline_callback cancelled;
 };
 
 struct pipeline_result {
@@ -71,5 +75,11 @@ static_assert(offsetof(ray, column) == 48);
 static_assert(offsetof(ray, measured_range_m) == 64);
 static_assert(std::is_aggregate_v<pipeline_options>);
 static_assert(std::is_aggregate_v<pipeline_callbacks>);
+static_assert(std::is_invocable_r_v<operation_status,
+    submap_pipeline_callback, const submap_frame&>);
+static_assert(std::is_invocable_r_v<operation_status,
+    scan_pipeline_callback, const submap_frame&, const frame_descriptor&,
+    std::span<const ray>, const pose&>);
+static_assert(std::is_invocable_r_v<bool, cancellation_pipeline_callback>);
 static_assert(std::is_aggregate_v<pipeline_result>);
 }

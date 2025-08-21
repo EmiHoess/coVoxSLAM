@@ -64,8 +64,9 @@ inline const char* sensor_sampling_name(sensor_grid::interpolation mode)
     return "invalid";
 }
 inline operation_result<pipeline_callbacks> sensor_mapping_callbacks(const sensor& model, mapping_config config,
-    int device, std::optional<operation_error>& failure, std::function<void(const submap&)> publish,
-    std::function<void(submap&)> finalize, sensor_grid::interpolation mode, sensor_grid::gather_options gather,
+    int device, std::function<operation_status(const submap&)> publish,
+    std::function<operation_status(submap&)> finalize,
+    sensor_grid::interpolation mode, sensor_grid::gather_options gather,
     std::size_t maximum_bytes, sensor_grid::transfer_options transfer = {}, resident_pipeline* retained = nullptr)
 {
     if (!retained || !sensor_grid::combined_gather(gather.backend) || mode != sensor_grid::interpolation::nearest || finalize)
@@ -96,18 +97,17 @@ inline operation_result<pipeline_callbacks> sensor_mapping_callbacks(const senso
     state->combined = std::move(*combined);
     state->ranges.resize(directions->size());
     pipeline_callbacks callbacks;
-    callbacks.begin = [state, &failure, transfer](const submap_frame&) {
+    callbacks.begin = [state, transfer](const submap_frame&) -> operation_status {
+        const auto result = state->combined->reset();
+        if (!result) return std::unexpected(result.error());
         state->statistics = {};
         state->statistics.cuda_accumulator_bits = sensor_grid::accumulation_bits;
         state->statistics.sensor_transfer_bits = transfer.arithmetic == sensor_grid::transfer_arithmetic::fp32 ? 32 : 64;
-        const auto result = state->combined->reset();
-        if (!result) failure = result.error();
+        return {};
     };
-    callbacks.cancelled = [&failure] { return failure.has_value(); };
-    callbacks.integrate_scan = [state, &failure, columns = model.columns, minimum = settings.minimum_range, mode](const submap_frame&,
-        const frame_descriptor&, std::span<const ray> rays, const pose& transform)
+    callbacks.integrate_scan = [state, columns = model.columns, minimum = settings.minimum_range, mode](const submap_frame&,
+        const frame_descriptor&, std::span<const ray> rays, const pose& transform) -> operation_status
     {
-        if (failure) return;
         const auto start = std::chrono::steady_clock::now();
         std::size_t accepted{};
         std::fill(state->ranges.begin(), state->ranges.end(), 0.f);
@@ -118,17 +118,17 @@ inline operation_result<pipeline_callbacks> sensor_mapping_callbacks(const senso
         }
         const auto result = state->combined->integrate(state->ranges, transform, mode);
 
-        if (!result) { failure = result.error(); return; }
+        if (!result) return std::unexpected(result.error());
         const auto updates = result->transfer.updates;
         state->statistics.rays_submitted += rays.size();
         state->statistics.rays_integrated += accepted;
         state->statistics.rays_rejected += rays.size() - accepted;
         state->statistics.voxel_updates += updates;
         state->statistics.integration_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+        return {};
     };
-    callbacks.finish = [state, &failure, config, publish, retained](const submap_frame& frame)
+    callbacks.finish = [state, config, publish, retained](const submap_frame& frame) -> operation_status
     {
-        if (failure) return;
         submap completed;
         completed.frame = frame; completed.optimized_world_pose = frame.anchor;
         completed.config = config; completed.statistics = state->statistics;
@@ -151,8 +151,12 @@ inline operation_result<pipeline_callbacks> sensor_mapping_callbacks(const senso
         }
         const auto closed = retained->close(*state->combined, completed);
 
-        if (!closed) { failure = closed.error(); return; }
-        if (publish) publish(completed);
+        if (!closed) return std::unexpected(closed.error());
+        if (publish) {
+            const auto published = publish(completed);
+            if (!published) return std::unexpected(published.error());
+        }
+        return {};
     };
     return callbacks;
 }

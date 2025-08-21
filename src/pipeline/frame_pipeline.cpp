@@ -32,6 +32,26 @@ operation_status validate_ray_counter(std::size_t current, std::size_t additiona
         return std::unexpected(operation_error{"ray counter exceeds addressable size"});
     return {};
 }
+
+operation_status invoke_begin(const pipeline_callbacks& callbacks, const submap_frame& frame)
+{
+    if (!callbacks.begin) return {};
+    return callbacks.begin(frame);
+}
+
+operation_status invoke_integration(const pipeline_callbacks& callbacks,
+    const submap_frame& frame, const frame_descriptor& descriptor,
+    std::span<const ray> rays, const pose& transform)
+{
+    if (!callbacks.integrate_scan) return {};
+    return callbacks.integrate_scan(frame, descriptor, rays, transform);
+}
+
+operation_status invoke_finish(const pipeline_callbacks& callbacks, const submap_frame& frame)
+{
+    if (!callbacks.finish) return {};
+    return callbacks.finish(frame);
+}
 }
 
 operation_result<std::vector<ray>> deskew_frame(
@@ -114,16 +134,18 @@ operation_result<pipeline_result> run_frame_pipeline(
     if (!trajectory) return std::unexpected(trajectory.error());
     submap_frame current;
     bool active = false;
-    const auto finish = [&]
+    const auto finish = [&]() -> operation_status
     {
         const auto started = std::chrono::steady_clock::now();
-        if (callbacks.finish) callbacks.finish(current);
+        const auto finalized = invoke_finish(callbacks, current);
+        if (!finalized) return std::unexpected(finalized.error());
         result.timing.finalization_ms += std::chrono::duration<double, std::milli>(
             std::chrono::steady_clock::now() - started).count();
 
-        if (stop_requested()) return;
+        if (stop_requested()) return {};
         result.submaps.push_back(std::move(current));
         active = false;
+        return {};
     }
     ;
     for (std::size_t index = 0; index < input.frames.size(); ++index) {
@@ -137,7 +159,8 @@ operation_result<pipeline_result> run_frame_pipeline(
         if (active && descriptor.start_stamp_ns - current.start_stamp_ns >=
             options.submap_duration_ns)
         {
-            finish();
+            const auto finalized = finish();
+            if (!finalized) return std::unexpected(finalized.error());
             if (result.cancelled) return result;
             if (options.maximum_submaps && result.submaps.size() >= options.maximum_submaps)
                 break;
@@ -171,13 +194,14 @@ operation_result<pipeline_result> run_frame_pipeline(
         const auto integration_started = std::chrono::steady_clock::now();
         timing.deskew_ms = std::chrono::duration<double, std::milli>(integration_started - preparation_started).count();
         if (opening_submap) {
-            if (callbacks.begin) callbacks.begin(current);
+            const auto begun = invoke_begin(callbacks, current);
+            if (!begun) return std::unexpected(begun.error());
 
             if (stop_requested()) return result;
             active = true;
         }
-        if (callbacks.integrate_scan)
-            callbacks.integrate_scan(current, descriptor, *rays, scan_pose);
+        const auto integrated = invoke_integration(callbacks, current, descriptor, *rays, scan_pose);
+        if (!integrated) return std::unexpected(integrated.error());
         timing.integration_ms = std::chrono::duration<double, std::milli>(
             std::chrono::steady_clock::now() - integration_started).count();
 
@@ -189,7 +213,10 @@ operation_result<pipeline_result> run_frame_pipeline(
         ++result.frames_loaded;
         result.rays_generated += rays->size();
     }
-    if (active) finish();
+    if (active) {
+        const auto finalized = finish();
+        if (!finalized) return std::unexpected(finalized.error());
+    }
     return result;
 }
 

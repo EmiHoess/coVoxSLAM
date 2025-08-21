@@ -289,7 +289,6 @@ inline int run_submap_cli(int argc, char** argv)
         if (!loaded) return report_error(loaded.error().message);
         const auto& input = *loaded;
         auto mapper_options = mapping_options;
-        std::optional<operation_error> resident_failure;
         const std::string backend_label = "coVoxSLAM";
         std::cout << "coVoxSLAM, nearest cell TSDF, resident SoA block band ESDF\n";
         const auto fusion_label = sensor_sampling_name(sensor_mode);
@@ -302,9 +301,12 @@ inline int run_submap_cli(int argc, char** argv)
             resident_maps = std::move(*created);
             std::cout << "mapping storage resident-soa, device handoff, deferred canonical readback\n";
         }
-        const auto publish = [&](const submap& completed) { pgo_maps.push_back(completed); };
+        const auto publish = [&](const submap& completed) -> operation_status {
+            pgo_maps.push_back(completed);
+            return {};
+        };
         auto selected = sensor_mapping_callbacks(input.sensor, mapper_options, cuda_options.device,
-            resident_failure, publish, {}, sensor_mode, sensor_gather, cuda_options.maximum_device_bytes,
+            publish, {}, sensor_mode, sensor_gather, cuda_options.maximum_device_bytes,
             sensor_transfer, resident_maps.get());
 
         if (!selected) return report_error(selected.error().message);
@@ -313,7 +315,7 @@ inline int run_submap_cli(int argc, char** argv)
         const auto result = run_frame_pipeline(input, options, callbacks);
 
         if (!result) return report_error(result.error().message);
-        if (result->cancelled) return report_error(resident_failure ? resident_failure->message : "mapping cancelled");
+        if (result->cancelled) return report_error("mapping cancelled");
         if (pgo_settings.solver.enabled || store_settings.enabled) {
             auto optimized = [&]() -> operation_result<pgo_cli_result> {
                 auto stored = resident_maps->finish(pgo_maps, pgo_settings.solver, pgo_settings.shadow);
