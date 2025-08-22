@@ -12,6 +12,7 @@ add_library(covoxslam_core STATIC src/core/geometry.cpp src/input/json_reader.cp
 target_sources(covoxslam_core PRIVATE src/input/dataset_metadata.cpp)
 target_sources(covoxslam_core PRIVATE src/input/toml_tables.cpp)
 target_sources(covoxslam_core PRIVATE src/pipeline/frame_pipeline.cpp)
+target_sources(covoxslam_core PRIVATE src/pipeline/mapping_session.cpp)
 target_sources(covoxslam_core PRIVATE src/mapping/config.cpp)
 target_sources(covoxslam_core PRIVATE src/voxel/tile_geometry.cpp)
 target_sources(covoxslam_core PRIVATE src/voxel/sparse_map.cpp)

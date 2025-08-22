@@ -8,6 +8,7 @@
 #include "mapping_cli.hpp"
 #include "map_export_cli.hpp"
 #include "sensor_mapping_cli.hpp"
+#include "sensor_gather_cli.hpp"
 #include "pgo_cli.hpp"
 #include "store_cli.hpp"
 #include "retired_options.hpp"
@@ -47,7 +48,6 @@ inline int run_submap_cli(int argc, char** argv)
         mapping_config mapping_options;
         bool mapping_enabled{};
         bool sensor_selected{};
-        bool sensor_options_set{};
         sensor_grid::gather_options sensor_gather;
         sensor_grid::transfer_options sensor_transfer;
         auto sensor_mode = sensor_grid::interpolation::nearest;
@@ -125,7 +125,6 @@ inline int run_submap_cli(int argc, char** argv)
                 sensor_selected = false;
                 break;
             case sensor_mapping_option::interpolation:
-                sensor_options_set = true;
                 switch (lookup_cli_option(value, sensor_sampling_values)) {
                 case sensor_sampling_value::nearest: sensor_mode = sensor_grid::interpolation::nearest; break;
                 default: return report_error("unsupported sensor interpolation");
@@ -134,25 +133,21 @@ inline int run_submap_cli(int argc, char** argv)
             case sensor_mapping_option::threshold: {
                 const auto selected = select_sensor_threshold(value, sensor_gather);
                 if (!selected) return report_error(selected.error().message);
-                sensor_options_set = true;
                 continue;
             }
             case sensor_mapping_option::block_threshold: {
                 const auto selected = select_block_threshold(value, sensor_gather);
                 if (!selected) return report_error(selected.error().message);
-                sensor_options_set = true;
                 continue;
             }
             case sensor_mapping_option::gather: {
                 const auto selected = select_sensor_gather(value, sensor_gather);
                 if (!selected) return report_error(selected.error().message);
-                sensor_options_set = true;
                 continue;
             }
             case sensor_mapping_option::execution: {
                 const auto selected = select_sensor_execution(value, sensor_gather);
                 if (!selected) return report_error(selected.error().message);
-                sensor_options_set = true;
                 continue;
             }
             case sensor_mapping_option::source_mask:
@@ -160,35 +155,30 @@ inline int run_submap_cli(int argc, char** argv)
                 case source_mask_choice::dense: sensor_transfer.source_mask = sensor_grid::source_mask_mode::dense; break;
                 default: return report_error("coVoxSLAM requires a dense sensor source mask");
                 }
-                sensor_options_set = true;
                 continue;
             case sensor_mapping_option::transfer_precision:
                 switch (lookup_cli_option(value, transfer_precision_choices)) {
                 case transfer_precision_choice::fp64: sensor_transfer.arithmetic = sensor_grid::transfer_arithmetic::fp64; break;
                 default: return report_error("coVoxSLAM requires 64 bit sensor transfer");
                 }
-                sensor_options_set = true;
                 continue;
             case sensor_mapping_option::transfer_kernel:
                 switch (lookup_cli_option(value, transfer_kernel_choices)) {
                 case transfer_kernel_choice::reference: sensor_transfer.specialized = false; break;
                 default: return report_error("coVoxSLAM requires reference sensor transfer");
                 }
-                sensor_options_set = true;
                 continue;
             case sensor_mapping_option::candidates:
                 switch (lookup_cli_option(value, candidate_choices)) {
                 case candidate_choice::whole_tiles: sensor_transfer.candidates = sensor_grid::candidate_mode::whole_tiles; break;
                 default: return report_error("invalid sensor candidate method");
                 }
-                sensor_options_set = true;
                 continue;
             case sensor_mapping_option::discovery:
                 switch (lookup_cli_option(value, discovery_choices)) {
                 case discovery_choice::gpu_resident: sensor_transfer.discovery = sensor_grid::discovery_mode::gpu_resident; break;
                 default: return report_error("invalid sensor discovery method");
                 }
-                sensor_options_set = true;
                 continue;
             default: break;
             }
@@ -259,16 +249,16 @@ inline int run_submap_cli(int argc, char** argv)
         if (!sensor_selected || !sensor_grid::matches_combined_nearest({mapping_options, sensor_gather,
                 sensor_transfer, sensor_mode, options.ring_stride, options.column_stride}))
             return report_error("explicit options conflict with combined-nearest preset");
-        if (sensor_options_set && !sensor_selected) return report_error("sensor options require cuda-sensor-grid");
         if (!options.submap_duration_ns || !options.ring_stride || !options.column_stride)
             return report_error("duration and sampling strides must be positive");
         pgo_settings.solver.device = cuda_options.device;
         store_settings.device = cuda_options.device;
         store_settings.esdf_generator = mapping_options.esdf_generator;
-        auto store_valid = validate_store_pipeline(store_settings, pgo_settings.solver);
+        const auto store_valid = validate_store_pipeline(store_settings, pgo_settings.solver);
         if (!store_valid) return report_error(store_valid.error().message);
         if (store_settings.resident_mapping && (!sensor_selected ||
-            !sensor_grid::combined_gather(sensor_gather.backend) || sensor_mode != sensor_grid::interpolation::nearest ||
+            !sensor_grid::combined_gather(sensor_gather.backend) ||
+            sensor_mode != sensor_grid::interpolation::nearest ||
             sensor_transfer.discovery != sensor_grid::discovery_mode::gpu_resident))
             return report_error("resident mapping storage requires combined nearest with resident discovery");
         if (store_settings.enabled && !mapping_enabled) return report_error("map storage requires mapping");
@@ -289,59 +279,36 @@ inline int run_submap_cli(int argc, char** argv)
         if (!pgo_valid) return report_error(pgo_valid.error().message);
         if (!loaded) return report_error(loaded.error().message);
         const auto& input = *loaded;
-        auto mapper_options = mapping_options;
+        mapping_session_options session_options{options, mapping_options, sensor_gather,
+            sensor_transfer, sensor_mode, store_settings, pgo_settings.solver,
+            cuda_options.maximum_device_bytes, pgo_settings.shadow};
         const std::string backend_label = "coVoxSLAM";
         std::cout << "coVoxSLAM, nearest cell TSDF, resident SoA block band ESDF\n";
         const auto fusion_label = sensor_sampling_name(sensor_mode);
-        std::unique_ptr<map_exporter> exporter;
-        std::vector<submap> pgo_maps;
-        std::unique_ptr<resident_pipeline> resident_maps;
-        if (store_settings.resident_mapping) {
-            auto created = resident_pipeline::create(store_settings, pgo_settings.solver);
-            if (!created) return report_error(created.error().message);
-            resident_maps = std::move(*created);
-            std::cout << "mapping storage resident-soa, device handoff, deferred canonical readback\n";
-        }
-        const auto publish = [&](const submap& completed) -> operation_status {
-            pgo_maps.push_back(completed);
-            return {};
-        };
-        auto selected = sensor_mapping_callbacks(input.sensor, mapper_options, cuda_options.device,
-            publish, {}, sensor_mode, sensor_gather, cuda_options.maximum_device_bytes,
-            sensor_transfer, resident_maps.get());
-
-        if (!selected) return report_error(selected.error().message);
-        auto callbacks = std::move(*selected);
+        auto session = mapping_session::create(session_options);
+        if (!session) return report_error(session.error().message);
+        std::cout << "mapping storage resident-soa, device handoff, deferred canonical readback\n";
         std::cout << "sensor field uses calibrated ranges and scan start poses\n";
-        const auto result = run_frame_pipeline(input, options, callbacks);
-
+        auto result = (*session)->run(input);
         if (!result) return report_error(result.error().message);
-        if (result->cancelled) return report_error("mapping cancelled");
+        std::unique_ptr<map_exporter> exporter;
         if (pgo_settings.solver.enabled || store_settings.enabled) {
-            auto optimized = [&]() -> operation_result<pgo_cli_result> {
-                auto stored = resident_maps->finish(pgo_maps, pgo_settings.solver, pgo_settings.shadow);
-                if (!stored) return std::unexpected(operation_error{
-                    "stored pipeline stopped before export: " + stored.error().message});
-                auto ready = validate_stored_export(pgo_maps, store_settings);
-                if (!ready) return std::unexpected(ready.error());
-                return pgo_cli_result{stored->backend, stored->hash, stored->publication, stored->report};
-            }();
-            if (!optimized) return report_error(optimized.error().message);
-            std::cout << optimized->report << "pose publication " << optimized->publication << '\n';
+            const auto& completion = result->completion;
+            std::cout << completion.report << "pose publication " << completion.publication << '\n';
             exporter = open_map_export(output, input, mapping_options, backend_label.c_str(), fusion_label,
-                optimized->backend, optimized->hash, optimized->publication);
+                completion.backend, completion.hash, completion.publication);
             if (exporter) {
                 std::ofstream diagnostics(output / "pgo.txt", std::ios::trunc);
-                diagnostics << optimized->report << "pose publication " << optimized->publication << '\n';
+                diagnostics << completion.report << "pose publication " << completion.publication << '\n';
                 diagnostics.close();
                 if (!diagnostics) return report_error("failed to write solver diagnostics");
 
-                for (const auto& map : pgo_maps) exporter->write(map);
+                for (const auto& map : result->maps) exporter->write(map);
             }
         }
         if (exporter) exporter->finish();
         std::cout << std::setprecision(17);
-        for (const auto& submap : result->submaps) {
+        for (const auto& submap : result->frames.submaps) {
             const auto& anchor = submap.anchor;
             const auto& initial = submap.initial_pose;
              std::cout << "submap " << submap.id << ": " << submap.frame_ids.size()
@@ -352,9 +319,9 @@ inline int run_submap_cli(int argc, char** argv)
                       << ", initial quaternion " << initial.rotation.x << ' ' << initial.rotation.y
                       << ' ' << initial.rotation.z << ' ' << initial.rotation.w << '\n';
         }
-        std::cout << result->frames_loaded << " frames, " << result->submaps.size()
-                   << " submaps, " << result->rays_generated << " rays\n";
-        const auto& timing = result->timing;
+        std::cout << result->frames.frames_loaded << " frames, " << result->frames.submaps.size()
+                   << " submaps, " << result->frames.rays_generated << " rays\n";
+        const auto& timing = result->frames.timing;
         std::cout << "payload bytes " << timing.payload_bytes << ", read ms " << timing.read_ms
             << ", validation ms " << timing.validation_ms << ", decode ms " << timing.decode_ms
             << ", deskew ms " << timing.deskew_ms << ", integration ms " << timing.integration_ms
