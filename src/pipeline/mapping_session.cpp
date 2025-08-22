@@ -1,5 +1,5 @@
 #include <covoxslam/pipeline/mapping_session.hpp>
-#include <covoxslam/sensor_grid_calibration.hpp>
+#include <covoxslam/sensor/lookup.hpp>
 #include <covoxslam/sensor_grid_precision.h>
 
 #include <algorithm>

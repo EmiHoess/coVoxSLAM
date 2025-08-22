@@ -1,6 +1,5 @@
 #pragma once
-#include <covoxslam/sensor_grid_calibration.hpp>
-#include <covoxslam/sensor_grid.hpp>
+#include <covoxslam/sensor/lookup.hpp>
 #include "retired_options.hpp"
 #include <iostream>
 
