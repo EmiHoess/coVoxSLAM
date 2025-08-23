@@ -1,4 +1,4 @@
-#include "sensor_grid_map_internal.hpp"
+#include "mapping/tsdf/active_submap_internal.hpp"
 #include <chrono>
 
 namespace covoxslam::sensor_grid

@@ -1,4 +1,4 @@
-#include <covoxslam/sensor_grid_map.hpp>
+#include <covoxslam/mapping/tsdf/active_submap.hpp>
 namespace covoxslam::sensor_grid
 {
 struct gpu_map::implementation {};

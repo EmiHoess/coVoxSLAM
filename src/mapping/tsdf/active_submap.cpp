@@ -1,4 +1,4 @@
-#include "sensor_grid_map_internal.hpp"
+#include "active_submap_internal.hpp"
 
 namespace covoxslam::sensor_grid
 {

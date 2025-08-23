@@ -1,7 +1,7 @@
 #pragma once
 #include <covoxslam/core/geometry.hpp>
 #include <covoxslam/core/result.hpp>
-#include <covoxslam/sensor_grid_map.hpp>
+#include <covoxslam/mapping/tsdf/active_submap.hpp>
 #include "sensor_grid/map_native.h"
 #include "sensor_grid/discovery.h"
 #include "sensor_grid/resident.h"

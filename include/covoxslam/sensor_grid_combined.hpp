@@ -2,9 +2,9 @@
 #include <covoxslam/core/geometry.hpp>
 #include <covoxslam/core/result.hpp>
 #include <covoxslam/mapping/config.hpp>
+#include <covoxslam/mapping/tsdf/active_submap.hpp>
 #include <covoxslam/sensor/dense_field.hpp>
 #include <covoxslam/sensor/lookup.hpp>
-#include <covoxslam/sensor_grid_map.hpp>
 
 namespace covoxslam::sensor_grid
 {
