@@ -1,4 +1,4 @@
-#include <covoxslam/sensor_grid_layout.hpp>
+#include <covoxslam/sensor/prepared_layout.hpp>
 #include <algorithm>
 #include <covoxslam/sensor_grid_precision.h>
 

@@ -1,6 +1,6 @@
 #include <covoxslam/sensor_grid_cuda.hpp>
 #include <covoxslam/sensor_grid_precision.h>
-#include <covoxslam/sensor_grid_layout.hpp>
+#include <covoxslam/sensor/prepared_layout.hpp>
 #include "sensor_grid/native.h"
 #include <cuda_runtime_api.h>
 #include <array>
