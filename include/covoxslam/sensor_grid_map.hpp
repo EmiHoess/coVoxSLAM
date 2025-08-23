@@ -2,8 +2,8 @@
 
 #include <covoxslam/core/geometry.hpp>
 #include <covoxslam/core/result.hpp>
+#include <covoxslam/sensor/dense_field.hpp>
 #include <covoxslam/sensor/lookup.hpp>
-#include <covoxslam/sensor_grid_cuda.hpp>
 #include <covoxslam/sensor_grid_sampling.h>
 #include <covoxslam/storage/schema.hpp>
 #include <covoxslam/voxel/sparse_map.hpp>

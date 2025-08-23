@@ -1,4 +1,4 @@
-#include <covoxslam/sensor_grid_cuda.hpp>
+#include <covoxslam/sensor/dense_field.hpp>
 
 namespace covoxslam::sensor_grid
 {

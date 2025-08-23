@@ -1,6 +1,6 @@
 #pragma once
 #include <covoxslam/core/result.hpp>
-#include <covoxslam/sensor_grid_cuda.hpp>
+#include <covoxslam/sensor/prepared_layout.hpp>
 #include "cli_lookup.hpp"
 #include <charconv>
 

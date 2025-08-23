@@ -1,4 +1,4 @@
-#include <covoxslam/sensor_grid_cuda.hpp>
+#include <covoxslam/sensor/dense_field.hpp>
 #include <covoxslam/sensor_grid_precision.h>
 #include <covoxslam/sensor/prepared_layout.hpp>
 #include "sensor_grid/native.h"
