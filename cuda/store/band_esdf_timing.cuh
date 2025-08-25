@@ -1,7 +1,7 @@
 #pragma once
 #include <chrono>
 #include <cuda_runtime.h>
-#include <covoxslam/store/band_esdf.hpp>
+#include <covoxslam/mapping/esdf/band_esdf.hpp>
 
 namespace covoxslam::store
 {

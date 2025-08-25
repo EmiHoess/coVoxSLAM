@@ -1,4 +1,5 @@
 #include <covoxslam/pipeline/mapping_session.hpp>
+#include <covoxslam/mapping/esdf/band_esdf.hpp>
 #include <unordered_map>
 #include <unordered_set>
 #if defined(covoxslam_has_cuda) && defined(covoxslam_has_urd)

@@ -1,5 +1,6 @@
 #pragma once
 #include "mapping.h"
+#include <covoxslam/voxel/esdf_encodings.hpp>
 #include <cuda_runtime.h>
 
 namespace covoxslam::store

@@ -1,6 +1,7 @@
 #pragma once
 #include "band_esdf_index.cuh"
 #include "band_esdf_distance.cuh"
+#include <covoxslam/mapping/esdf/band_esdf.hpp>
 
 namespace covoxslam::store
 {

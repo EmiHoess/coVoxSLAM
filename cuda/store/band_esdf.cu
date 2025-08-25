@@ -1,4 +1,4 @@
-#include <covoxslam/store/band_esdf.hpp>
+#include <covoxslam/mapping/esdf/band_esdf.hpp>
 #include "band_esdf_initialize.cuh"
 #include "band_esdf_sweep.cuh"
 #include "band_esdf_neighbors.cuh"

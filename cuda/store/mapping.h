@@ -3,7 +3,7 @@
 #include <covoxslam/store/device_index.hpp>
 #include <covoxslam/sensor_grid_sampling.h>
 #include "../common/mapping_types.h"
-#include <covoxslam/store/band_esdf.hpp>
+#include <covoxslam/mapping/esdf/band_esdf.hpp>
 
 namespace covoxslam::store
 {
