@@ -1,7 +1,9 @@
 #pragma once
+#include <covoxslam/storage/layout.hpp>
 #include <covoxslam/storage/schema.hpp>
-#include <tuple>
-#include <utility>
+#include <covoxslam/storage/views.hpp>
+#include <array>
+#include <cstddef>
 #include <vector>
 
 #if defined(covoxslam_has_urd)
@@ -11,16 +13,6 @@
 
 namespace covoxslam::storage
 {
-template<schema s, class t> auto scalar_fields(t& record) noexcept
-{
-    if constexpr (s == schema::tsdf)
-        return std::tie(record.distance, record.weight, record.sample_count, record.flags);
-    else if constexpr (s == schema::esdf)
-        return std::tie(record.signed_distance_m, record.parent_dx, record.parent_dy, record.parent_dz, record.flags);
-    else if constexpr (s == schema::blocks_esdf)
-        return std::tie(record.distance_m, record.parent_dx, record.parent_dy, record.parent_dz, record.flags);
-    else return std::tie(record.squared_distance_voxels, record.parent_x, record.parent_y, record.parent_z, record.flags);
-}
 template<schema s, layout l> struct storage_traits;
 #if defined(covoxslam_has_urd)
 template<schema s> using urd_pool = urd::v2::struct_container<value<s>, 0,

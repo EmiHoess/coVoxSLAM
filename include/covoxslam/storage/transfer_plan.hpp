@@ -1,5 +1,6 @@
 #pragma once
 #include <covoxslam/core/result.hpp>
+#include <covoxslam/storage/layout.hpp>
 #include <covoxslam/storage/ranges.hpp>
 #include <covoxslam/storage/device_view.hpp>
 

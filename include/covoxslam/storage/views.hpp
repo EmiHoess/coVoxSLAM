@@ -2,6 +2,7 @@
 #include <covoxslam/storage/schema.hpp>
 #include <cassert>
 #include <span>
+#include <tuple>
 
 #if defined(__CUDACC__)
 #define covoxslam_storage_hd __host__ __device__
@@ -11,6 +12,16 @@
 
 namespace covoxslam::storage
 {
+template<schema s, class t> auto scalar_fields(t& record) noexcept
+{
+    if constexpr (s == schema::tsdf)
+        return std::tie(record.distance, record.weight, record.sample_count, record.flags);
+    else if constexpr (s == schema::esdf)
+        return std::tie(record.signed_distance_m, record.parent_dx, record.parent_dy, record.parent_dz, record.flags);
+    else if constexpr (s == schema::blocks_esdf)
+        return std::tie(record.distance_m, record.parent_dx, record.parent_dy, record.parent_dz, record.flags);
+    else return std::tie(record.squared_distance_voxels, record.parent_x, record.parent_y, record.parent_z, record.flags);
+}
 template<bool read_only, class t> using scalar_reference = std::conditional_t<read_only, const t&, t&>;
 template<schema s, bool read_only> struct voxel_reference;
 template<bool read_only> struct voxel_reference<schema::tsdf, read_only>

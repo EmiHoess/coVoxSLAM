@@ -1,4 +1,5 @@
 #pragma once
+#include <covoxslam/storage/layout.hpp>
 #include <covoxslam/storage/device_collection.hpp>
 
 namespace covoxslam::storage

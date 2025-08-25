@@ -1,6 +1,7 @@
 #pragma once
 #include <covoxslam/core/geometry.hpp>
 #include <covoxslam/core/result.hpp>
+#include <covoxslam/storage/layout.hpp>
 #include <covoxslam/store/snapshot.hpp>
 
 #include <climits>

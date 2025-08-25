@@ -5,6 +5,7 @@
 #include <covoxslam/mapping/tsdf/active_submap.hpp>
 #include <covoxslam/sensor/dense_field.hpp>
 #include <covoxslam/sensor/lookup.hpp>
+#include <covoxslam/storage/layout.hpp>
 
 namespace covoxslam::sensor_grid
 {

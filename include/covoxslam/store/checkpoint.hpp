@@ -1,5 +1,6 @@
 #pragma once
 #include <covoxslam/core/result.hpp>
+#include <covoxslam/storage/layout.hpp>
 #include <covoxslam/store/checkpoint_codec.hpp>
 #include <filesystem>
 #include <fstream>

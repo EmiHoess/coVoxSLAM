@@ -1,5 +1,6 @@
 #pragma once
 #include <covoxslam/core/result.hpp>
+#include <covoxslam/storage/layout.hpp>
 #include <covoxslam/store/store.hpp>
 #include <covoxslam/store/gpu_index.hpp>
 #include <covoxslam/store/snapshot.hpp>

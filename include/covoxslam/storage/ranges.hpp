@@ -1,10 +1,34 @@
 #pragma once
 #include <covoxslam/core/result.hpp>
-#include <covoxslam/storage/draft.hpp>
+#include <covoxslam/storage/views.hpp>
+#include <algorithm>
+#include <cstddef>
+#include <cstdint>
 #include <cstring>
+#include <limits>
+#include <span>
+#include <tuple>
+#include <utility>
 
 namespace covoxslam::storage
 {
+template<schema s, class accessor>
+operation_result<tile_view<s, accessor>> checked_at(const map_view<s, accessor>& view, std::size_t tile)
+{
+    if (!view.valid()) return std::unexpected(operation_error{"storage view is stale"});
+    if (tile >= view.size()) return std::unexpected(operation_error{"tile index is outside collection"});
+    return view[tile];
+}
+template<schema s, class accessor>
+operation_result<voxel_reference<s, accessor::read_only>> checked_at(
+    const map_view<s, accessor>& view, std::size_t tile, std::size_t voxel)
+{
+    auto selected = checked_at(view, tile);
+
+    if (!selected) return std::unexpected(selected.error());
+    if (voxel >= voxels_per_tile) return std::unexpected(operation_error{"voxel index is outside tile"});
+    return selected->voxels[voxel];
+}
 struct voxel_range { std::size_t first{}, count{}; };
 template<class t> void copy_scalar_bits(t& destination, const t& source) noexcept
 {

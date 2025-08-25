@@ -5,6 +5,7 @@
 #include <covoxslam/store/budget.hpp>
 #include <covoxslam/store/field_access.hpp>
 #include <covoxslam/storage/draft.hpp>
+#include <covoxslam/storage/layout.hpp>
 #include <covoxslam/storage/record_pack.hpp>
 #include <cmath>
 #include <optional>

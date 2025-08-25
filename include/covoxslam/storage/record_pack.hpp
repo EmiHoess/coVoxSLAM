@@ -1,6 +1,12 @@
 #pragma once
 #include <covoxslam/core/result.hpp>
 #include <covoxslam/storage/ranges.hpp>
+#include <algorithm>
+#include <cstddef>
+#include <limits>
+#include <span>
+#include <tuple>
+#include <utility>
 
 namespace covoxslam::storage
 {

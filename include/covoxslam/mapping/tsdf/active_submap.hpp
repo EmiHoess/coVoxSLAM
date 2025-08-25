@@ -5,6 +5,7 @@
 #include <covoxslam/sensor/dense_field.hpp>
 #include <covoxslam/sensor/lookup.hpp>
 #include <covoxslam/sensor_grid_sampling.h>
+#include <covoxslam/storage/layout.hpp>
 #include <covoxslam/storage/schema.hpp>
 #include <covoxslam/voxel/sparse_map.hpp>
 

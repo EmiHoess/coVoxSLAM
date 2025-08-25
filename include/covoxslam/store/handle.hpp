@@ -1,4 +1,5 @@
 #pragma once
+#include <covoxslam/storage/layout.hpp>
 #include <covoxslam/storage/schema.hpp>
 #include <covoxslam/store/key.hpp>
 #include <covoxslam/core/result.hpp>

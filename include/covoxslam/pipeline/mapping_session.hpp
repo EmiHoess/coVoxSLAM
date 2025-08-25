@@ -6,6 +6,7 @@
 #include <covoxslam/pipeline/frame_pipeline.hpp>
 #include <covoxslam/pipeline/submap.hpp>
 #include <covoxslam/mapping/tsdf/integrator.hpp>
+#include <covoxslam/storage/layout.hpp>
 #include <covoxslam/storage/schema.hpp>
 
 #include <cstddef>
