@@ -1,4 +1,4 @@
-#include <covoxslam/sensor_grid_combined.hpp>
+#include <covoxslam/mapping/tsdf/integrator.hpp>
 #include <covoxslam/sensor_grid_precision.h>
 #include <chrono>
 

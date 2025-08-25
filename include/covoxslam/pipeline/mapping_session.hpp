@@ -5,7 +5,7 @@
 #include <covoxslam/pgo.hpp>
 #include <covoxslam/pipeline/frame_pipeline.hpp>
 #include <covoxslam/pipeline/submap.hpp>
-#include <covoxslam/sensor_grid_combined.hpp>
+#include <covoxslam/mapping/tsdf/integrator.hpp>
 #include <covoxslam/storage/schema.hpp>
 
 #include <cstddef>

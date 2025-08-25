@@ -19,7 +19,7 @@ target_sources(covoxslam_core PRIVATE src/voxel/sparse_map.cpp)
 target_sources(covoxslam_core PRIVATE src/export.cpp)
 target_sources(covoxslam_core PRIVATE src/sensor/lookup.cpp)
 target_sources(covoxslam_core PRIVATE src/sensor/prepared_layout.cpp)
-target_sources(covoxslam_core PRIVATE src/sensor_grid_combined.cpp)
+target_sources(covoxslam_core PRIVATE src/mapping/tsdf/integrator.cpp)
 set(covoxslam_sensor_accumulation_bits "32" CACHE STRING "coVoxSLAM sensor accumulation precision")
 set_property(CACHE covoxslam_sensor_accumulation_bits PROPERTY STRINGS 32)
 target_compile_definitions(covoxslam_core PUBLIC
