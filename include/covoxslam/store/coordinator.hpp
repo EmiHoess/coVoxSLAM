@@ -6,6 +6,7 @@
 #include <covoxslam/store/snapshot.hpp>
 #include <covoxslam/store/checkpoint.hpp>
 #if defined(covoxslam_has_cuda)
+#include <covoxslam/storage/device_buffer.hpp>
 #include <covoxslam/store/gpu_store.hpp>
 #endif
 
@@ -329,7 +330,7 @@ public:
     }
 #if defined(covoxslam_has_cuda)
     operation_status import_device_tsdf(std::uint64_t id, pose_record pose,
-        std::span<const block_key> keys, const storage::cuda_draft<storage::schema::tsdf, l>& source)
+        std::span<const block_key> keys, const storage::device_buffer<storage::schema::tsdf, l>& source)
     {
         std::lock_guard lock(mutex_);
 

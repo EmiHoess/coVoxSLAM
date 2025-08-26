@@ -1,5 +1,6 @@
 #pragma once
 #include <covoxslam/core/result.hpp>
+#include <covoxslam/storage/device_buffer.hpp>
 #include <covoxslam/storage/layout.hpp>
 #include <covoxslam/store/store.hpp>
 #include <covoxslam/store/gpu_index.hpp>
@@ -12,7 +13,7 @@ namespace covoxslam::store
 template<storage::schema s, storage::layout l> struct gpu_field
 {
     std::shared_ptr<budget_claim> memory;
-    storage::cuda_draft<s, l> payload;
+    storage::device_buffer<s, l> payload;
     gpu_block_index index;
     std::uint64_t content_epoch{}, allocation_generation{};
     mutable std::weak_ptr<const field_pool<s, l>> source_identity;
@@ -43,7 +44,7 @@ template<storage::layout l, storage::schema es = storage::schema::esdf> class gp
     }
     template<storage::schema s> operation_result<std::shared_ptr<const gpu_field<s, l>>> upload(
         const std::shared_ptr<const field_pool<s, l>>& source, std::uint64_t generation, bool copy_values = true,
-        const storage::cuda_draft<s, l>* device_source = nullptr)
+        const storage::device_buffer<s, l>* device_source = nullptr)
     {
         if (!source || source->index.slot_count() != source->payload.size())
             return std::unexpected(operation_error{"resident field has invalid initialized slots"});

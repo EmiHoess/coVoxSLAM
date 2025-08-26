@@ -1,5 +1,6 @@
 #pragma once
 #include <covoxslam/core/result.hpp>
+#include <covoxslam/storage/device_buffer.hpp>
 #include <covoxslam/storage/layout.hpp>
 #include <covoxslam/store/esdf_resources.hpp>
 #include "../../../cuda/common/mapping_types.h"
@@ -18,7 +19,7 @@ inline operation_result<std::size_t> band_workspace_bytes(std::size_t count, std
 struct band_esdf_workspace
 {
     std::shared_ptr<budget_claim> field_memory;
-    storage::cuda_draft<storage::schema::projective_esdf, storage::layout::pool_soa> fields;
+    storage::device_buffer<storage::schema::projective_esdf, storage::layout::pool_soa> fields;
     esdf_scratch metadata;
      std::size_t reserved_bytes{};
     band_esdf_workspace() = default;

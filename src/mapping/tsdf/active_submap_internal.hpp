@@ -8,7 +8,7 @@
 #include <cuda_runtime_api.h>
 #include <array>
 #if defined(covoxslam_has_urd)
-#include <covoxslam/storage/cuda_draft.hpp>
+#include <covoxslam/storage/device_buffer.hpp>
 #endif
 
 namespace covoxslam::sensor_grid
@@ -21,7 +21,7 @@ struct gpu_map::implementation
      std::uint32_t capacity{};
     bool soa_selected{};
 #if defined(covoxslam_has_urd)
-    std::unique_ptr<storage::cuda_draft<storage::schema::tsdf, storage::layout::pool_soa>> soa;
+    std::unique_ptr<storage::device_buffer<storage::schema::tsdf, storage::layout::pool_soa>> soa;
 #endif
     detail::cuda_tile_coordinate* keys{};
     std::uint32_t* slots{};

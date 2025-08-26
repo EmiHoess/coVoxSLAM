@@ -2,7 +2,7 @@
 #include <covoxslam/core/result.hpp>
 #include <covoxslam/store/device_index.hpp>
 #include <covoxslam/store/cpu_index.hpp>
-#include <covoxslam/storage/cuda_draft.hpp>
+#include <covoxslam/storage/device_buffer.hpp>
 
 namespace covoxslam::store
 {

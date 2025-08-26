@@ -38,7 +38,7 @@ operation_result<std::unique_ptr<gpu_map>> gpu_map::create(const lookup& table,
     data.selected = true;
     status = data.check(cudaStreamCreateWithFlags(&data.stream, cudaStreamNonBlocking));
     if (status) {
-        data.soa = std::make_unique<storage::cuda_draft<storage::schema::tsdf, storage::layout::pool_soa>>();
+        data.soa = std::make_unique<storage::device_buffer<storage::schema::tsdf, storage::layout::pool_soa>>();
         status = data.soa->initialize(capacity);
     }
     if (status) status = data.allocate(data.keys, capacity);

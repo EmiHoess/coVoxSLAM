@@ -1,8 +1,8 @@
 #pragma once
 #include <covoxslam/core/result.hpp>
+#include <covoxslam/storage/device_buffer.hpp>
 #include <covoxslam/storage/host_buffer.hpp>
 #include <covoxslam/storage/layout.hpp>
-#include <covoxslam/storage/cuda_draft.hpp>
 #include <covoxslam/storage/completion.hpp>
 
 namespace covoxslam::storage
@@ -12,7 +12,7 @@ template<schema s, layout l> class transfer_session
     using traits = storage_traits<s, l>;
     struct session_state
     {
-        cuda_draft<s, l> device;
+        device_buffer<s, l> device;
         pinned_payload staging;
         transfer_endpoint host;
         bool published{};

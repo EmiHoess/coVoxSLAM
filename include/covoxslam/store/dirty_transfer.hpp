@@ -1,9 +1,9 @@
 #pragma once
 #include <covoxslam/core/result.hpp>
+#include <covoxslam/storage/device_buffer.hpp>
 #include <covoxslam/storage/host_buffer.hpp>
 #include <covoxslam/storage/layout.hpp>
 #include <covoxslam/store/dirty.hpp>
-#include <covoxslam/storage/cuda_draft.hpp>
 
 namespace covoxslam::store
 {
@@ -31,7 +31,7 @@ template<storage::schema s> operation_result<std::vector<dirty_range>> validate_
     return ranges;
 }
 template<storage::schema s, storage::layout h, storage::layout d>
-operation_result<dirty_measurement> upload_dirty(const storage::host_buffer<s, h>& source, storage::cuda_draft<s, d>& destination,
+operation_result<dirty_measurement> upload_dirty(const storage::host_buffer<s, h>& source, storage::device_buffer<s, d>& destination,
     const cpu_block_index& index, std::uint64_t epoch, const dirty_batch& batch)
 {
     auto ranges = validate_dirty<s>(batch, index, epoch);
@@ -56,7 +56,7 @@ operation_result<dirty_measurement> upload_dirty(const storage::host_buffer<s, h
     return measured;
 }
 template<storage::schema s, storage::layout d, storage::layout h>
-operation_result<dirty_measurement> download_dirty(const storage::cuda_draft<s, d>& source, storage::host_buffer<s, h>& destination,
+operation_result<dirty_measurement> download_dirty(const storage::device_buffer<s, d>& source, storage::host_buffer<s, h>& destination,
     const cpu_block_index& index, std::uint64_t epoch, const dirty_batch& batch)
 {
     auto ranges = validate_dirty<s>(batch, index, epoch);
