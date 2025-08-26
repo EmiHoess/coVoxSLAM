@@ -1,5 +1,6 @@
 #pragma once
 #include <covoxslam/core/result.hpp>
+#include <covoxslam/storage/host_buffer.hpp>
 #include <covoxslam/storage/layout.hpp>
 #include <covoxslam/storage/cuda_draft.hpp>
 #include <covoxslam/storage/completion.hpp>
@@ -90,7 +91,7 @@ public:
             state_->published = true;
             return std::as_const(state_->device).view();
         }
-        template<layout destination_layout> operation_status copy_to(draft<s, destination_layout>& destination)
+        template<layout destination_layout> operation_status copy_to(host_buffer<s, destination_layout>& destination)
         {
             if (!state_ || !download_ || destination.size() != state_->host.tiles)
                 return std::unexpected(operation_error{"download destination does not match the ticket"});
@@ -158,7 +159,7 @@ public:
         state_.swap(replacement.state_);
         return {};
     }
-    template<layout source_layout> operation_result<ticket> upload(const draft<s, source_layout>& source)
+    template<layout source_layout> operation_result<ticket> upload(const host_buffer<s, source_layout>& source)
     {
         auto checked = available();
         if (!checked) return std::unexpected(checked.error());
@@ -204,13 +205,13 @@ public:
         guard.armed = false;
         return ticket(state_, std::move(*completion), true);
     }
-    template<layout source_layout> operation_status upload_blocking(const draft<s, source_layout>& source)
+    template<layout source_layout> operation_status upload_blocking(const host_buffer<s, source_layout>& source)
     {
         auto submitted = upload(source);
         if (!submitted) return std::unexpected(submitted.error());
         return submitted->wait();
     }
-    template<layout destination_layout> operation_status download_blocking(draft<s, destination_layout>& destination)
+    template<layout destination_layout> operation_status download_blocking(host_buffer<s, destination_layout>& destination)
     {
         auto submitted = download();
         if (!submitted) return std::unexpected(submitted.error());

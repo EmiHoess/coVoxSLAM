@@ -1,7 +1,7 @@
 #pragma once
 #include <covoxslam/core/result.hpp>
 #include <covoxslam/storage/layout.hpp>
-#include <covoxslam/storage/draft.hpp>
+#include <covoxslam/storage/host_buffer.hpp>
 #include <covoxslam/storage/device_view.hpp>
 #include <covoxslam/storage/cuda_transfers.hpp>
 #include <cuda_runtime_api.h>
@@ -54,9 +54,9 @@ public:
     operation_status initialize(std::size_t count);
     operation_result<device_map_view<s>> view();
     operation_result<device_map_view<s, true>> view() const;
-    template<layout host_layout> operation_status upload(const draft<s, host_layout>& source);
-    template<layout host_layout> operation_status download(draft<s, host_layout>& destination) const;
-    template<layout host_layout> operation_status upload_range(const draft<s, host_layout>& source,
+    template<layout host_layout> operation_status upload(const host_buffer<s, host_layout>& source);
+    template<layout host_layout> operation_status download(host_buffer<s, host_layout>& destination) const;
+    template<layout host_layout> operation_status upload_range(const host_buffer<s, host_layout>& source,
         std::size_t first, std::size_t destination_first, std::size_t count, std::uint32_t fields,
         transfer_method method, transfer_measurement& measurement)
     {
@@ -74,7 +74,7 @@ public:
         state_->ready = bool(checked);
         return checked;
     }
-    template<layout host_layout> operation_status download_range(draft<s, host_layout>& destination,
+    template<layout host_layout> operation_status download_range(host_buffer<s, host_layout>& destination,
         std::size_t first, std::size_t destination_first, std::size_t count, std::uint32_t fields,
         transfer_method method, transfer_measurement& measurement) const
     {
@@ -196,7 +196,7 @@ template<schema s, layout l> operation_result<device_map_view<s, true>> cuda_dra
     return device_map_view<s, true>{device_accessor<s, true>{state_->descriptor}};
 }
 template<schema s, layout l> template<layout host_layout>
-operation_status cuda_draft<s, l>::upload(const draft<s, host_layout>& source)
+operation_status cuda_draft<s, l>::upload(const host_buffer<s, host_layout>& source)
 {
     auto checked = require_device();
     if (!checked) return checked;
@@ -226,7 +226,7 @@ operation_status cuda_draft<s, l>::upload(const draft<s, host_layout>& source)
     return {};
 }
 template<schema s, layout l> template<layout host_layout>
-operation_status cuda_draft<s, l>::download(draft<s, host_layout>& destination) const
+operation_status cuda_draft<s, l>::download(host_buffer<s, host_layout>& destination) const
 {
     auto checked = require_device();
     if (!checked) return checked;

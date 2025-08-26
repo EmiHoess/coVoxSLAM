@@ -1,5 +1,6 @@
 #include "mapping/tsdf/active_submap_internal.hpp"
 #if defined(covoxslam_has_urd)
+#include <covoxslam/storage/host_buffer.hpp>
 #include <covoxslam/store/coordinator.hpp>
 #endif
 
@@ -44,7 +45,7 @@ operation_result<tsdf_tiles> gpu_map::implementation::download_soa()
     auto checked = check(cudaSetDevice(device));
     if (checked) checked = wait(checked);
     if (!checked) return std::unexpected(checked.error());
-    storage::draft<storage::schema::tsdf, storage::layout::pool_soa> staging;
+    storage::host_buffer<storage::schema::tsdf, storage::layout::pool_soa> staging;
     checked = staging.initialize(indices.size());
     if (!checked) return std::unexpected(checked.error());
     storage::transfer_measurement measured;

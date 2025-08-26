@@ -1,5 +1,6 @@
 #pragma once
 #include <covoxslam/core/result.hpp>
+#include <covoxslam/storage/host_buffer.hpp>
 #include <covoxslam/storage/layout.hpp>
 #include <covoxslam/storage/ranges.hpp>
 #include <covoxslam/storage/device_view.hpp>
@@ -38,7 +39,7 @@ inline transfer_endpoint transfer_storage(const device_descriptor& source)
     result.device = source.device;
     return result;
 }
-template<schema s, layout l> transfer_endpoint transfer_storage(const draft<s, l>& source)
+template<schema s, layout l> transfer_endpoint transfer_storage(const host_buffer<s, l>& source)
 {
     transfer_endpoint result;
     result.tiles = source.size();

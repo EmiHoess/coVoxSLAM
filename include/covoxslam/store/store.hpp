@@ -4,7 +4,7 @@
 #include <covoxslam/store/cpu_index.hpp>
 #include <covoxslam/store/budget.hpp>
 #include <covoxslam/store/field_access.hpp>
-#include <covoxslam/storage/draft.hpp>
+#include <covoxslam/storage/host_buffer.hpp>
 #include <covoxslam/storage/layout.hpp>
 #include <covoxslam/storage/record_pack.hpp>
 #include <cmath>
@@ -18,7 +18,7 @@ namespace covoxslam::store
 template<storage::schema s, storage::layout l> struct field_pool
 {
     std::shared_ptr<budget_claim> memory;
-    storage::draft<s, l> payload;
+    storage::host_buffer<s, l> payload;
     cpu_block_index index;
     std::uint64_t content_epoch{};
 };
@@ -35,7 +35,7 @@ public:
         const void* owner{};
         std::uint64_t generation{};
     };
-    using voxel_reference = decltype(std::declval<storage::draft<s, l>&>().view()[0].voxels[0]);
+    using voxel_reference = decltype(std::declval<storage::host_buffer<s, l>&>().view()[0].voxels[0]);
     field_editor(field_pool<s, l>& field, memory_budget& budget, std::size_t maximum_tiles)
         : field_(field), budget_(budget), maximum_tiles_(maximum_tiles) {}
     field_editor(const field_editor&) = delete;
