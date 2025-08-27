@@ -3,7 +3,7 @@
 #include <covoxslam/storage/device_buffer.hpp>
 #include <covoxslam/storage/host_buffer.hpp>
 #include <covoxslam/storage/layout.hpp>
-#include <covoxslam/storage/completion.hpp>
+#include <covoxslam/storage/transfers.hpp>
 
 namespace covoxslam::storage
 {

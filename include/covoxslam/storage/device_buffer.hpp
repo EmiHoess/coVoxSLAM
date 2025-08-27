@@ -3,7 +3,7 @@
 #include <covoxslam/storage/layout.hpp>
 #include <covoxslam/storage/host_buffer.hpp>
 #include <covoxslam/storage/device_view.hpp>
-#include <covoxslam/storage/cuda_transfers.hpp>
+#include <covoxslam/storage/transfers.hpp>
 #include <cuda_runtime_api.h>
 
 namespace covoxslam::storage

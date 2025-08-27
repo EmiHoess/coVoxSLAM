@@ -6,7 +6,7 @@
 #include <covoxslam/store/gpu_index.hpp>
 #include <covoxslam/store/snapshot.hpp>
 #include <covoxslam/store/authority.hpp>
-#include <covoxslam/storage/completion.hpp>
+#include <covoxslam/storage/transfers.hpp>
 
 namespace covoxslam::store
 {
