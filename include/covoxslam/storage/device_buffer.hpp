@@ -8,11 +8,6 @@
 
 namespace covoxslam::storage
 {
-inline operation_status cuda_storage_status(cudaError_t status)
-{
-    if (status != cudaSuccess) return std::unexpected(operation_error{cudaGetErrorString(status)});
-    return {};
-}
 struct device_allocation
 {
     std::byte* allocations[5]{};
