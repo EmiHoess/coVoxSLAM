@@ -1,5 +1,5 @@
 #pragma once
-#include <covoxslam/store/key.hpp>
+#include <covoxslam/map_store/key.hpp>
 #include <cstddef>
 #include <cstdint>
 
