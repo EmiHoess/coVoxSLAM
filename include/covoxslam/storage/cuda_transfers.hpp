@@ -1,6 +1,6 @@
 #pragma once
 #include <covoxslam/core/result.hpp>
-#include <covoxslam/storage/transfer_plan.hpp>
+#include <covoxslam/storage/transfers.hpp>
 #include <cuda_runtime_api.h>
 #include <chrono>
 

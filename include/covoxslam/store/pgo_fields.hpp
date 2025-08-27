@@ -2,7 +2,7 @@
 #include <covoxslam/core/result.hpp>
 #include <covoxslam/storage/layout.hpp>
 #include <covoxslam/store/geometry.hpp>
-#include <covoxslam/storage/transfer_plan.hpp>
+#include <covoxslam/storage/transfers.hpp>
 #include <covoxslam/pgo.hpp>
 #if defined(covoxslam_has_pgo)
 #include <ceronoceres/field_views.hpp>
