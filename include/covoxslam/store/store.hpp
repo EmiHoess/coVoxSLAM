@@ -2,7 +2,7 @@
 #include <covoxslam/core/result.hpp>
 #include <covoxslam/store/handle.hpp>
 #include <covoxslam/map_store/cpu_index.hpp>
-#include <covoxslam/store/budget.hpp>
+#include <covoxslam/map_store/residency.hpp>
 #include <covoxslam/store/field_access.hpp>
 #include <covoxslam/storage/host_buffer.hpp>
 #include <covoxslam/storage/layout.hpp>
