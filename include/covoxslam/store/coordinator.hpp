@@ -2,7 +2,7 @@
 #include <covoxslam/core/result.hpp>
 #include <covoxslam/storage/layout.hpp>
 #include <covoxslam/store/store.hpp>
-#include <covoxslam/store/authority.hpp>
+#include <covoxslam/map_store/authority.hpp>
 #include <covoxslam/store/snapshot.hpp>
 #include <covoxslam/store/checkpoint.hpp>
 #if defined(covoxslam_has_cuda)

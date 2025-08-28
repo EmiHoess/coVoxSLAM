@@ -1,6 +1,6 @@
 #pragma once
 #include <covoxslam/core/result.hpp>
-#include <covoxslam/store/authority.hpp>
+#include <covoxslam/map_store/authority.hpp>
 
 namespace covoxslam::store
 {
