@@ -1,6 +1,6 @@
 #pragma once
 #include <covoxslam/core/result.hpp>
-#include <covoxslam/store/device_index.hpp>
+#include <covoxslam/map_store/device_index.hpp>
 #include <covoxslam/map_store/cpu_index.hpp>
 #include <covoxslam/storage/device_buffer.hpp>
 

@@ -1,4 +1,4 @@
-#include <covoxslam/store/device_index.hpp>
+#include <covoxslam/map_store/device_index.hpp>
 #include <cuda_runtime.h>
 #include <new>
 
