@@ -1,7 +1,7 @@
 #pragma once
 #include <covoxslam/core/result.hpp>
 #include <covoxslam/map_store/key.hpp>
-#include <covoxslam/store/handle.hpp>
+#include <covoxslam/map_store/authority.hpp>
 #include <span>
 #include <unordered_map>
 #include <vector>
