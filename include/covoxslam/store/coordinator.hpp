@@ -4,7 +4,7 @@
 #include <covoxslam/store/store.hpp>
 #include <covoxslam/map_store/authority.hpp>
 #include <covoxslam/map_store/snapshot.hpp>
-#include <covoxslam/store/checkpoint.hpp>
+#include <covoxslam/map_store/checkpoint.hpp>
 #if defined(covoxslam_has_cuda)
 #include <covoxslam/storage/device_buffer.hpp>
 #include <covoxslam/store/gpu_store.hpp>
