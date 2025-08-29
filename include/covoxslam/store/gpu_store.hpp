@@ -4,7 +4,7 @@
 #include <covoxslam/storage/layout.hpp>
 #include <covoxslam/store/store.hpp>
 #include <covoxslam/store/gpu_index.hpp>
-#include <covoxslam/store/snapshot.hpp>
+#include <covoxslam/map_store/snapshot.hpp>
 #include <covoxslam/map_store/authority.hpp>
 #include <covoxslam/map_store/residency.hpp>
 #include <covoxslam/storage/transfers.hpp>

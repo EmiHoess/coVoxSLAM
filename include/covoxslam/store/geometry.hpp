@@ -2,7 +2,7 @@
 #include <covoxslam/core/geometry.hpp>
 #include <covoxslam/core/result.hpp>
 #include <covoxslam/storage/layout.hpp>
-#include <covoxslam/store/snapshot.hpp>
+#include <covoxslam/map_store/snapshot.hpp>
 
 #include <climits>
 #include <cmath>
