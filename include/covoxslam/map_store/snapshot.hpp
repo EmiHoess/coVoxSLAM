@@ -1,11 +1,38 @@
 #pragma once
 #include <covoxslam/core/result.hpp>
 #include <covoxslam/storage/layout.hpp>
-#include <covoxslam/store/store.hpp>
+#include <covoxslam/map_store/authority.hpp>
+#include <covoxslam/map_store/cpu_index.hpp>
+#include <covoxslam/map_store/residency.hpp>
+#include <covoxslam/storage/host_buffer.hpp>
 #include <atomic>
+#include <array>
+#include <cmath>
+#include <limits>
+#include <memory>
+#include <span>
+#include <unordered_set>
+#include <vector>
 
 namespace covoxslam::store
 {
+template<storage::schema s, storage::layout l> struct field_pool
+{
+    std::shared_ptr<budget_claim> memory;
+    storage::host_buffer<s, l> payload;
+    cpu_block_index index;
+    std::uint64_t content_epoch{};
+};
+inline bool finite_pose(const pose_record& pose) noexcept
+{
+    return std::isfinite(pose.x) && std::isfinite(pose.y) && std::isfinite(pose.z) && std::isfinite(pose.yaw);
+}
+template<storage::layout l, storage::schema es = storage::schema::esdf> struct map_snapshot
+{
+    submap_record record;
+    std::shared_ptr<const field_pool<storage::schema::tsdf, l>> tsdf;
+    std::shared_ptr<const field_pool<es, l>> esdf;
+};
 inline operation_result<std::uint64_t> allocate_snapshot_id()
 {
     static std::atomic<std::uint64_t> next{};

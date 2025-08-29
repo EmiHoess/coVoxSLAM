@@ -1,7 +1,7 @@
 #pragma once
 #include <covoxslam/core/result.hpp>
 #include <covoxslam/storage/layout.hpp>
-#include <covoxslam/store/store.hpp>
+#include <covoxslam/map_store/snapshot.hpp>
 #include <bit>
 #include <filesystem>
 #include <fstream>

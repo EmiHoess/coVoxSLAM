@@ -2,7 +2,7 @@
 #include <covoxslam/core/result.hpp>
 #include <covoxslam/storage/device_buffer.hpp>
 #include <covoxslam/storage/layout.hpp>
-#include <covoxslam/store/store.hpp>
+#include <covoxslam/store/field_access.hpp>
 #include <covoxslam/store/gpu_index.hpp>
 #include <covoxslam/map_store/snapshot.hpp>
 #include <covoxslam/map_store/authority.hpp>
