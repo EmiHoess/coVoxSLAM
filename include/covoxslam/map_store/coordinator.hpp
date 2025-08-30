@@ -116,4 +116,10 @@ struct store_statistics
 {
     std::size_t submaps{}, retired{}, live_tiles{}, allocated_slots{}, payload_capacity_bytes{}, index_entries{};
 };
+template<storage::layout l, storage::schema es = storage::schema::esdf> class map_store
+{
+#include <covoxslam/map_store/detail/cpu_store_state.inl>
+#include <covoxslam/map_store/detail/cpu_store_snapshot.inl>
+#include <covoxslam/map_store/detail/cpu_store_fields.inl>
+};
 }
