@@ -2,7 +2,7 @@
 #include <covoxslam/core/result.hpp>
 #include <covoxslam/pipeline/submap.hpp>
 #include <covoxslam/storage/layout.hpp>
-#include <covoxslam/store/coordinator.hpp>
+#include <covoxslam/map_store/coordinator.hpp>
 
 namespace covoxslam::store
 {

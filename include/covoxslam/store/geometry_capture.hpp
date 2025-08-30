@@ -1,7 +1,7 @@
 #pragma once
 #include <covoxslam/core/result.hpp>
 #include <covoxslam/storage/layout.hpp>
-#include <covoxslam/store/coordinator.hpp>
+#include <covoxslam/map_store/coordinator.hpp>
 #include <covoxslam/store/geometry_fields.hpp>
 
 namespace covoxslam::store

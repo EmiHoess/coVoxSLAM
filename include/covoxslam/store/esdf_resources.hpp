@@ -1,6 +1,6 @@
 #pragma once
 #include <covoxslam/core/result.hpp>
-#include <covoxslam/store/coordinator.hpp>
+#include <covoxslam/map_store/coordinator.hpp>
 
 namespace covoxslam::store
 {

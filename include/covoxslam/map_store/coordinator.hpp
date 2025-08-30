@@ -4,10 +4,15 @@
 #include <covoxslam/map_store/cpu_index.hpp>
 #include <covoxslam/map_store/residency.hpp>
 #include <covoxslam/map_store/snapshot.hpp>
+#include <covoxslam/map_store/checkpoint.hpp>
 #include <covoxslam/store/field_access.hpp>
 #include <covoxslam/storage/host_buffer.hpp>
 #include <covoxslam/storage/layout.hpp>
 #include <covoxslam/storage/record_pack.hpp>
+#if defined(covoxslam_has_cuda)
+#include <covoxslam/storage/device_buffer.hpp>
+#include <covoxslam/store/gpu_store.hpp>
+#endif
 #include <optional>
 #include <unordered_map>
 #include <unordered_set>
@@ -121,5 +126,25 @@ template<storage::layout l, storage::schema es = storage::schema::esdf> class ma
 #include <covoxslam/map_store/detail/cpu_store_state.inl>
 #include <covoxslam/map_store/detail/cpu_store_snapshot.inl>
 #include <covoxslam/map_store/detail/cpu_store_fields.inl>
+};
+struct residency_diagnostics
+{
+    std::size_t active{}, finalized{}, retired{}, cpu_stale_fields{}, gpu_stale_fields{};
+    std::size_t pending_reclamation_bytes{}, current_cpu_payload_bytes{};
+};
+struct pose_publication
+{
+    std::uint64_t submap{};
+    epochs expected;
+    pose_record optimized;
+};
+template<storage::layout l, storage::schema es = storage::schema::esdf> class coordinated_store
+{
+#include <covoxslam/map_store/detail/coordinator_state.inl>
+#include <covoxslam/map_store/detail/coordinator_cpu.inl>
+#if defined(covoxslam_has_cuda)
+#include <covoxslam/map_store/detail/coordinator_gpu_publish.inl>
+#include <covoxslam/map_store/detail/coordinator_gpu_access.inl>
+#endif
 };
 }

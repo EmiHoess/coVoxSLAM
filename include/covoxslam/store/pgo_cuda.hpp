@@ -2,7 +2,7 @@
 #include <covoxslam/core/result.hpp>
 #include <covoxslam/storage/layout.hpp>
 #include <covoxslam/store/pgo_fields.hpp>
-#include <covoxslam/store/coordinator.hpp>
+#include <covoxslam/map_store/coordinator.hpp>
 #include <covoxslam/pgo_snapshot.hpp>
 #if defined(covoxslam_has_pgo) && defined(covoxslam_has_cuda)
 namespace covoxslam::store

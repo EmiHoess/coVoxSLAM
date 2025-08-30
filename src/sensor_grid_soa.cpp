@@ -1,7 +1,7 @@
 #include "mapping/tsdf/active_submap_internal.hpp"
 #if defined(covoxslam_has_urd)
 #include <covoxslam/storage/host_buffer.hpp>
-#include <covoxslam/store/coordinator.hpp>
+#include <covoxslam/map_store/coordinator.hpp>
 #endif
 
 namespace covoxslam::sensor_grid
