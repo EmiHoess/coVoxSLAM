@@ -1,4 +1,4 @@
-#include <covoxslam/pgo.hpp>
+#include <covoxslam/optimization/pose_graph.hpp>
 #include <cmath>
 
 namespace covoxslam::pgo

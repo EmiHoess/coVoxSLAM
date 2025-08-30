@@ -2,7 +2,7 @@
 
 #include <covoxslam/core/result.hpp>
 #include <covoxslam/mapping/config.hpp>
-#include <covoxslam/pgo.hpp>
+#include <covoxslam/optimization/pose_graph.hpp>
 #include <covoxslam/pipeline/frame_pipeline.hpp>
 #include <covoxslam/pipeline/submap.hpp>
 #include <covoxslam/mapping/tsdf/integrator.hpp>

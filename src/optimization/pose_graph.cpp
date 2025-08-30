@@ -1,6 +1,7 @@
-#include <covoxslam/pgo.hpp>
+#include <covoxslam/optimization/pose_graph.hpp>
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <set>
 #include <tuple>
 
@@ -138,5 +139,95 @@ operation_result<graph_snapshot> make_graph(std::span<const graph_node> nodes)
     auto valid = validate_graph(result);
     if (!valid) return std::unexpected(valid.error());
     return result;
+}
+operation_status append_odometry(graph_snapshot& graph, std::span<const submap> maps)
+{
+    if (maps.size() != graph.node_ids.size())
+        return std::unexpected(operation_error{"odometry submap count differs from graph"});
+    std::vector<relative_measurement> measurements;
+     measurements.reserve(maps.empty() ? 0 : maps.size() - 1);
+
+    for (std::size_t index = 0; index < maps.size(); ++index)
+    {
+        const auto& frame = maps[index].frame;
+
+        if (frame.id != graph.node_ids[index] || frame.end_stamp_ns < frame.start_stamp_ns ||
+            (index && frame.start_stamp_ns <= maps[index - 1].frame.start_stamp_ns))
+            return std::unexpected(operation_error{"odometry submap order is invalid"});
+        if (!index) continue;
+        relative_measurement value;
+        value.source_id = maps[index - 1].frame.id;
+        value.target_id = frame.id;
+        value.measured = relative_pose(maps[index - 1].frame.anchor, frame.anchor);
+        value.diagnostic_id = index;
+        measurements.push_back(value);
+    }
+    return append_relative(graph, measurements);
+}
+operation_status append_relative(graph_snapshot& graph, std::span<const relative_measurement> measurements)
+{
+    const auto valid = validate_graph(graph);
+    if (!valid) return valid;
+    std::vector<ceronoceres::RelativeFactor> factors;
+     factors.reserve(measurements.size());
+
+    for (const auto& value : measurements) {
+        const auto left = std::find(graph.node_ids.begin(), graph.node_ids.end(), value.source_id);
+        const auto right = std::find(graph.node_ids.begin(), graph.node_ids.end(), value.target_id);
+        const auto& p = value.measured;
+
+        if (left == graph.node_ids.end() || right == graph.node_ids.end() || left == right ||
+            !std::isfinite(p.x) || !std::isfinite(p.y) || !std::isfinite(p.z) || !std::isfinite(p.yaw) ||
+            !std::isfinite(value.loss.scale) || value.loss.scale <= 0 ||
+            unsigned(value.loss.kind) > unsigned(ceronoceres::LossKind::Cauchy) ||
+            !std::all_of(value.sqrt_information.begin(), value.sqrt_information.end(),
+                [](double x) { return std::isfinite(x) &&
+                    std::abs(x) <= std::sqrt(std::numeric_limits<double>::max() / 16); }) ||
+            std::none_of(value.sqrt_information.begin(), value.sqrt_information.end(),
+                [](double x) { return x != 0; }))
+            return std::unexpected(operation_error{"invalid relative pose measurement"});
+        factors.push_back({static_cast<std::size_t>(left - graph.node_ids.begin()),
+            static_cast<std::size_t>(right - graph.node_ids.begin()),
+            {p.x, p.y, p.z, ceronoceres::wrap_yaw(p.yaw)}, value.sqrt_information, value.loss, value.diagnostic_id});
+    }
+    graph.problem.relative_factors.insert(graph.problem.relative_factors.end(), factors.begin(), factors.end());
+    return {};
+}
+operation_status append_absolute(graph_snapshot& graph, std::uint64_t reference_id,
+    pose4 reference_world, std::span<const absolute_measurement> measurements)
+{
+    const auto valid = validate_graph(graph);
+    if (!valid) return valid;
+
+    if (std::none_of(measurements.begin(), measurements.end(),
+        [](const absolute_measurement& value) { return value.world_pose.has_value(); })) return {};
+    const auto reference = std::find(graph.node_ids.begin(), graph.node_ids.end(), reference_id);
+
+    if (reference == graph.node_ids.end() || !graph.problem.nodes[reference - graph.node_ids.begin()].constant ||
+        !std::isfinite(reference_world.x) || !std::isfinite(reference_world.y) ||
+        !std::isfinite(reference_world.z) || !std::isfinite(reference_world.yaw))
+        return std::unexpected(operation_error{"invalid absolute measurement reference"});
+    std::vector<relative_measurement> relative;
+     relative.reserve(measurements.size());
+
+    for (const auto& value : measurements) {
+
+        if (!value.world_pose) continue;
+        relative.push_back({reference_id, value.node_id, relative_pose(reference_world, *value.world_pose),
+            value.sqrt_information, value.loss, value.diagnostic_id});
+    }
+    graph_snapshot staging;
+    staging.node_ids = graph.node_ids;
+    staging.problem.nodes = graph.problem.nodes;
+    const auto converted = append_relative(staging, relative);
+    if (!converted) return converted;
+    std::vector<ceronoceres::AbsoluteFactor> factors;
+    factors.reserve(relative.size());
+
+    for (const auto& value : staging.problem.relative_factors)
+        factors.push_back({value.node_i, value.node_j, value.measured,
+            value.sqrt_information, value.loss, value.diagnostic_id});
+    graph.problem.absolute_factors.insert(graph.problem.absolute_factors.end(), factors.begin(), factors.end());
+    return {};
 }
 }

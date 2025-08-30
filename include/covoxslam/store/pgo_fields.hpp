@@ -3,7 +3,7 @@
 #include <covoxslam/storage/layout.hpp>
 #include <covoxslam/store/geometry.hpp>
 #include <covoxslam/storage/transfers.hpp>
-#include <covoxslam/pgo.hpp>
+#include <covoxslam/optimization/pose_graph.hpp>
 #if defined(covoxslam_has_pgo)
 #include <ceronoceres/field_views.hpp>
 
