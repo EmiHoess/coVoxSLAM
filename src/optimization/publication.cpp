@@ -1,5 +1,5 @@
 #include <covoxslam/optimization/solver.hpp>
-#include <covoxslam/pgo_publication.hpp>
+#include <covoxslam/optimization/publication.hpp>
 #include <algorithm>
 #include <cmath>
 

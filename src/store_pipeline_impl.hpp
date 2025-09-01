@@ -8,7 +8,7 @@
 #include <covoxslam/store/pgo_cpu.hpp>
 #include <covoxslam/store/pgo_cuda.hpp>
 #include <covoxslam/store/pgo_cache.hpp>
-#include <covoxslam/pgo_publication.hpp>
+#include <covoxslam/optimization/publication.hpp>
 #include <chrono>
 #include <sstream>
 #if defined(covoxslam_has_cuda) && defined(covoxslam_has_urd)
