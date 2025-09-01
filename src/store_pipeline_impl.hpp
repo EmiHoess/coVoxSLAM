@@ -1,7 +1,9 @@
 #pragma once
 #include <covoxslam/core/result.hpp>
 #include <covoxslam/map_store/coordinator.hpp>
+#include <covoxslam/optimization/registration.hpp>
 #include <covoxslam/pipeline/mapping_session.hpp>
+#include <covoxslam/pgo.hpp>
 #include <covoxslam/store/geometry_capture.hpp>
 #include <covoxslam/store/pgo_cpu.hpp>
 #include <covoxslam/store/pgo_cuda.hpp>

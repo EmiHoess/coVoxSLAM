@@ -1,5 +1,6 @@
 #pragma once
 #include <covoxslam/core/result.hpp>
+#include <covoxslam/pgo.hpp>
 #include <covoxslam/storage/layout.hpp>
 #include <covoxslam/store/pgo_fields.hpp>
 #include <covoxslam/map_store/coordinator.hpp>

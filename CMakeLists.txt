@@ -61,7 +61,9 @@ endif()
 target_include_directories(covoxslam_core PRIVATE src/input cuda)
 include(cmake/ceronoceres.cmake)
 if(covoxslam_enable_pgo)
-    target_sources(covoxslam_core PRIVATE src/optimization/pose_graph.cpp)
+    target_sources(covoxslam_core PRIVATE
+        src/optimization/pose_graph.cpp
+        src/optimization/registration.cpp)
 endif()
 include(cmake/urd.cmake)
 if(NOT covoxslam_enable_cuda)

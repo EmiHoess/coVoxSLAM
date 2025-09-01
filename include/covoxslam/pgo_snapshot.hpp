@@ -1,6 +1,6 @@
 #pragma once
 #include <covoxslam/core/result.hpp>
-#include <covoxslam/pgo.hpp>
+#include <covoxslam/optimization/registration.hpp>
 
 #if defined(covoxslam_has_pgo)
 namespace covoxslam::pgo

@@ -1,5 +1,6 @@
 #pragma once
 #include <covoxslam/core/result.hpp>
+#include <covoxslam/pgo.hpp>
 #include <covoxslam/store/pgo_cache_key.hpp>
 #include <covoxslam/pgo_snapshot.hpp>
 #include <chrono>
