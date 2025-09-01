@@ -1,4 +1,8 @@
-#include "diagnostics_internal.hpp"
+#include <covoxslam/optimization/solver.hpp>
+#include <cmath>
+
+#if defined(covoxslam_has_pgo)
+#include "solver_internal.hpp"
 #include <algorithm>
 
 namespace covoxslam::pgo
@@ -125,5 +129,31 @@ operation_result<ceronoceres::SolveResult> solve_cpu(const ceronoceres::Prepared
     const auto valid = validate_solve_result(result, problem.node_count(), configured->backend);
     if (!valid) return std::unexpected(valid.error());
     return result;
+}
+}
+#endif
+
+namespace covoxslam::pgo
+{
+operation_status validate_options(const options& value)
+{
+    if (!value.enabled) return {};
+    if (!available(value.solver)) return std::unexpected(operation_error{"selected native PGO backend is unavailable"});
+    if (!value.maximum_iterations || value.maximum_iterations > 1000000 ||
+        !std::isfinite(value.maximum_seconds) || value.maximum_seconds <= 0 || value.device < 0)
+        return std::unexpected(operation_error{"invalid PGO execution limits"});
+    return {};
+}
+bool available(backend solver) noexcept
+{
+#if defined(covoxslam_has_pgo)
+    switch (solver) {
+    case backend::native_cpu: return ceronoceres::backend_available(ceronoceres::Backend::NativeCpu);
+    case backend::cuda_cold: return ceronoceres::backend_available(ceronoceres::Backend::NativeCudaCold);
+    }
+#else
+    static_cast<void>(solver);
+#endif
+    return false;
 }
 }

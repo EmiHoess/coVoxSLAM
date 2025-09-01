@@ -1,5 +1,4 @@
-#include <covoxslam/pgo.hpp>
-#include <covoxslam/pgo_snapshot.hpp>
+#include <covoxslam/optimization/solver.hpp>
 #include <ceronoceres/field_views.hpp>
 #include <algorithm>
 #include <tuple>

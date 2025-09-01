@@ -1,5 +1,5 @@
 #include <covoxslam/optimization/registration.hpp>
-#include <covoxslam/pgo.hpp>
+#include <covoxslam/optimization/solver.hpp>
 #include <covoxslam/pgo_snapshot.hpp>
 #include <ceronoceres/field_views.hpp>
 #include <cmath>

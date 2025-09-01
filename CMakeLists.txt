@@ -65,6 +65,7 @@ if(covoxslam_enable_pgo)
         src/optimization/pose_graph.cpp
         src/optimization/registration.cpp)
 endif()
+target_sources(covoxslam_core PRIVATE src/optimization/solver.cpp)
 include(cmake/urd.cmake)
 if(NOT covoxslam_enable_cuda)
     message(STATUS "Host utilities only, coVoxSLAM mapping requires CUDA and URD")

@@ -1,4 +1,4 @@
-#include <covoxslam/pgo.hpp>
+#include <covoxslam/optimization/solver.hpp>
 #include <covoxslam/pgo_publication.hpp>
 #include <algorithm>
 #include <cmath>

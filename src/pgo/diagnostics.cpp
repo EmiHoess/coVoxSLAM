@@ -1,4 +1,4 @@
-#include "diagnostics_internal.hpp"
+#include "../optimization/solver_internal.hpp"
 #include <ceronoceres/field_views.hpp>
 #include <algorithm>
 #include <limits>
