@@ -6,10 +6,8 @@
 #include <charconv>
 #include <cmath>
 #include <cstddef>
-#include <exception>
 #include <filesystem>
 #include <iostream>
-#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -80,8 +78,6 @@ void usage()
 
 int main(int argc, char** argv)
 {
-    try
-    {
         const auto report_error = [](std::string_view message) {
             std::cerr << "covoxslam: " << message << '\n';
             return 2;
@@ -215,9 +211,4 @@ int main(int argc, char** argv)
             std::cout << "selected column stamps " << *first << ' ' << *last << '\n';
         }
         return 0;
-    }
-    catch (const std::exception& error) {
-        std::cerr << "covoxslam: " << error.what() << '\n';
-         return 2;
-    }
 }

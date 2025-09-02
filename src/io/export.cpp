@@ -7,7 +7,6 @@
 #include <iomanip>
 #include <limits>
 #include <locale>
-#include <stdexcept>
 #include <string_view>
 
 namespace covoxslam
@@ -15,15 +14,52 @@ namespace covoxslam
 namespace
 {
 
-std::ofstream export_stream(const std::filesystem::path& path, bool binary = false)
+operation_result<std::ofstream> export_stream(const std::filesystem::path& path,
+                                               std::string_view diagnostic, bool binary = false)
 {
     std::ofstream output;
-     output.exceptions(std::ios::badbit | std::ios::failbit);
     output.open(path, std::ios::out | std::ios::trunc | (binary ? std::ios::binary : std::ios::openmode{}));
     output.imbue(std::locale::classic());
     output << std::setprecision(17);
+    if (!output) return std::unexpected(operation_error{std::string(diagnostic)});
     return output;
 }
+
+class export_directory_cleanup
+{
+    std::filesystem::path directory;
+    bool armed{true};
+public:
+    explicit export_directory_cleanup(std::filesystem::path path) : directory(std::move(path)) {}
+    ~export_directory_cleanup()
+    {
+        if (!armed) return;
+        std::error_code error;
+        std::filesystem::remove(directory / "poses.jsonl", error);
+        error.clear();
+        std::filesystem::remove(directory / "submaps.jsonl", error);
+        error.clear();
+        std::filesystem::remove(directory / "submaps", error);
+        error.clear();
+        std::filesystem::remove(directory, error);
+    }
+    void release() { armed = false; }
+};
+
+class export_file_cleanup
+{
+    std::filesystem::path path;
+    bool armed{true};
+public:
+    explicit export_file_cleanup(std::filesystem::path value) : path(std::move(value)) {}
+    ~export_file_cleanup()
+    {
+        if (!armed) return;
+        std::error_code error;
+        std::filesystem::remove(path, error);
+    }
+    void release() { armed = false; }
+};
 
 std::string json_escape(std::string_view value)
 {
@@ -86,6 +122,7 @@ operation_status write_voxel(std::ofstream& output, const tsdf_voxel& value)
     write_scalar(output, value.weight);
     write_scalar(output, value.sample_count);
     write_scalar(output, value.flags);
+    if (!output) return std::unexpected(operation_error{"cannot write TSDF voxel export"});
     return {};
 }
 
@@ -97,6 +134,7 @@ operation_status write_voxel(std::ofstream& output, const esdf_voxel& value) {
     write_scalar(output, value.parent_dy);
     write_scalar(output, value.parent_dz);
     write_scalar(output, value.flags);
+    if (!output) return std::unexpected(operation_error{"cannot write ESDF voxel export"});
     return {};
 }
 
@@ -112,23 +150,28 @@ operation_status write_tiles(const std::filesystem::path& path, const tile_map& 
             if (component < std::numeric_limits<int>::min() / tile_edge ||
                 component > (std::numeric_limits<int>::max() - tile_edge + 1) / tile_edge)
                 return std::unexpected(operation_error{"exported block exceeds the voxel index range"});
-    auto output = export_stream(path, true);
+    auto opened = export_stream(path, "cannot open map tile export", true);
+    if (!opened) return std::unexpected(opened.error());
+    auto output = std::move(*opened);
     output.write(magic.data(), 8);
      write_scalar(output, std::uint32_t{1});
     write_scalar(output, static_cast<std::uint32_t>(tile_edge));
     write_scalar(output, voxel_size);
     write_scalar(output, distance);
     write_scalar(output, static_cast<std::uint64_t>(order.size()));
+    if (!output) return std::unexpected(operation_error{"cannot write map tile export"});
     for (const auto index : order) {
         write_scalar(output, static_cast<std::int32_t>(index.x));
         write_scalar(output, static_cast<std::int32_t>(index.y));
         write_scalar(output, static_cast<std::int32_t>(index.z));
+        if (!output) return std::unexpected(operation_error{"cannot write map tile export"});
         for (const auto& voxel : tiles.at(index).voxels) {
             const auto written = write_voxel(output, voxel);
             if (!written) return written;
         }
     }
     output.close();
+    if (!output) return std::unexpected(operation_error{"cannot close map tile export"});
     return {};
 }
 }
@@ -211,18 +254,38 @@ operation_status validate_export_submap(const submap& value)
 
 namespace covoxslam
 {
-map_exporter::map_exporter(const std::filesystem::path& output, export_manifest description)
-    : directory(output), manifest(std::move(description))
+map_exporter::map_exporter(std::filesystem::path output, export_manifest description,
+                           std::ofstream pose_output, std::ofstream metadata_output)
+    : directory(std::move(output)), manifest(std::move(description)),
+      poses(std::move(pose_output)), metadata(std::move(metadata_output))
+{}
+
+operation_result<std::unique_ptr<map_exporter>> map_exporter::create(
+    const std::filesystem::path& output, export_manifest description)
 {
-    if (directory.empty() || manifest.dataset_fingerprint.empty() ||
-        manifest.mapping_backend.empty() || manifest.esdf_backend.empty())
-        throw std::invalid_argument("map export needs an output path and input identity");
-    if (!directory.parent_path().empty()) std::filesystem::create_directories(directory.parent_path());
-     if (!std::filesystem::create_directory(directory))
-        throw std::invalid_argument("map export output already exists");
-    std::filesystem::create_directory(directory / "submaps");
-    poses = export_stream(directory / "poses.jsonl");
-    metadata = export_stream(directory / "submaps.jsonl");
+    if (output.empty() || description.dataset_fingerprint.empty() ||
+        description.mapping_backend.empty() || description.esdf_backend.empty())
+        return std::unexpected(operation_error{"map export needs an output path and input identity"});
+    std::error_code error;
+    if (!output.parent_path().empty()) {
+        std::filesystem::create_directories(output.parent_path(), error);
+        if (error) return std::unexpected(operation_error{"cannot create map export parent directory"});
+    }
+    const auto created = std::filesystem::create_directory(output, error);
+    if (error) return std::unexpected(operation_error{"cannot create map export output directory"});
+    if (!created) return std::unexpected(operation_error{"map export output already exists"});
+    export_directory_cleanup cleanup(output);
+    const auto submaps_created = std::filesystem::create_directory(output / "submaps", error);
+    if (error || !submaps_created)
+        return std::unexpected(operation_error{"cannot create map export submap directory"});
+    auto pose_output = export_stream(output / "poses.jsonl", "cannot open map pose export");
+    if (!pose_output) return std::unexpected(pose_output.error());
+    auto metadata_output = export_stream(output / "submaps.jsonl", "cannot open map metadata export");
+    if (!metadata_output) return std::unexpected(metadata_output.error());
+    auto result = std::unique_ptr<map_exporter>(new map_exporter(
+        output, std::move(description), std::move(*pose_output), std::move(*metadata_output)));
+    cleanup.release();
+    return result;
 }
 
 operation_status map_exporter::write(const submap& value)
@@ -259,6 +322,7 @@ operation_status map_exporter::write(const submap& value)
     poses << ",\"optimized\":";
     write_pose(poses, value.optimized_world_pose);
     poses << "}\n";
+    if (!poses) return std::unexpected(operation_error{"cannot write map pose export"});
      metadata << "{\"submap_id\":" << frame.id << ",\"frame_count\":" << frame.frame_ids.size()
              << ",\"start_stamp_ns\":" << frame.start_stamp_ns << ",\"end_stamp_ns\":" << frame.end_stamp_ns
              << ",\"frame_ids\":[";
@@ -304,8 +368,11 @@ operation_status map_exporter::write(const submap& value)
              << ",\"buffer_to_map_ms\":" << frame.timing.buffer_to_map_ms()
              << ",\"buffer_to_map_with_readback_ms\":" << frame.timing.buffer_to_map_ms() + statistics.sensor_readback_ms
              << ",\"esdf_ms\":" << statistics.esdf_ms << "}\n";
+    if (!metadata) return std::unexpected(operation_error{"cannot write map metadata export"});
     poses.flush();
+    if (!poses) return std::unexpected(operation_error{"cannot flush map pose export"});
     metadata.flush();
+    if (!metadata) return std::unexpected(operation_error{"cannot flush map metadata export"});
     previous_id = frame.id;
     if (!initial_config) initial_config = value.config;
      ++count;
@@ -313,15 +380,20 @@ operation_status map_exporter::write(const submap& value)
     return {};
 }
 
-void map_exporter::finish()
+operation_status map_exporter::finish()
 {
     if (finished || failed || count == 0)
-        throw std::logic_error("cannot finalize an empty, closed or failed map export");
+        return std::unexpected(operation_error{"cannot finalize an empty, closed or failed map export"});
     failed = true;
     poses.close();
+    if (!poses) return std::unexpected(operation_error{"cannot close map pose export"});
     metadata.close();
+    if (!metadata) return std::unexpected(operation_error{"cannot close map metadata export"});
     const auto temporary = directory / "run.json.pending";
-    auto run = export_stream(temporary);
+    auto opened = export_stream(temporary, "cannot open map run export");
+    if (!opened) return std::unexpected(opened.error());
+    auto run = std::move(*opened);
+    export_file_cleanup cleanup(temporary);
     run << "{\"schema\":\"covoxslam.run.v1\",\"dataset_fingerprint\":\""
         << json_escape(manifest.dataset_fingerprint) << "\",\"mapping_backend\":\""
          << json_escape(manifest.mapping_backend) << "\",\"fusion_order\":\"" << json_escape(manifest.fusion_order)
@@ -332,10 +404,21 @@ void map_exporter::finish()
         << count;
     write_mapping_parameters(run, *initial_config);
     run << "}\n";
+    if (!run) return std::unexpected(operation_error{"cannot write map run export"});
+    run.flush();
+    if (!run) return std::unexpected(operation_error{"cannot flush map run export"});
     run.close();
-    std::filesystem::rename(temporary, directory / "run.json");
+    if (!run) return std::unexpected(operation_error{"cannot close map run export"});
+    std::error_code error;
+    const auto destination = directory / "run.json";
+    if (std::filesystem::exists(destination, error) || error)
+        return std::unexpected(operation_error{"cannot publish map export"});
+    std::filesystem::rename(temporary, destination, error);
+    if (error) return std::unexpected(operation_error{"cannot publish map export"});
+    cleanup.release();
     finished = true;
     failed = false;
+    return {};
 }
 
 operation_status export_run(const std::filesystem::path& output, const export_manifest& manifest,
@@ -356,12 +439,12 @@ operation_status export_run(const std::filesystem::path& output, const export_ma
     for (std::size_t index = 1; index < ordered.size(); ++index)
         if (ordered[index - 1]->frame.id == ordered[index]->frame.id)
             return std::unexpected(operation_error{"duplicate exported submap identifier"});
-    map_exporter writer(output, manifest);
+    auto created = map_exporter::create(output, manifest);
+    if (!created) return std::unexpected(created.error());
     for (const auto* value : ordered) {
-        const auto written = writer.write(*value);
+        const auto written = (*created)->write(*value);
         if (!written) return written;
     }
-    writer.finish();
-    return {};
+    return (*created)->finish();
 }
 }

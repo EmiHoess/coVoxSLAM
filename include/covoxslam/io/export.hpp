@@ -6,6 +6,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <optional>
 #include <span>
 #include <string>
@@ -33,12 +34,15 @@ class map_exporter
     std::size_t count{};
     bool failed{};
     bool finished{};
+    map_exporter(std::filesystem::path output, export_manifest description,
+                 std::ofstream pose_output, std::ofstream metadata_output);
 public:
-    map_exporter(const std::filesystem::path& output, export_manifest description);
     map_exporter(const map_exporter&) = delete;
     map_exporter& operator=(const map_exporter&) = delete;
+    static operation_result<std::unique_ptr<map_exporter>> create(
+        const std::filesystem::path& output, export_manifest description);
     operation_status write(const submap& value);
-    void finish();
+    operation_status finish();
 }
 ;
 

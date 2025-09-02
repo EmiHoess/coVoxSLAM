@@ -295,8 +295,10 @@ inline int run_submap_cli(int argc, char** argv)
         if (pgo_settings.solver.enabled || store_settings.enabled) {
             const auto& completion = result->completion;
             std::cout << completion.report << "pose publication " << completion.publication << '\n';
-            exporter = open_map_export(output, input, mapping_options, backend_label.c_str(), fusion_label,
+            auto opened = open_map_export(output, input, mapping_options, backend_label.c_str(), fusion_label,
                 completion.backend, completion.hash, completion.publication);
+            if (!opened) return report_error(opened.error().message);
+            exporter = std::move(*opened);
             if (exporter) {
                 std::ofstream diagnostics(output / "pgo.txt", std::ios::trunc);
                 diagnostics << completion.report << "pose publication " << completion.publication << '\n';
@@ -309,7 +311,10 @@ inline int run_submap_cli(int argc, char** argv)
                 }
             }
         }
-        if (exporter) exporter->finish();
+        if (exporter) {
+            const auto finished = exporter->finish();
+            if (!finished) return report_error(finished.error().message);
+        }
         std::cout << std::setprecision(17);
         for (const auto& submap : result->frames.submaps) {
             const auto& anchor = submap.anchor;
