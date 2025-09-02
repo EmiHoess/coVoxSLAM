@@ -303,7 +303,10 @@ inline int run_submap_cli(int argc, char** argv)
                 diagnostics.close();
                 if (!diagnostics) return report_error("failed to write solver diagnostics");
 
-                for (const auto& map : result->maps) exporter->write(map);
+                for (const auto& map : result->maps) {
+                    const auto written = exporter->write(map);
+                    if (!written) return report_error(written.error().message);
+                }
             }
         }
         if (exporter) exporter->finish();

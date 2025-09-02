@@ -1,4 +1,4 @@
-#include <covoxslam/export.hpp>
+#include <covoxslam/io/export.hpp>
 #include <covoxslam/voxel/flags.hpp>
 
 #include <algorithm>
@@ -78,38 +78,40 @@ std::vector<int3> ordered_blocks(const tile_map& tiles)
     return result;
 }
 
-void write_voxel(std::ofstream& output, const tsdf_voxel& value)
+operation_status write_voxel(std::ofstream& output, const tsdf_voxel& value)
 {
     if (!std::isfinite(value.distance) || !std::isfinite(value.weight))
-        throw std::invalid_argument("cannot export a non-finite TSDF voxel");
+        return std::unexpected(operation_error{"cannot export a non-finite TSDF voxel"});
     write_scalar(output, value.distance);
     write_scalar(output, value.weight);
     write_scalar(output, value.sample_count);
     write_scalar(output, value.flags);
+    return {};
 }
 
-void write_voxel(std::ofstream& output, const esdf_voxel& value) {
+operation_status write_voxel(std::ofstream& output, const esdf_voxel& value) {
     if (!std::isfinite(value.signed_distance_m))
-        throw std::invalid_argument("cannot export a non-finite ESDF voxel");
+        return std::unexpected(operation_error{"cannot export a non-finite ESDF voxel"});
     write_scalar(output, value.signed_distance_m);
      write_scalar(output, value.parent_dx);
     write_scalar(output, value.parent_dy);
     write_scalar(output, value.parent_dz);
     write_scalar(output, value.flags);
+    return {};
 }
 
 template<class tile_map>
-void write_tiles(const std::filesystem::path& path, const tile_map& tiles,
-                  std::string_view magic, float voxel_size, float distance)
+operation_status write_tiles(const std::filesystem::path& path, const tile_map& tiles,
+                             std::string_view magic, float voxel_size, float distance)
 {
     if (tiles.size() > 100'000'000ULL)
-        throw std::length_error("map export exceeds the format tile limit");
+        return std::unexpected(operation_error{"map export exceeds the format tile limit"});
     const auto order = ordered_blocks(tiles);
     for (const auto index : order)
         for (const int component : {index.x, index.y, index.z})
             if (component < std::numeric_limits<int>::min() / tile_edge ||
                 component > (std::numeric_limits<int>::max() - tile_edge + 1) / tile_edge)
-                throw std::out_of_range("exported block exceeds the voxel index range");
+                return std::unexpected(operation_error{"exported block exceeds the voxel index range"});
     auto output = export_stream(path, true);
     output.write(magic.data(), 8);
      write_scalar(output, std::uint32_t{1});
@@ -121,37 +123,40 @@ void write_tiles(const std::filesystem::path& path, const tile_map& tiles,
         write_scalar(output, static_cast<std::int32_t>(index.x));
         write_scalar(output, static_cast<std::int32_t>(index.y));
         write_scalar(output, static_cast<std::int32_t>(index.z));
-        for (const auto& voxel : tiles.at(index).voxels) write_voxel(output, voxel);
+        for (const auto& voxel : tiles.at(index).voxels) {
+            const auto written = write_voxel(output, voxel);
+            if (!written) return written;
+        }
     }
     output.close();
+    return {};
 }
 }
 }
 
 namespace covoxslam
 {
-namespace
-{
-void validate_export_submap(const submap& value)
+operation_status validate_export_submap(const submap& value)
 {
     const auto& frame = value.frame;
     const auto& config = value.config;
     const auto& statistics = value.statistics;
     if (!config.valid() || frame.id > 9007199254740991ULL || frame.frame_ids.empty() ||
         frame.end_stamp_ns <= frame.start_stamp_ns)
-        throw std::invalid_argument("invalid submap export descriptor");
+        return std::unexpected(operation_error{"invalid submap export descriptor"});
     for (const auto* pose : {&frame.anchor, &value.optimized_world_pose})
         for (const double component : {pose->x, pose->y, pose->z, pose->yaw})
-            if (!std::isfinite(component)) throw std::invalid_argument("invalid exported submap pose");
+            if (!std::isfinite(component))
+                return std::unexpected(operation_error{"invalid exported submap pose"});
     if (!std::isfinite(statistics.integration_ms) || statistics.integration_ms < 0 ||
         !std::isfinite(statistics.esdf_ms) || statistics.esdf_ms < 0 ||
          statistics.rays_rejected > statistics.rays_submitted ||
         statistics.rays_integrated != statistics.rays_submitted - statistics.rays_rejected)
-        throw std::invalid_argument("inconsistent exported mapping statistics");
+        return std::unexpected(operation_error{"inconsistent exported mapping statistics"});
     auto frame_ids = frame.frame_ids;
     std::sort(frame_ids.begin(), frame_ids.end());
     if (frame_ids.front() < 0 || std::adjacent_find(frame_ids.begin(), frame_ids.end()) != frame_ids.end())
-        throw std::invalid_argument("exported frame identifiers must be nonnegative and unique");
+        return std::unexpected(operation_error{"exported frame identifiers must be nonnegative and unique"});
     for (const auto& [block, tile] : value.tsdf)
         for (const auto& voxel : tile.voxels)
         {
@@ -161,7 +166,7 @@ void validate_export_submap(const submap& value)
                 (voxel.flags & ~(observed_flag | near_surface_flag)) != 0 ||
                  observed != (voxel.weight > 0) || observed != (voxel.sample_count != 0) ||
                 (!observed && (voxel.flags & near_surface_flag) != 0))
-                throw std::invalid_argument("inconsistent TSDF voxel export");
+                return std::unexpected(operation_error{"inconsistent TSDF voxel export"});
         }
     for (const auto& [block, tile] : value.esdf)
     {
@@ -172,19 +177,20 @@ void validate_export_submap(const submap& value)
             const bool signed_seed = site && config.esdf_generator == esdf_backend::cuda_blocks_batch;
             if (signed_seed) {
                 const auto source_index = global_index(block, local);
-                const auto* source = source_index ? find_voxel(value.tsdf, *source_index) : nullptr;
+                if (!source_index) return std::unexpected(source_index.error());
+                const auto* source = find_voxel(value.tsdf, *source_index);
                 if (!source || !(source->flags & observed_flag) ||
                     source->weight < config.esdf_minimum_weight || std::abs(source->distance) >= config.esdf_site_band_m ||
                     std::bit_cast<std::uint32_t>(source->distance) !=
                         std::bit_cast<std::uint32_t>(voxel.signed_distance_m))
-                    throw std::invalid_argument("inconsistent blocks fixed seed export");
+                    return std::unexpected(operation_error{"inconsistent blocks fixed seed export"});
             }
             if (!std::isfinite(voxel.signed_distance_m) ||
                 std::abs(voxel.signed_distance_m) > config.esdf_maximum_distance_m ||
                 (voxel.flags & ~(observed_flag | esdf_site_flag)) != 0 ||
                  (site && (!observed || (!signed_seed && voxel.signed_distance_m != 0) ||
                            voxel.parent_dx != 0 || voxel.parent_dy != 0 || voxel.parent_dz != 0)))
-                throw std::invalid_argument("inconsistent ESDF voxel export");
+                return std::unexpected(operation_error{"inconsistent ESDF voxel export"});
             const std::array<std::int64_t, 3> index{
                 std::int64_t(block.x) * tile_edge + static_cast<int>(local % tile_edge),
                 std::int64_t(block.y) * tile_edge + static_cast<int>((local / tile_edge) % tile_edge),
@@ -195,11 +201,11 @@ void validate_export_submap(const submap& value)
                 const auto source = index[axis] + parent[axis];
                 if (index[axis] < std::numeric_limits<int>::min() || index[axis] > std::numeric_limits<int>::max() ||
                     source < std::numeric_limits<int>::min() || source > std::numeric_limits<int>::max())
-                    throw std::out_of_range("ESDF relative parent exceeds the voxel index range");
+                    return std::unexpected(operation_error{"ESDF relative parent exceeds the voxel index range"});
             }
         }
     }
-}
+    return {};
 }
 }
 
@@ -219,29 +225,34 @@ map_exporter::map_exporter(const std::filesystem::path& output, export_manifest 
     metadata = export_stream(directory / "submaps.jsonl");
 }
 
-void map_exporter::write(const submap& value)
+operation_status map_exporter::write(const submap& value)
 {
-    if (finished || failed) throw std::logic_error("map export is closed or has failed");
+    if (finished || failed)
+        return std::unexpected(operation_error{"map export is closed or has failed"});
     const auto& frame = value.frame;
     if ((previous_id && frame.id <= *previous_id) || frame.id > 9007199254740991ULL ||
         frame.frame_ids.empty() || frame.end_stamp_ns <= frame.start_stamp_ns || !value.config.valid())
-        throw std::invalid_argument("invalid or unordered submap export");
+        return std::unexpected(operation_error{"invalid or unordered submap export"});
     for (const auto* pose : {&frame.anchor, &value.optimized_world_pose})
         for (const double component : {pose->x, pose->y, pose->z, pose->yaw})
-            if (!std::isfinite(component)) throw std::invalid_argument("invalid exported submap pose");
+            if (!std::isfinite(component))
+                return std::unexpected(operation_error{"invalid exported submap pose"});
      if (!std::isfinite(value.statistics.integration_ms) || value.statistics.integration_ms < 0)
-        throw std::invalid_argument("invalid exported integration time");
-    validate_export_submap(value);
+        return std::unexpected(operation_error{"invalid exported integration time"});
+    const auto valid = validate_export_submap(value);
+    if (!valid) return valid;
     failed = true;
     const auto stem = directory / "submaps" / ("submap_" + std::to_string(frame.id));
     auto tsdf_path = stem;
     auto esdf_path = stem;
     tsdf_path += ".tsdf.bin";
     esdf_path += ".esdf.bin";
-    write_tiles(tsdf_path, value.tsdf, "CVXTSDF1",
-                value.config.voxel_size, value.config.truncation_distance);
-    write_tiles(esdf_path, value.esdf, "CVXESDF1",
-                value.config.voxel_size, value.config.esdf_maximum_distance_m);
+    const auto tsdf_written = write_tiles(tsdf_path, value.tsdf, "CVXTSDF1",
+        value.config.voxel_size, value.config.truncation_distance);
+    if (!tsdf_written) return tsdf_written;
+    const auto esdf_written = write_tiles(esdf_path, value.esdf, "CVXESDF1",
+        value.config.voxel_size, value.config.esdf_maximum_distance_m);
+    if (!esdf_written) return esdf_written;
     poses << "{\"submap_id\":" << frame.id << ",\"start_stamp_ns\":" << frame.start_stamp_ns
           << ",\"end_stamp_ns\":" << frame.end_stamp_ns << ",\"initial\":";
     write_pose(poses, frame.anchor);
@@ -299,6 +310,7 @@ void map_exporter::write(const submap& value)
     if (!initial_config) initial_config = value.config;
      ++count;
     failed = false;
+    return {};
 }
 
 void map_exporter::finish()
@@ -326,14 +338,16 @@ void map_exporter::finish()
     failed = false;
 }
 
-void export_run(const std::filesystem::path& output, const export_manifest& manifest,
-                 std::span<const submap> submaps)
+operation_status export_run(const std::filesystem::path& output, const export_manifest& manifest,
+                            std::span<const submap> submaps)
 {
-    if (submaps.empty()) throw std::invalid_argument("cannot export an empty run");
+    if (submaps.empty())
+        return std::unexpected(operation_error{"cannot export an empty run"});
     std::vector<const submap*> ordered;
     ordered.reserve(submaps.size());
     for (const auto& value : submaps) {
-        validate_export_submap(value);
+        const auto valid = validate_export_submap(value);
+        if (!valid) return valid;
         ordered.push_back(&value);
     }
      std::sort(ordered.begin(), ordered.end(), [](const auto* left, const auto* right) {
@@ -341,9 +355,13 @@ void export_run(const std::filesystem::path& output, const export_manifest& mani
     });
     for (std::size_t index = 1; index < ordered.size(); ++index)
         if (ordered[index - 1]->frame.id == ordered[index]->frame.id)
-            throw std::invalid_argument("duplicate exported submap identifier");
+            return std::unexpected(operation_error{"duplicate exported submap identifier"});
     map_exporter writer(output, manifest);
-    for (const auto* value : ordered) writer.write(*value);
+    for (const auto* value : ordered) {
+        const auto written = writer.write(*value);
+        if (!written) return written;
+    }
     writer.finish();
+    return {};
 }
 }
