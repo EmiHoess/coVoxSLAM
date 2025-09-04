@@ -74,14 +74,12 @@ void usage()
         << "  Retired option names are recognized and rejected explicitly\n"
         << "  --help | --version\n";
 }
+
+int run_inspection_cli(int argc, char** argv);
 }
 
 int main(int argc, char** argv)
 {
-        const auto report_error = [](std::string_view message) {
-            std::cerr << "covoxslam: " << message << '\n';
-            return 2;
-        };
         const auto mode = argc == 1 ? application_option::help : covoxslam::lookup_cli_option(argv[1], application_options);
         switch (mode)
         {
@@ -99,6 +97,17 @@ int main(int argc, char** argv)
             break;
         default: break;
         }
+        return run_inspection_cli(argc, argv);
+}
+
+namespace
+{
+int run_inspection_cli(int argc, char** argv)
+{
+        const auto report_error = [](std::string_view message) {
+            std::cerr << "covoxslam: " << message << '\n';
+            return 2;
+        };
         std::filesystem::path dataset_path;
         covoxslam::dataset_load_options input_options;
         std::size_t frame_index{}, ring_stride{1}, column_stride{1};
@@ -211,4 +220,5 @@ int main(int argc, char** argv)
             std::cout << "selected column stamps " << *first << ' ' << *last << '\n';
         }
         return 0;
+}
 }

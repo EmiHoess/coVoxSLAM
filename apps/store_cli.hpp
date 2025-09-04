@@ -3,7 +3,10 @@
 #include <covoxslam/pipeline/mapping_session.hpp>
 #include "cli_lookup.hpp"
 #include <charconv>
+#include <filesystem>
 #include <limits>
+#include <string_view>
+#include <system_error>
 
 namespace covoxslam
 {
@@ -19,6 +22,19 @@ inline constexpr cli_option_entry<store_value> store_values[]{
     {"copied", store_value::copied}, {"borrowed", store_value::borrowed}, {"resident", store_value::resident},
     {"resident-soa", store_value::resident_soa}
 };
+struct store_selector_requirement
+{
+    unsigned mask{};
+    std::string_view required_value;
+};
+inline store_selector_requirement required_store_selector(std::string_view key) noexcept
+{
+    switch (lookup_cli_option(key, store_options)) {
+    case store_option::mapping: return {1, "resident-soa"};
+    case store_option::layout: return {2, "soa"};
+    default: return {};
+    }
+}
 inline operation_result<bool> parse_store_option(std::string_view key, std::string_view value, store_pipeline_options& result)
 {
     switch (lookup_cli_option(key, store_options)) {
@@ -63,5 +79,19 @@ inline operation_result<bool> parse_store_option(std::string_view key, std::stri
     }
     default: return false;
     }
+}
+inline operation_status validate_store_output_paths(
+    const store_pipeline_options& store, const std::filesystem::path& export_path)
+{
+    if (store.checkpoint_root.empty() || export_path.empty()) return {};
+    std::error_code error;
+    const auto store_path = std::filesystem::weakly_canonical(store.checkpoint_root, error);
+    if (error) return std::unexpected(operation_error{"checkpoint path is invalid"});
+    const auto canonical_export = std::filesystem::weakly_canonical(export_path, error);
+
+    if (error) return std::unexpected(operation_error{"export path is invalid"});
+    if (store_path == canonical_export)
+        return std::unexpected(operation_error{"checkpoint and export paths must differ"});
+    return {};
 }
 }

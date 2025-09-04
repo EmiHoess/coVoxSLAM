@@ -74,24 +74,17 @@ inline int run_submap_cli(int argc, char** argv)
 
         for (int index = 2; index < argc; index += 2) {
             if (index + 1 >= argc) return report_error("missing submap option value");
-            unsigned selector{};
-            std::string_view required;
-            switch (lookup_cli_option(argv[index], store_options)) {
-            case store_option::mapping: selector = 1; required = "resident-soa"; break;
-            case store_option::layout: selector = 2; required = "soa"; break;
-            default: break;
-            }
+            auto required = required_store_selector(argv[index]);
 
             if (lookup_cli_option(argv[index], covoxslam::mapping_options) == mapping_option::esdf_generator) {
-                selector = 4;
-                 required = "cuda-block-band-soa";
+                required = {4, "cuda-block-band-soa"};
             }
-            if (selector)
+            if (required.mask)
             {
-                if (selectors_seen & selector) return report_error("repeated mapping selector");
-                if (std::string_view(argv[index + 1]) != required)
+                if (selectors_seen & required.mask) return report_error("repeated mapping selector");
+                if (std::string_view(argv[index + 1]) != required.required_value)
                     return report_error("mapping selector is not applicable to coVoxSLAM");
-                selectors_seen |= selector;
+                selectors_seen |= required.mask;
             }
             if (lookup_cli_option(argv[index], submap_cli_options) != submap_cli_option::preset) continue;
 
@@ -113,75 +106,10 @@ inline int run_submap_cli(int argc, char** argv)
             const auto pgo_parsed = parse_pgo_option(option, value, pgo_settings);
             if (!pgo_parsed) return report_error(pgo_parsed.error().message);
             if (*pgo_parsed) continue;
-            switch (lookup_cli_option(option, sensor_mapping_options)) {
-            case sensor_mapping_option::backend:
-                switch (lookup_cli_option(value, sensor_backend_choices)) {
-                case sensor_backend_choice::combined:
-                    sensor_selected = mapping_enabled = true;
-                    sensor_gather.backend = sensor_grid::gather_backend::hybrid_combined;
-                    continue;
-                default: break;
-                }
-                sensor_selected = false;
-                break;
-            case sensor_mapping_option::interpolation:
-                switch (lookup_cli_option(value, sensor_sampling_values)) {
-                case sensor_sampling_value::nearest: sensor_mode = sensor_grid::interpolation::nearest; break;
-                default: return report_error("unsupported sensor interpolation");
-                }
-                continue;
-            case sensor_mapping_option::threshold: {
-                const auto selected = select_sensor_threshold(value, sensor_gather);
-                if (!selected) return report_error(selected.error().message);
-                continue;
-            }
-            case sensor_mapping_option::block_threshold: {
-                const auto selected = select_block_threshold(value, sensor_gather);
-                if (!selected) return report_error(selected.error().message);
-                continue;
-            }
-            case sensor_mapping_option::gather: {
-                const auto selected = select_sensor_gather(value, sensor_gather);
-                if (!selected) return report_error(selected.error().message);
-                continue;
-            }
-            case sensor_mapping_option::execution: {
-                const auto selected = select_sensor_execution(value, sensor_gather);
-                if (!selected) return report_error(selected.error().message);
-                continue;
-            }
-            case sensor_mapping_option::source_mask:
-                switch (lookup_cli_option(value, source_mask_choices)) {
-                case source_mask_choice::dense: sensor_transfer.source_mask = sensor_grid::source_mask_mode::dense; break;
-                default: return report_error("coVoxSLAM requires a dense sensor source mask");
-                }
-                continue;
-            case sensor_mapping_option::transfer_precision:
-                switch (lookup_cli_option(value, transfer_precision_choices)) {
-                case transfer_precision_choice::fp64: sensor_transfer.arithmetic = sensor_grid::transfer_arithmetic::fp64; break;
-                default: return report_error("coVoxSLAM requires 64 bit sensor transfer");
-                }
-                continue;
-            case sensor_mapping_option::transfer_kernel:
-                switch (lookup_cli_option(value, transfer_kernel_choices)) {
-                case transfer_kernel_choice::reference: sensor_transfer.specialized = false; break;
-                default: return report_error("coVoxSLAM requires reference sensor transfer");
-                }
-                continue;
-            case sensor_mapping_option::candidates:
-                switch (lookup_cli_option(value, candidate_choices)) {
-                case candidate_choice::whole_tiles: sensor_transfer.candidates = sensor_grid::candidate_mode::whole_tiles; break;
-                default: return report_error("invalid sensor candidate method");
-                }
-                continue;
-            case sensor_mapping_option::discovery:
-                switch (lookup_cli_option(value, discovery_choices)) {
-                case discovery_choice::gpu_resident: sensor_transfer.discovery = sensor_grid::discovery_mode::gpu_resident; break;
-                default: return report_error("invalid sensor discovery method");
-                }
-                continue;
-            default: break;
-            }
+            const auto sensor_parsed = parse_sensor_mapping_option(option, value, sensor_selected,
+                mapping_enabled, sensor_gather, sensor_transfer, sensor_mode);
+            if (!sensor_parsed) return report_error(sensor_parsed.error().message);
+            if (*sensor_parsed) continue;
             switch (lookup_cli_option(option, submap_cli_options))
             {
             case submap_cli_option::preset: continue;
@@ -262,14 +190,8 @@ inline int run_submap_cli(int argc, char** argv)
             sensor_transfer.discovery != sensor_grid::discovery_mode::gpu_resident))
             return report_error("resident mapping storage requires combined nearest with resident discovery");
         if (store_settings.enabled && !mapping_enabled) return report_error("map storage requires mapping");
-        if (!store_settings.checkpoint_root.empty() && !output.empty()) {
-            std::error_code error;
-            auto store_path = std::filesystem::weakly_canonical(store_settings.checkpoint_root, error);
-            if (error) return report_error("checkpoint path is invalid");
-            auto export_path = std::filesystem::weakly_canonical(output, error);
-            if (error) return report_error("export path is invalid");
-            if (store_path == export_path) return report_error("checkpoint and export paths must differ");
-        }
+        const auto paths_valid = validate_store_output_paths(store_settings, output);
+        if (!paths_valid) return report_error(paths_valid.error().message);
         const auto loaded = load_dataset(root, input_options);
         if (pgo_settings.publication_selected && !pgo_settings.solver.enabled)
             return report_error("PGO publication requires an enabled solver");
