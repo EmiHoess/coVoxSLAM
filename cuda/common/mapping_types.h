@@ -5,9 +5,6 @@
 
 namespace covoxslam::detail
 {
-int cuda_scan_counts(const std::uint32_t* counts, std::uint64_t* offsets,
-                     std::uint64_t* block_sums, std::size_t count, void* stream) noexcept;
-
 struct cuda_tile_coordinate
 {
     std::int32_t x{}, y{}, z{};

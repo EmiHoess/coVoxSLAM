@@ -1,6 +1,6 @@
 #include "resident.h"
 #include "../common/tile_hash.cuh"
-#include "../primitives/key_sort.cuh"
+#include "../primitives/radix_sort.cuh"
 
 namespace covoxslam::sensor_grid
 {

@@ -1,5 +1,5 @@
 #pragma once
-#include "../common/mapping_types.h"
+#include "scan.cuh"
 #include <cuda_runtime.h>
 
 namespace covoxslam::detail
