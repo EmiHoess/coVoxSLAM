@@ -1,10 +1,11 @@
-#include "map_native.h"
-#include "resident.h"
-#include "tsdf_views.cuh"
-#include "../common/geometry.cuh"
+#include "../../sensor_grid/map_native.h"
+#include "../../sensor_grid/resident.h"
+#include <covoxslam/storage/device_view.hpp>
+#include "../../common/geometry.cuh"
 
 namespace covoxslam::sensor_grid
 {
+using sensor_tsdf_view = storage::device_map_view<storage::schema::tsdf>;
 namespace
 {
 __global__ void mask_cells(field_view source, unsigned n, std::uint8_t* flags)
