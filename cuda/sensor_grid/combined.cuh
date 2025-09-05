@@ -1,5 +1,4 @@
 #pragma once
-#include "compact.cuh"
 #include <covoxslam/sensor_grid_combined.h>
 
 namespace covoxslam::sensor_grid
