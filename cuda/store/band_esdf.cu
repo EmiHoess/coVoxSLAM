@@ -1,7 +1,6 @@
 #include <covoxslam/mapping/esdf/band_esdf.hpp>
-#include "band_esdf_initialize.cuh"
-#include "band_esdf_sweep.cuh"
-#include "band_esdf_neighbors.cuh"
+#include "../mapping/esdf/band_initialize.cuh"
+#include "../mapping/esdf/band_propagate.cuh"
 #include "band_esdf_publish.cuh"
 #include "band_esdf_timing.cuh"
 
