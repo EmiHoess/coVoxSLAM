@@ -1,6 +1,6 @@
 #pragma once
 #include "discovery.h"
-#include "../common/tile_key.h"
+#include "detail/tile_key.h"
 #include <covoxslam/storage/device_view.hpp>
 
 namespace covoxslam::sensor_grid

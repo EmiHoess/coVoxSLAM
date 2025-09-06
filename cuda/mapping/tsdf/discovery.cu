@@ -1,5 +1,5 @@
-#include "../../sensor_grid/discovery.h"
-#include "../../common/tile_hash.cuh"
+#include "discovery.h"
+#include "detail/tile_hash.cuh"
 #include <cmath>
 #include <climits>
 #include <math_constants.h>

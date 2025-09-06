@@ -1,5 +1,5 @@
 #pragma once
-#include "../../store/band_esdf_index.cuh"
+#include "detail/index.cuh"
 #include <covoxslam/voxel/esdf_encodings.hpp>
 #include <covoxslam/voxel/flags.hpp>
 

@@ -1,5 +1,5 @@
 #pragma once
-#include "map_native.h"
+#include "fusion.h"
 
 namespace covoxslam::sensor_grid
 {

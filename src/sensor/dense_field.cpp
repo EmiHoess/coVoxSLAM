@@ -1,7 +1,7 @@
 #include <covoxslam/sensor/dense_field.hpp>
 #include <covoxslam/sensor_grid_precision.h>
 #include <covoxslam/sensor/prepared_layout.hpp>
-#include "sensor_grid/native.h"
+#include "mapping/tsdf/gather.h"
 #include <cuda_runtime_api.h>
 #include <array>
 #include <algorithm>

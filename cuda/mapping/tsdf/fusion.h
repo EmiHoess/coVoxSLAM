@@ -1,7 +1,7 @@
 #pragma once
 
 #include <covoxslam/sensor_grid_sampling.h>
-#include "../common/mapping_types.h"
+#include "../../common/mapping_types.h"
 
 namespace covoxslam::sensor_grid
 {

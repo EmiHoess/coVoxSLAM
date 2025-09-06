@@ -1,7 +1,7 @@
-#include "../../sensor_grid/map_native.h"
-#include "../../sensor_grid/resident.h"
+#include "fusion.h"
+#include "allocation.h"
 #include <covoxslam/storage/device_view.hpp>
-#include "../../common/geometry.cuh"
+#include "detail/geometry.cuh"
 
 namespace covoxslam::sensor_grid
 {

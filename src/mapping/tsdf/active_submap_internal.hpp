@@ -2,9 +2,9 @@
 #include <covoxslam/core/geometry.hpp>
 #include <covoxslam/core/result.hpp>
 #include <covoxslam/mapping/tsdf/active_submap.hpp>
-#include "sensor_grid/map_native.h"
-#include "sensor_grid/discovery.h"
-#include "sensor_grid/resident.h"
+#include "mapping/tsdf/fusion.h"
+#include "mapping/tsdf/discovery.h"
+#include "mapping/tsdf/allocation.h"
 #include <cuda_runtime_api.h>
 #include <array>
 #if defined(covoxslam_has_urd)

@@ -1,5 +1,5 @@
-#include "../../sensor_grid/resident.h"
-#include "../../common/tile_hash.cuh"
+#include "allocation.h"
+#include "detail/tile_hash.cuh"
 #include "../../primitives/radix_sort.cuh"
 
 namespace covoxslam::sensor_grid

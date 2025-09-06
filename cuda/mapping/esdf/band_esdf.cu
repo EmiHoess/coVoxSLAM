@@ -2,7 +2,7 @@
 #include "band_initialize.cuh"
 #include "band_propagate.cuh"
 #include "band_publish.cuh"
-#include "../../store/band_esdf_timing.cuh"
+#include "detail/timing.cuh"
 
 namespace covoxslam::store
 {

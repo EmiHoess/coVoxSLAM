@@ -1,6 +1,6 @@
 #pragma once
-#include "../../store/band_esdf_index.cuh"
-#include "../../store/band_esdf_distance.cuh"
+#include "detail/index.cuh"
+#include "detail/distance.cuh"
 
 namespace covoxslam::store
 {
