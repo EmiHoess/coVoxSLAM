@@ -1,8 +1,8 @@
 #include <covoxslam/mapping/esdf/band_esdf.hpp>
-#include "../mapping/esdf/band_initialize.cuh"
-#include "../mapping/esdf/band_propagate.cuh"
-#include "band_esdf_publish.cuh"
-#include "band_esdf_timing.cuh"
+#include "band_initialize.cuh"
+#include "band_propagate.cuh"
+#include "band_publish.cuh"
+#include "../../store/band_esdf_timing.cuh"
 
 namespace covoxslam::store
 {
