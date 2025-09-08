@@ -1,6 +1,6 @@
 #pragma once
 
-#include <covoxslam/sensor_grid_sampling.h>
+#include <covoxslam/mapping/tsdf/detail/sampling.hpp>
 #include "../../common/mapping_types.h"
 
 namespace covoxslam::sensor_grid

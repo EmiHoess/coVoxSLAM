@@ -1,7 +1,7 @@
 #pragma once
 #include <covoxslam/core/result.hpp>
 #include <covoxslam/mapping/tsdf/active_submap.hpp>
-#include <covoxslam/sensor_grid_sampling.h>
+#include <covoxslam/mapping/tsdf/detail/sampling.hpp>
 #include "cli_lookup.hpp"
 #include "sensor_gather_cli.hpp"
 
