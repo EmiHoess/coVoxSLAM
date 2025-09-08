@@ -1,6 +1,6 @@
 #include <covoxslam/pipeline/mapping_session.hpp>
 #include <covoxslam/sensor/lookup.hpp>
-#include <covoxslam/sensor_grid_precision.h>
+#include <covoxslam/sensor/detail/precision.hpp>
 
 #include <algorithm>
 #include <chrono>

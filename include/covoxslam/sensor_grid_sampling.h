@@ -1,6 +1,6 @@
 #pragma once
 
-#include <covoxslam/sensor_grid_types.h>
+#include <covoxslam/sensor/detail/types.hpp>
 #include <cfloat>
 #include <climits>
 #include <cmath>

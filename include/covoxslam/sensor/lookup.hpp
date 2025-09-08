@@ -2,7 +2,7 @@
 
 #include <covoxslam/core/result.hpp>
 #include <covoxslam/input/calibration.hpp>
-#include <covoxslam/sensor_grid_types.h>
+#include <covoxslam/sensor/detail/types.hpp>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>

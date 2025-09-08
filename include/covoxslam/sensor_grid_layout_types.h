@@ -1,5 +1,5 @@
 #pragma once
-#include <covoxslam/sensor_grid_types.h>
+#include <covoxslam/sensor/detail/types.hpp>
 #include <cstddef>
 #include <type_traits>
 

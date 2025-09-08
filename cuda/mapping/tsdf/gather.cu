@@ -1,5 +1,5 @@
 #include <covoxslam/sensor_grid_layout_types.h>
-#include <covoxslam/sensor_grid_precision.h>
+#include <covoxslam/sensor/detail/precision.hpp>
 #include <cuda_runtime.h>
 
 namespace covoxslam::sensor_grid

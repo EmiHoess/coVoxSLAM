@@ -1,5 +1,5 @@
 #include <covoxslam/mapping/tsdf/integrator.hpp>
-#include <covoxslam/sensor_grid_precision.h>
+#include <covoxslam/sensor/detail/precision.hpp>
 #include <chrono>
 
 namespace covoxslam::sensor_grid

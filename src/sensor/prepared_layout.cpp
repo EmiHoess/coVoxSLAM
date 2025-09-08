@@ -1,6 +1,6 @@
 #include <covoxslam/sensor/prepared_layout.hpp>
 #include <algorithm>
-#include <covoxslam/sensor_grid_precision.h>
+#include <covoxslam/sensor/detail/precision.hpp>
 
 namespace covoxslam::sensor_grid
 {
