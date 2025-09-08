@@ -1,7 +1,7 @@
 #pragma once
 #include <covoxslam/core/result.hpp>
 #include <covoxslam/sensor/lookup.hpp>
-#include <covoxslam/sensor_grid_layout_types.h>
+#include <covoxslam/sensor/detail/gather_layout.hpp>
 #include <type_traits>
 
 namespace covoxslam::sensor_grid

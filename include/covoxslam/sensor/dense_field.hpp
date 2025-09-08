@@ -2,7 +2,7 @@
 
 #include <covoxslam/core/result.hpp>
 #include <covoxslam/sensor/lookup.hpp>
-#include <covoxslam/sensor_grid_layout_types.h>
+#include <covoxslam/sensor/detail/gather_layout.hpp>
 #include <cstddef>
 #include <cstdint>
 #include <memory>

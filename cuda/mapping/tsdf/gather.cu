@@ -1,4 +1,4 @@
-#include <covoxslam/sensor_grid_layout_types.h>
+#include <covoxslam/sensor/detail/gather_layout.hpp>
 #include <covoxslam/sensor/detail/precision.hpp>
 #include <cuda_runtime.h>
 
@@ -157,7 +157,7 @@ __global__ void compact_warp_gather(layout_view view, std::uint32_t offset, std:
 
 }
 
-#include <covoxslam/sensor_grid_combined.h>
+#include <covoxslam/sensor/detail/combined_gather.hpp>
 
 namespace covoxslam::sensor_grid
 {

@@ -1,5 +1,5 @@
 #pragma once
-#include <covoxslam/sensor_grid_layout_types.h>
+#include <covoxslam/sensor/detail/gather_layout.hpp>
 
 #include <covoxslam/sensor/detail/types.hpp>
 
