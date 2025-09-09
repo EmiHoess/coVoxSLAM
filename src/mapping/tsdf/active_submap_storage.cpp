@@ -1,4 +1,4 @@
-#include "mapping/tsdf/active_submap_internal.hpp"
+#include "active_submap_internal.hpp"
 #if defined(covoxslam_has_urd)
 #include <covoxslam/storage/host_buffer.hpp>
 #include <covoxslam/map_store/coordinator.hpp>

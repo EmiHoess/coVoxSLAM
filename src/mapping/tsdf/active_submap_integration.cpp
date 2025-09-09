@@ -1,4 +1,4 @@
-#include "mapping/tsdf/active_submap_internal.hpp"
+#include "active_submap_internal.hpp"
 #include <chrono>
 #include <cmath>
 
