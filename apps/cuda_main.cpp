@@ -1,4 +1,4 @@
-#include <covoxslam/cuda.hpp>
+#include <covoxslam/core/cuda_device.hpp>
 #include "cuda_options.hpp"
 
 #include <charconv>
