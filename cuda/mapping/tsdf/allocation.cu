@@ -1,4 +1,4 @@
-#include "allocation.h"
+#include "allocation.cuh"
 #include "detail/tile_hash.cuh"
 #include "../../primitives/radix_sort.cuh"
 

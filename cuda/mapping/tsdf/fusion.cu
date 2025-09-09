@@ -1,5 +1,5 @@
-#include "fusion.h"
-#include "allocation.h"
+#include "fusion.cuh"
+#include "allocation.cuh"
 #include <covoxslam/storage/device_view.hpp>
 #include "detail/geometry.cuh"
 

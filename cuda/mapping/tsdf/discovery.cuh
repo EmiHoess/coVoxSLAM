@@ -1,5 +1,5 @@
 #pragma once
-#include "fusion.h"
+#include "fusion.cuh"
 
 namespace covoxslam::sensor_grid
 {

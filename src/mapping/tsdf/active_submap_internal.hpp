@@ -2,9 +2,9 @@
 #include <covoxslam/core/geometry.hpp>
 #include <covoxslam/core/result.hpp>
 #include <covoxslam/mapping/tsdf/active_submap.hpp>
-#include "mapping/tsdf/fusion.h"
-#include "mapping/tsdf/discovery.h"
-#include "mapping/tsdf/allocation.h"
+#include "mapping/tsdf/fusion.cuh"
+#include "mapping/tsdf/discovery.cuh"
+#include "mapping/tsdf/allocation.cuh"
 #include <cuda_runtime_api.h>
 #include <array>
 #if defined(covoxslam_has_urd)

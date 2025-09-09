@@ -1,4 +1,4 @@
-#include "discovery.h"
+#include "discovery.cuh"
 #include "detail/tile_hash.cuh"
 #include <cmath>
 #include <climits>

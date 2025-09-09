@@ -1,7 +1,7 @@
 #pragma once
 
 #include <covoxslam/mapping/tsdf/detail/sampling.hpp>
-#include "../../common/mapping_types.h"
+#include "../detail/types.cuh"
 
 namespace covoxslam::sensor_grid
 {

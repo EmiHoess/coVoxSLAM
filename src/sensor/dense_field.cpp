@@ -1,7 +1,7 @@
 #include <covoxslam/sensor/dense_field.hpp>
 #include <covoxslam/sensor/detail/precision.hpp>
 #include <covoxslam/sensor/prepared_layout.hpp>
-#include "mapping/tsdf/gather.h"
+#include "mapping/tsdf/gather.cuh"
 #include <cuda_runtime_api.h>
 #include <array>
 #include <algorithm>

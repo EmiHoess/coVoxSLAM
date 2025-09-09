@@ -1,5 +1,5 @@
 #pragma once
-#include "driver.h"
+#include "driver.cuh"
 #include <covoxslam/voxel/esdf_encodings.hpp>
 #include <cuda_runtime.h>
 

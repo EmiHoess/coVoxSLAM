@@ -3,7 +3,7 @@
 #include <covoxslam/storage/device_buffer.hpp>
 #include <covoxslam/storage/layout.hpp>
 #include <covoxslam/store/esdf_resources.hpp>
-#include "../../../cuda/common/mapping_types.h"
+#include "../../../cuda/mapping/detail/types.cuh"
 
 namespace covoxslam::store
 {

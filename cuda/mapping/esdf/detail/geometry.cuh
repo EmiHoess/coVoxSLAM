@@ -1,5 +1,5 @@
 #pragma once
-#include "../../../common/mapping_types.h"
+#include "../../detail/types.cuh"
 #include <covoxslam/voxel/esdf_encodings.hpp>
 #include <cuda_runtime.h>
 #include <climits>

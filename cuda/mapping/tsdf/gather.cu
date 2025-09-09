@@ -335,7 +335,7 @@ inline int launch_combined(layout_view view, const compact_ray* prepared, voxel*
 }
 }
 
-#include "gather.h"
+#include "gather.cuh"
 
 namespace covoxslam::sensor_grid
 {
