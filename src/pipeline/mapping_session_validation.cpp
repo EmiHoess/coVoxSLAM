@@ -1,4 +1,4 @@
-#include "store_pipeline_impl.hpp"
+#include "mapping_session_internal.hpp"
 
 namespace covoxslam
 {

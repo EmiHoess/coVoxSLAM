@@ -3,7 +3,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #if defined(covoxslam_has_cuda) && defined(covoxslam_has_urd)
-#include "store_pipeline_impl.hpp"
+#include "mapping_session_internal.hpp"
 #endif
 
 namespace covoxslam
