@@ -5,13 +5,13 @@
 #include <covoxslam/map_store/residency.hpp>
 #include <covoxslam/map_store/snapshot.hpp>
 #include <covoxslam/map_store/checkpoint.hpp>
-#include <covoxslam/store/field_access.hpp>
+#include <covoxslam/map_store/detail/field_access.hpp>
 #include <covoxslam/storage/host_buffer.hpp>
 #include <covoxslam/storage/layout.hpp>
 #include <covoxslam/storage/record_pack.hpp>
 #if defined(covoxslam_has_cuda)
 #include <covoxslam/storage/device_buffer.hpp>
-#include <covoxslam/store/gpu_store.hpp>
+#include <covoxslam/map_store/detail/gpu_store.hpp>
 #endif
 #include <optional>
 #include <unordered_map>
