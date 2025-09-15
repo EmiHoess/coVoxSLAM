@@ -4,7 +4,7 @@
 #include <covoxslam/optimization/registration.hpp>
 #include <covoxslam/optimization/solver.hpp>
 #include <covoxslam/pipeline/mapping_session.hpp>
-#include <covoxslam/store/geometry_capture.hpp>
+#include <covoxslam/map_store/detail/geometry_capture.hpp>
 #include <covoxslam/store/pgo_cpu.hpp>
 #include <covoxslam/store/pgo_cuda.hpp>
 #include <covoxslam/store/pgo_cache.hpp>
