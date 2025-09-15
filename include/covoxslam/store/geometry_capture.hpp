@@ -2,7 +2,7 @@
 #include <covoxslam/core/result.hpp>
 #include <covoxslam/storage/layout.hpp>
 #include <covoxslam/map_store/coordinator.hpp>
-#include <covoxslam/store/geometry_fields.hpp>
+#include <covoxslam/map_store/detail/geometry_fields.hpp>
 
 namespace covoxslam::store
 {

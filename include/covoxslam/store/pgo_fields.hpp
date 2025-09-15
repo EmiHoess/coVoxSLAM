@@ -1,7 +1,7 @@
 #pragma once
 #include <covoxslam/core/result.hpp>
 #include <covoxslam/storage/layout.hpp>
-#include <covoxslam/store/geometry.hpp>
+#include <covoxslam/map_store/detail/geometry.hpp>
 #include <covoxslam/storage/transfers.hpp>
 #include <covoxslam/optimization/pose_graph.hpp>
 #if defined(covoxslam_has_pgo)
