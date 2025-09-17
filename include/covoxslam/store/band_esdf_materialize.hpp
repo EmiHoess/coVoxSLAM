@@ -3,7 +3,7 @@
 #include <covoxslam/storage/layout.hpp>
 #include <covoxslam/map_store/detail/geometry_capture.hpp>
 #include <covoxslam/mapping/esdf/band_esdf.hpp>
-#include <covoxslam/store/band_esdf_generation.hpp>
+#include <covoxslam/mapping/esdf/detail/band_esdf_generation.hpp>
 #include <chrono>
 
 namespace covoxslam::store

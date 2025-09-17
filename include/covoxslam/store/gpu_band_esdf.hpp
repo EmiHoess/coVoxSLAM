@@ -2,8 +2,8 @@
 #include <covoxslam/core/result.hpp>
 #include <covoxslam/mapping/esdf/band_esdf.hpp>
 #include <covoxslam/storage/layout.hpp>
-#include <covoxslam/store/band_esdf_workspace.hpp>
-#include <covoxslam/store/band_esdf_generation.hpp>
+#include <covoxslam/mapping/esdf/detail/band_esdf_workspace.hpp>
+#include <covoxslam/mapping/esdf/detail/band_esdf_generation.hpp>
 #include "../../../cuda/mapping/esdf/detail/driver.cuh"
 #include <chrono>
 
