@@ -1,7 +1,7 @@
 #pragma once
 #include <covoxslam/core/result.hpp>
 #include <covoxslam/storage/layout.hpp>
-#include <covoxslam/store/pgo_fields.hpp>
+#include <covoxslam/pipeline/detail/optimization_store.hpp>
 #if defined(covoxslam_has_pgo)
 namespace covoxslam::store
 {

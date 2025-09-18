@@ -1,8 +1,9 @@
 #pragma once
 #include <covoxslam/core/result.hpp>
-#include <covoxslam/store/pgo_fields.hpp>
+#include <covoxslam/optimization/pose_graph.hpp>
 #include <bit>
 #if defined(covoxslam_has_pgo)
+#include <ceronoceres/field_views.hpp>
 namespace covoxslam::store
 {
 struct preparation_key
