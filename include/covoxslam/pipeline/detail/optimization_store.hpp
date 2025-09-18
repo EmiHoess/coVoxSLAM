@@ -6,6 +6,10 @@
 #include <covoxslam/storage/transfers.hpp>
 #include <covoxslam/optimization/pose_graph.hpp>
 #include <covoxslam/optimization/solver.hpp>
+#include <bit>
+#include <chrono>
+#include <mutex>
+#include <ostream>
 #if defined(covoxslam_has_pgo)
 #include <ceronoceres/field_views.hpp>
 
@@ -272,7 +276,171 @@ operation_result<resident_pgo_problem> prepare_resident_snapshot(pgo::graph_snap
     return resident_pgo_problem::create(std::move(graph), std::move(*fields));
 }
 #endif
+struct preparation_key
+{
+    std::vector<std::byte> bytes;
+    bool operator==(const preparation_key&) const = default;
+};
+inline operation_result<preparation_key> make_preparation_key(const pgo::graph_snapshot& graph,
+    const ceronoceres::field_snapshot& fields, std::size_t budget)
+{
+    if (!graph.problem.tsdf_tiles.empty() || !graph.problem.esdf_tiles.empty())
+        return std::unexpected(operation_error{"field cache requires uncopied graph payloads"});
+    preparation_key key;
+    bool overflow{};
+    const auto add = [&]<class t>(t value) {
+        if (overflow || sizeof(t) > budget - key.bytes.size()) { overflow = true; return; }
+        const auto bytes = std::bit_cast<std::array<std::byte, sizeof(t)>>(value);
+        key.bytes.insert(key.bytes.end(), bytes.begin(), bytes.end());
+    };
+    const auto pose = [&](const auto& p) { add(p.x); add(p.y); add(p.z); add(p.yaw); };
+    const auto loss = [&](const auto& l) { add(l.kind); add(l.scale); };
+    const auto& p = graph.problem;
+    add(ceronoceres::field_view_api_version);
+    add(fields.version); add(fields.device);
+    add(fields.dependencies.size());
+    for (auto dependency : fields.dependencies) add(dependency);
+    add(graph.node_ids.size());
+
+    for (auto id : graph.node_ids) add(id);
+    add(p.nodes.size());
+    for (const auto& node : p.nodes) { add(node.id); pose(node.initial); add(node.constant); }
+    add(p.relative_factors.size());
+
+    for (const auto& factor : p.relative_factors) {
+        add(factor.node_i); add(factor.node_j); pose(factor.measured);
+        for (auto value : factor.sqrt_information) add(value);
+        loss(factor.loss); add(factor.diagnostic_id);
+    }
+    add(p.absolute_factors.size());
+
+    for (const auto& factor : p.absolute_factors) {
+        add(factor.reference_node); add(factor.measured_node); pose(factor.measured_relative);
+        for (auto value : factor.sqrt_information) add(value);
+        loss(factor.loss); add(factor.diagnostic_id);
+    }
+    add(p.volumes.size());
+    for (const auto& volume : p.volumes) {
+        add(volume.pose_node); add(volume.voxel_size); add(volume.has_tsdf); add(volume.has_esdf);
+    }
+    add(p.registration_groups.size());
+
+    for (const auto& group : p.registration_groups) {
+        add(group.node_i); add(group.node_j); add(group.volume_i); add(group.volume_j); add(group.field);
+        add(group.sample_begin); add(group.sample_count); add(group.direction_weight); add(group.diagnostic_id);
+    }
+    add(p.registration_samples.size());
+    for (const auto& sample : p.registration_samples) {
+        add(sample.group); add(sample.reference_local_point.x); add(sample.reference_local_point.y);
+        add(sample.reference_local_point.z); add(sample.reference_distance); add(sample.reference_tsdf_weight); add(sample.ordinal);
+    }
+    const auto& model = p.registration;
+    add(model.evaluator); loss(model.loss); add(model.minimum_tsdf_weight); add(model.maximum_confidence_weight);
+    add(model.minimum_gradient_norm); add(model.maximum_absolute_residual_m); add(model.allow_nearest_fallback);
+    add(fields.tiles.size());
+
+    for (const auto& tile : fields.tiles) {
+        add(tile.volume); add(tile.kind); add(tile.x); add(tile.y); add(tile.z);
+        add(std::uintptr_t(tile.distance)); add(std::uintptr_t(tile.weight)); add(std::uintptr_t(tile.flags));
+        add(tile.voxel_stride); add(tile.encoding); add(tile.voxel_size); add(tile.maximum_distance);
+        add(tile.content_epoch); add(tile.allocation_generation); add(tile.slot_generation);
+    }
+    if (overflow) return std::unexpected(operation_error{"preparation key exceeds byte budget"});
+    return key;
+}
+struct preparation_metrics
+{
+    std::size_t hits{}, misses{}, invalidations{}, key_bytes{};
+    double key_ms{}, preparation_ms{};
+};
+struct cached_preparation
+{
+    ceronoceres::PreparedProblem problem;
+    bool reused{};
+};
+inline operation_status write_preparation_metrics(std::ostream& output, const preparation_metrics& metrics,
+    const ceronoceres::SolverTelemetry& solver)
+{
+    output << "preparation cache hits " << metrics.hits << ", misses " << metrics.misses
+        << ", invalidations " << metrics.invalidations << ", key bytes " << metrics.key_bytes
+        << ", key ms " << metrics.key_ms << ", prepare ms " << metrics.preparation_ms << '\n'
+        << "solver upload bytes " << solver.host_to_device_bytes << ", download bytes " << solver.device_to_host_bytes
+        << ", upload ms " << solver.upload_ms << ", total ms " << solver.total_ms << '\n';
+    if (!output) return std::unexpected(operation_error{"preparation report write failed"});
+    return {};
+}
+inline operation_result<ceronoceres::SolveResult> solve_prepared_fields(const cached_preparation& prepared,
+    const pgo::options& execution, const ceronoceres::NativeLmOptions& lm = {})
+{
+    switch (execution.solver) {
+    case pgo::backend::native_cpu: return pgo::solve_cpu(prepared.problem, execution, lm);
+    case pgo::backend::cuda_cold: {
+        auto configured = pgo::cuda_solve_options(execution, lm);
+        if (!configured) return std::unexpected(configured.error());
+        auto solved = ceronoceres::solve_cuda_checked(prepared.problem, configured->common,
+            std::get<ceronoceres::NativeCudaColdOptions>(configured->backend_options));
+        if (const auto* error = std::get_if<ceronoceres::cuda_solve_error>(&solved))
+            return std::unexpected(operation_error{error->message});
+        auto result = std::get<ceronoceres::SolveResult>(std::move(solved));
+        auto valid = pgo::validate_solve_result(result, prepared.problem.node_count(), ceronoceres::Backend::NativeCudaCold);
+        if (!valid) return std::unexpected(valid.error());
+        return result;
+    }
+    default: return std::unexpected(operation_error{"unsupported field solver"});
+    }
+}
+class preparation_cache
+{
+    mutable std::mutex mutex_;
+    std::optional<preparation_key> key_;
+    ceronoceres::PreparedProblem problem_;
+    preparation_metrics metrics_;
+    std::size_t maximum_key_bytes_;
+public:
+    explicit preparation_cache(std::size_t maximum_key_bytes = 64 * 1024 * 1024)
+        : maximum_key_bytes_(maximum_key_bytes) {}
+    preparation_metrics metrics() const
+    {
+        std::lock_guard lock(mutex_);
+        return metrics_;
+    }
+    void invalidate()
+    {
+        std::lock_guard lock(mutex_);
+        key_.reset();
+        problem_ = {};
+        metrics_.key_bytes = 0;
+        ++metrics_.invalidations;
+    }
+    operation_result<cached_preparation> prepare(pgo::graph_snapshot graph,
+        std::shared_ptr<const ceronoceres::field_snapshot> fields)
+    {
+        const auto started = std::chrono::steady_clock::now();
+        auto checked = pgo::validate_graph(graph);
+        if (!checked) return std::unexpected(checked.error());
+        if (!fields) return std::unexpected(operation_error{"cache field snapshot is absent"});
+        const auto error = ceronoceres::validate_fields(graph.problem, *fields);
+        if (!error.empty()) return std::unexpected(operation_error{error});
+        auto key = make_preparation_key(graph, *fields, maximum_key_bytes_);
+        if (!key) return std::unexpected(key.error());
+        const auto generated = std::chrono::steady_clock::now();
+        std::lock_guard lock(mutex_);
+        metrics_.key_ms += std::chrono::duration<double, std::milli>(generated - started).count();
+
+        if (key_ && *key_ == *key) {
+            ++metrics_.hits;
+            return cached_preparation{problem_, true};
+        }
+        auto prepared = ceronoceres::prepare_fields(std::move(graph.problem), std::move(fields));
+        if (const auto* failure = std::get_if<std::string>(&prepared))
+            return std::unexpected(operation_error{*failure});
+        problem_ = std::get<ceronoceres::PreparedProblem>(std::move(prepared));
+        metrics_.preparation_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - generated).count();
+        ++metrics_.misses;
+        metrics_.key_bytes = key->bytes.size();
+        key_ = std::move(*key);
+        return cached_preparation{problem_, false};
+    }
+};
 }
 #endif
-
-#include <covoxslam/store/pgo_cache.hpp>
