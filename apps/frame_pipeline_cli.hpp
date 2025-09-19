@@ -7,10 +7,10 @@
 #include <covoxslam/pipeline/mapping_session.hpp>
 #include "mapping_cli.hpp"
 #include "map_export_cli.hpp"
-#include "sensor_mapping_cli.hpp"
+#include "tsdf_cli.hpp"
 #include "sensor_gather_cli.hpp"
-#include "pgo_cli.hpp"
-#include "store_cli.hpp"
+#include "optimization_cli.hpp"
+#include "map_store_cli.hpp"
 #include "retired_options.hpp"
 
 #include <charconv>

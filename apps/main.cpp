@@ -1,7 +1,7 @@
 #include <covoxslam/input/dataset.hpp>
 #include <covoxslam/core/result.hpp>
 #include "frame_pipeline_cli.hpp"
-#include "sensor_grid_cli.hpp"
+#include "sensor_cli.hpp"
 
 #include <charconv>
 #include <cmath>
