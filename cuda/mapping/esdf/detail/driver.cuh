@@ -1,5 +1,5 @@
 #pragma once
-#include <covoxslam/storage/device_view.hpp>
+#include <covoxslam/storage/views.hpp>
 #include <covoxslam/map_store/device_index.hpp>
 #include <covoxslam/mapping/tsdf/detail/sampling.hpp>
 #include "../../detail/types.cuh"

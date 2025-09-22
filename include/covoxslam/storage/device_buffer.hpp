@@ -2,7 +2,7 @@
 #include <covoxslam/core/result.hpp>
 #include <covoxslam/storage/layout.hpp>
 #include <covoxslam/storage/host_buffer.hpp>
-#include <covoxslam/storage/device_view.hpp>
+#include <covoxslam/storage/views.hpp>
 #include <covoxslam/storage/transfers.hpp>
 #include <cuda_runtime_api.h>
 

@@ -1,6 +1,6 @@
 #pragma once
 #include <covoxslam/storage/host_buffer.hpp>
-#include <covoxslam/storage/ranges.hpp>
+#include <covoxslam/storage/views.hpp>
 
 namespace covoxslam::storage
 {

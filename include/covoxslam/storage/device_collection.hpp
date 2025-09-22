@@ -1,2 +1,2 @@
 #pragma once
-#include <covoxslam/storage/device_view.hpp>
+#include <covoxslam/storage/views.hpp>

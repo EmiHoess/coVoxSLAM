@@ -1,4 +1,4 @@
-#include <covoxslam/storage/device_view.hpp>
+#include <covoxslam/storage/views.hpp>
 #include <cuda_runtime.h>
 #include <new>
 #include <algorithm>

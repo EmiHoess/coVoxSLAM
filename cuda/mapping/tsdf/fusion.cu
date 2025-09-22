@@ -1,6 +1,6 @@
 #include "fusion.cuh"
 #include "allocation.cuh"
-#include <covoxslam/storage/device_view.hpp>
+#include <covoxslam/storage/views.hpp>
 #include "detail/geometry.cuh"
 
 namespace covoxslam::sensor_grid

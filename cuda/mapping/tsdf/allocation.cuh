@@ -1,7 +1,7 @@
 #pragma once
 #include "discovery.cuh"
 #include "detail/tile_key.cuh"
-#include <covoxslam/storage/device_view.hpp>
+#include <covoxslam/storage/views.hpp>
 
 namespace covoxslam::sensor_grid
 {
