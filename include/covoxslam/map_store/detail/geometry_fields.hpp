@@ -2,7 +2,7 @@
 #include <covoxslam/core/geometry.hpp>
 #include <covoxslam/core/result.hpp>
 #include <covoxslam/storage/layout.hpp>
-#include <covoxslam/storage/record_pack.hpp>
+#include <covoxslam/storage/transfers.hpp>
 #include <covoxslam/map_store/detail/geometry.hpp>
 #include <covoxslam/voxel/esdf_encodings.hpp>
 #include <covoxslam/voxel/flags.hpp>

@@ -8,7 +8,7 @@
 #include <covoxslam/map_store/detail/field_access.hpp>
 #include <covoxslam/storage/host_buffer.hpp>
 #include <covoxslam/storage/layout.hpp>
-#include <covoxslam/storage/record_pack.hpp>
+#include <covoxslam/storage/transfers.hpp>
 #if defined(covoxslam_has_cuda)
 #include <covoxslam/storage/device_buffer.hpp>
 #include <covoxslam/map_store/detail/gpu_store.hpp>
