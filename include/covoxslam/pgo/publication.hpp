@@ -1,8 +1,8 @@
 #pragma once
 #include <covoxslam/core/geometry.hpp>
 #include <covoxslam/core/result.hpp>
-#include <covoxslam/optimization/registration.hpp>
-#include <covoxslam/optimization/solver.hpp>
+#include <covoxslam/pgo/registration.hpp>
+#include <covoxslam/pgo/solver.hpp>
 
 #include <cstdint>
 #include <optional>

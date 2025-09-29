@@ -1,4 +1,4 @@
-#include <covoxslam/optimization/pose_graph.hpp>
+#include <covoxslam/pgo/pose_graph.hpp>
 #include <algorithm>
 #include <cmath>
 #include <limits>

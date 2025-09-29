@@ -1,7 +1,7 @@
 #pragma once
 #include <covoxslam/core/geometry.hpp>
 #include <covoxslam/core/result.hpp>
-#include <covoxslam/optimization/solver.hpp>
+#include <covoxslam/pgo/solver.hpp>
 #include <cmath>
 
 namespace covoxslam::pgo::detail

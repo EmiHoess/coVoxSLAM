@@ -1,6 +1,6 @@
 #pragma once
 #include <covoxslam/core/result.hpp>
-#include <covoxslam/optimization/pose_graph.hpp>
+#include <covoxslam/pgo/pose_graph.hpp>
 
 #include <cstddef>
 #include <cstdint>

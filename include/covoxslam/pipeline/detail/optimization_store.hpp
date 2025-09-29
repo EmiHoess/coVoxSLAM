@@ -4,8 +4,8 @@
 #include <covoxslam/storage/layout.hpp>
 #include <covoxslam/map_store/detail/geometry.hpp>
 #include <covoxslam/storage/transfers.hpp>
-#include <covoxslam/optimization/pose_graph.hpp>
-#include <covoxslam/optimization/solver.hpp>
+#include <covoxslam/pgo/pose_graph.hpp>
+#include <covoxslam/pgo/solver.hpp>
 #include <bit>
 #include <chrono>
 #include <mutex>

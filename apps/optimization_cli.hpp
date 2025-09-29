@@ -1,7 +1,7 @@
 #pragma once
 #include <covoxslam/core/result.hpp>
-#include <covoxslam/optimization/solver.hpp>
-#include <covoxslam/optimization/publication.hpp>
+#include <covoxslam/pgo/solver.hpp>
+#include <covoxslam/pgo/publication.hpp>
 #include "cli_lookup.hpp"
 #include <sstream>
 

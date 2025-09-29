@@ -1,11 +1,11 @@
 #pragma once
 #include <covoxslam/core/result.hpp>
 #include <covoxslam/map_store/coordinator.hpp>
-#include <covoxslam/optimization/registration.hpp>
-#include <covoxslam/optimization/solver.hpp>
+#include <covoxslam/pgo/registration.hpp>
+#include <covoxslam/pgo/solver.hpp>
 #include <covoxslam/pipeline/mapping_session.hpp>
 #include <covoxslam/map_store/detail/geometry_capture.hpp>
-#include <covoxslam/optimization/publication.hpp>
+#include <covoxslam/pgo/publication.hpp>
 #include <covoxslam/pipeline/detail/optimization_store.hpp>
 #include <chrono>
 #include <sstream>

@@ -1,5 +1,5 @@
 #pragma once
-#include <covoxslam/optimization/pose_graph.hpp>
+#include <covoxslam/pgo/pose_graph.hpp>
 #include <covoxslam/pipeline/submap.hpp>
 
 #include <array>

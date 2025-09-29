@@ -1,4 +1,4 @@
-#include <covoxslam/optimization/registration.hpp>
+#include <covoxslam/pgo/registration.hpp>
 #include <covoxslam/voxel/flags.hpp>
 #include <algorithm>
 #include <cmath>

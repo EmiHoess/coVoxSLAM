@@ -1,4 +1,4 @@
-#include <covoxslam/optimization/solver.hpp>
+#include <covoxslam/pgo/solver.hpp>
 #include <cmath>
 
 #if defined(covoxslam_has_pgo)

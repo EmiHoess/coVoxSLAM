@@ -62,10 +62,10 @@ target_include_directories(covoxslam_core PRIVATE src/input cuda)
 include(cmake/ceronoceres.cmake)
 if(covoxslam_enable_pgo)
     target_sources(covoxslam_core PRIVATE
-        src/optimization/pose_graph.cpp
-        src/optimization/registration.cpp)
+        src/pgo/pose_graph.cpp
+        src/pgo/registration.cpp)
 endif()
-target_sources(covoxslam_core PRIVATE src/optimization/solver.cpp)
+target_sources(covoxslam_core PRIVATE src/pgo/solver.cpp)
 include(cmake/urd.cmake)
 if(NOT covoxslam_enable_cuda)
     message(STATUS "Host utilities only, coVoxSLAM mapping requires CUDA and URD")
