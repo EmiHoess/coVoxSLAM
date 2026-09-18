@@ -4,6 +4,7 @@
 #include <unordered_set>
 #if defined(covoxslam_has_cuda) && defined(covoxslam_has_urd)
 #include "mapping_session_internal.hpp"
+#include "mapping/esdf/gpu_band_esdf.hpp"
 #endif
 
 namespace covoxslam

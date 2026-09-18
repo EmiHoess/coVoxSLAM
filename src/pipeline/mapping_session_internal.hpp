@@ -11,9 +11,6 @@
 #endif
 #include <chrono>
 #include <sstream>
-#if defined(covoxslam_has_cuda) && defined(covoxslam_has_urd)
-#include <covoxslam/mapping/esdf/detail/gpu_band_esdf.hpp>
-#endif
 
 namespace covoxslam::detail
 {
