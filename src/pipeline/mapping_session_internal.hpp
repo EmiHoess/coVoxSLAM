@@ -13,7 +13,6 @@
 #include <sstream>
 #if defined(covoxslam_has_cuda) && defined(covoxslam_has_urd)
 #include <covoxslam/mapping/esdf/detail/gpu_band_esdf.hpp>
-#include <covoxslam/mapping/esdf/detail/band_esdf_materialize.hpp>
 #endif
 
 namespace covoxslam::detail
