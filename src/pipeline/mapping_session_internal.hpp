@@ -6,7 +6,9 @@
 #include <covoxslam/pipeline/mapping_session.hpp>
 #include <covoxslam/map_store/detail/geometry_capture.hpp>
 #include <covoxslam/pgo/publication.hpp>
-#include <covoxslam/pipeline/detail/optimization_store.hpp>
+#if defined(covoxslam_has_pgo)
+#include "pgo_store_internal.hpp"
+#endif
 #include <chrono>
 #include <sstream>
 #if defined(covoxslam_has_cuda) && defined(covoxslam_has_urd)
