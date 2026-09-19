@@ -200,7 +200,7 @@ public:
 };
 struct device_descriptor
 {
-    std::byte* fields[5]{};
+    std::byte* fields[maximum_schema_fields]{};
     std::size_t size_tiles{}, capacity_tiles{}, tile_stride{}, voxel_stride{};
     std::uint64_t generation{};
     schema record_schema{schema::tsdf};
@@ -354,7 +354,7 @@ void copy_field_range(const map_view<s, source_accessor>& source, std::size_t so
 template<schema s, class source_accessor, class destination_accessor>
 operation_status copy_fields(const map_view<s, source_accessor>& source, std::size_t source_first,
     const map_view<s, destination_accessor>& destination, std::size_t destination_first, std::size_t count,
-    std::uint32_t selected_fields = (1U << field_count<s>) - 1) requires (!destination_accessor::read_only)
+    std::uint32_t selected_fields = all_field_mask<s>) requires (!destination_accessor::read_only)
 {
     auto checked = validate_range(source, {source_first, count});
     if (!checked) return checked;

@@ -79,10 +79,10 @@ template<storage::layout l, storage::schema es = storage::schema::esdf> class gp
         storage::transfer_measurement measured;
         if (copy_values) checked = field->payload.upload_range(source->payload, 0, 0,
             source->payload.size() * tile_voxels,
-            (1U << storage::field_count<s>) - 1, storage::transfer_method::bulk_same_layout, measured);
+            storage::all_field_mask<s>, storage::transfer_method::bulk_same_layout, measured);
         if (device_source)
             checked = field->payload.copy_from(*device_source, 0, 0, source->payload.size() * tile_voxels,
-                (1U << storage::field_count<s>) - 1, storage::transfer_method::bulk_same_layout, measured);
+                storage::all_field_mask<s>, storage::transfer_method::bulk_same_layout, measured);
         if (!checked) return std::unexpected(checked.error());
         checked = field->index.initialize(source->index, generation);
         if (!checked) return std::unexpected(checked.error());
@@ -137,7 +137,7 @@ public:
         storage::transfer_measurement measured;
         checked = (*resident)->payload.download_range(candidate->payload, 0, 0,
             candidate->payload.size() * tile_voxels,
-            (1U << storage::field_count<s>) - 1, storage::transfer_method::bulk_same_layout, measured);
+            storage::all_field_mask<s>, storage::transfer_method::bulk_same_layout, measured);
         if (!checked) return std::unexpected(checked.error());
         candidate->content_epoch = (*resident)->content_epoch;
         return candidate;
@@ -162,7 +162,7 @@ public:
         if (preserve_values)
             checked = candidate->payload.copy_from((*previous)->payload, 0, 0,
                 source->payload.size() * tile_voxels,
-                (1U << storage::field_count<s>) - 1, storage::transfer_method::bulk_same_layout, copied);
+                storage::all_field_mask<s>, storage::transfer_method::bulk_same_layout, copied);
         if (!checked) return checked;
         auto view = candidate->payload.view();
         auto index = candidate->index.view();

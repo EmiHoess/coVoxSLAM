@@ -23,6 +23,20 @@ template<schema s> using value = typename schema_traits<s>::value_type;
 template<schema s> inline constexpr std::size_t record_bytes = sizeof(value<s>);
 template<schema s> inline constexpr std::size_t canonical_tile_bytes = tile_voxels * record_bytes<s>;
 template<schema s> inline constexpr std::size_t field_count = schema_traits<s>::fields;
+inline constexpr std::size_t maximum_schema_fields = field_count<schema::esdf>;
+template<schema s> inline constexpr std::uint32_t all_field_mask =
+    (std::uint32_t{1} << field_count<s>) - 1;
+constexpr std::size_t schema_field_count(schema value) noexcept
+{
+    switch (value)
+    {
+    case schema::tsdf: return field_count<schema::tsdf>;
+    case schema::esdf: return field_count<schema::esdf>;
+    case schema::blocks_esdf: return field_count<schema::blocks_esdf>;
+    case schema::projective_esdf: return field_count<schema::projective_esdf>;
+    default: return 0;
+    }
+}
 static_assert(field_count<schema::tsdf> == 4 && field_count<schema::esdf> == 5 &&
     field_count<schema::blocks_esdf> == 5 && field_count<schema::projective_esdf> == 5);
 template<schema s, std::size_t field>

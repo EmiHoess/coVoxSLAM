@@ -23,19 +23,19 @@ __device__ inline void band_store(band_work_view values, std::size_t tile,
 }
 inline bool band_descriptor_valid(storage::device_descriptor value, storage::schema schema)
 {
-    const bool shape = value.record_schema == schema &&
+    const auto fields = storage::schema_field_count(schema);
+    const bool shape = fields && value.record_schema == schema &&
         storage::valid_pool_soa_descriptor_shape(value) && value.generation &&
         value.capacity_tiles <= UINT32_MAX / tile_voxels;
     if (!shape) return false;
-    const unsigned fields = schema == storage::schema::tsdf ? 4 : 5;
 
-    for (unsigned i = 0; i < fields; ++i)
+    for (std::size_t i = 0; i < fields; ++i)
     {
         const auto address = reinterpret_cast<std::uintptr_t>(value.fields[i]);
         if (!address || address % storage::pool_soa_scalar_alignment ||
             value.capacity_tiles > (UINTPTR_MAX - address) / storage::pool_soa_tile_stride_bytes) return false;
 
-        for (unsigned j = 0; j < i; ++j) {
+        for (std::size_t j = 0; j < i; ++j) {
             const auto other = reinterpret_cast<std::uintptr_t>(value.fields[j]);
             const auto bytes = value.capacity_tiles * storage::pool_soa_tile_stride_bytes;
             if (address < other + bytes && other < address + bytes) return false;
@@ -45,11 +45,13 @@ inline bool band_descriptor_valid(storage::device_descriptor value, storage::sch
 }
 inline bool band_disjoint(storage::device_descriptor a, storage::device_descriptor b)
 {
-    const unsigned fields = a.record_schema == storage::schema::tsdf ? 4 : 5;
+    const auto a_fields = storage::schema_field_count(a.record_schema);
+    const auto b_fields = storage::schema_field_count(b.record_schema);
+    if (!a_fields || !b_fields) return false;
 
-    for (unsigned i = 0; i < fields; ++i)
+    for (std::size_t i = 0; i < a_fields; ++i)
 
-        for (unsigned j = 0; j < 5; ++j) {
+        for (std::size_t j = 0; j < b_fields; ++j) {
             const auto x = reinterpret_cast<std::uintptr_t>(a.fields[i]);
              const auto y = reinterpret_cast<std::uintptr_t>(b.fields[j]);
             if (x < y + b.capacity_tiles * storage::pool_soa_tile_stride_bytes &&

@@ -10,7 +10,7 @@ namespace covoxslam::storage
 {
 struct device_allocation
 {
-    std::byte* allocations[5]{};
+    std::byte* allocations[maximum_schema_fields]{};
     device_descriptor descriptor;
     cudaStream_t stream{};
     bool ready{};

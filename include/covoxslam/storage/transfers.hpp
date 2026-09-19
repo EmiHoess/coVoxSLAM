@@ -284,7 +284,7 @@ operation_status update_field(const map_view<s, accessor>& destination, voxel_ra
 enum class transfer_method { fieldwise_reference, bulk_same_layout };
 struct transfer_endpoint
 {
-    std::byte* fields[5]{};
+    std::byte* fields[maximum_schema_fields]{};
     std::size_t tiles{}, tile_stride{}, voxel_stride{};
     schema record_schema{schema::tsdf};
     layout storage_layout{layout::pool_soa};
@@ -304,7 +304,7 @@ struct transfer_plan
 inline transfer_endpoint transfer_storage(const device_descriptor& source)
 {
     transfer_endpoint result;
-    std::copy_n(source.fields, 5, result.fields);
+    std::copy_n(source.fields, maximum_schema_fields, result.fields);
     result.tiles = source.size_tiles;
     result.tile_stride = source.tile_stride;
     result.voxel_stride = source.voxel_stride;
@@ -327,18 +327,10 @@ template<schema s, layout l> transfer_endpoint transfer_storage(const host_buffe
     }(std::make_index_sequence<field_count<s>>{});
     return result;
 }
-inline std::size_t transfer_fields(schema s)
-{
-    switch (s) {
-    case schema::tsdf: return 4;
-    case schema::esdf: case schema::blocks_esdf: case schema::projective_esdf: return 5;
-    default: return 0;
-    }
-}
 inline operation_status validate_endpoint(const transfer_endpoint& value)
 {
     constexpr auto maximum = std::size_t(std::numeric_limits<std::ptrdiff_t>::max());
-    const auto fields = transfer_fields(value.record_schema);
+    const auto fields = schema_field_count(value.record_schema);
     if (!fields || value.device < -1 || value.tiles > maximum / tile_voxels || !value.tile_stride ||
         value.tile_stride > maximum / std::max<std::size_t>(value.tiles, 1))
         return std::unexpected(operation_error{"invalid transfer descriptor extent"});

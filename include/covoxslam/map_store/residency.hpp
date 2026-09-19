@@ -120,7 +120,7 @@ inline operation_result<memory_bytes> add_memory(memory_bytes first, memory_byte
 struct dirty_slot
 {
     std::uint64_t generation{};
-    std::array<std::uint64_t, 5> versions{};
+    std::array<std::uint64_t, storage::maximum_schema_fields> versions{};
     std::uint32_t fields{};
 };
 struct dirty_record { std::uint32_t slot{}; dirty_slot state; };
@@ -133,7 +133,7 @@ struct dirty_batch
 struct dirty_range { std::size_t first_slot{}, slots{}; std::uint32_t fields{}; };
 template<storage::schema s> class dirty_tracker
 {
-    static constexpr auto mask = (1U << storage::field_count<s>) - 1;
+    static constexpr auto mask = storage::all_field_mask<s>;
     std::uint64_t submap_{};
     std::vector<dirty_slot> slots_;
     static constexpr auto field = s == storage::schema::tsdf ? field_kind::tsdf : field_kind::esdf;
@@ -238,7 +238,7 @@ struct dirty_measurement
 template<storage::schema s> operation_result<std::vector<dirty_range>> validate_dirty(
     const dirty_batch& batch, const cpu_block_index& index, std::uint64_t target_epoch)
 {
-    constexpr auto fields = (1U << storage::field_count<s>) - 1;
+    constexpr auto fields = storage::all_field_mask<s>;
     if (!index.initialized() || batch.submap != index.submap() || batch.field != index.field() || !target_epoch)
         return std::unexpected(operation_error{"dirty transfer identity differs"});
     auto ranges = dirty_ranges(batch, index.slot_count(), fields);
