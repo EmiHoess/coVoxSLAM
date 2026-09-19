@@ -16,7 +16,7 @@ operation_result<transfer_times> gpu_map::implementation::integrate_resident(fie
     if (status) status = check(cudaEventRecord(events[4], stream));
     if (status) status = check(cuda_sensor_allocate_tiles(resident, stream));
     if (status) status = check(cudaEventRecord(events[5], stream));
-    if (status) status = check(cudaMemsetAsync(updates, 0, 8, stream));
+    if (status) status = check(cudaMemsetAsync(updates, 0, sizeof(*updates), stream));
     if (status) status = check(cudaEventRecord(events[2], stream));
     if (status) {
         auto descriptor = soa->descriptor();
@@ -25,7 +25,8 @@ operation_result<transfer_times> gpu_map::implementation::integrate_resident(fie
             settings.voxel_size, settings.maximum_weight, settings.voxel_size, updates, stream));
     }
     if (status) status = check(cudaEventRecord(events[3], stream));
-    if (status) status = check(cudaMemcpyAsync(&result.updates, updates, 8, cudaMemcpyDeviceToHost, stream));
+    if (status) status = check(cudaMemcpyAsync(
+        &result.updates, updates, sizeof(result.updates), cudaMemcpyDeviceToHost, stream));
     if (status) status = check(cudaMemcpyAsync(&counters, discovery.state, sizeof(counters), cudaMemcpyDeviceToHost, stream));
     if (status) status = check(cudaMemcpyAsync(staging.data(), keys, staging.size() * sizeof(*keys), cudaMemcpyDeviceToHost, stream));
     status = wait(status);

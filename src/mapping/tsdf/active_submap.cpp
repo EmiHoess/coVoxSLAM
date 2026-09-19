@@ -1,4 +1,5 @@
 #include "active_submap_internal.hpp"
+#include "primitives/scan.cuh"
 
 namespace covoxslam::sensor_grid
 {
@@ -17,11 +18,18 @@ operation_result<std::unique_ptr<gpu_map>> gpu_map::create(const lookup& table,
     const std::size_t side = (table.grid.side + tile_edge - 1) / tile_edge;
     const std::size_t count = side * side * side;
     const auto hash_capacity = discovery_hash_size(capacity);
-    const std::size_t discovery_bytes = (std::size_t(hash_capacity) + capacity) * 8 + sizeof(discovery_state);
-    const std::size_t resident_bytes = std::size_t(hash_capacity) * 16 +
-        std::size_t(capacity) * 20 + ((std::size_t(capacity) + 255) / 256) * 8;
-    const std::size_t bytes = resident_bytes + discovery_bytes +
-        std::size_t(capacity) * (512 * sizeof(detail::cuda_tsdf_voxel) + 16) + count + 8;
+    const std::size_t discovery_bytes = std::size_t(hash_capacity) * sizeof(std::uint64_t) +
+        std::size_t(capacity) * sizeof(std::uint64_t) + sizeof(discovery_state);
+    const std::size_t resident_bytes =
+        std::size_t(hash_capacity) * sizeof(detail::cuda_resident_hash_entry) +
+        std::size_t(capacity) * (2 * sizeof(std::uint64_t) + sizeof(std::uint32_t)) +
+        detail::scan_block_count(capacity) * sizeof(std::uint64_t);
+    const std::size_t payload_bytes =
+        std::size_t(capacity) * storage::canonical_tile_bytes<storage::schema::tsdf>;
+    const std::size_t topology_bytes = std::size_t(capacity) *
+        (sizeof(detail::cuda_tile_coordinate) + sizeof(std::uint32_t));
+    const std::size_t bytes = resident_bytes + discovery_bytes + payload_bytes + topology_bytes +
+        count * sizeof(std::uint8_t) + sizeof(unsigned long long);
 
     if (!capacity || capacity > 1048576 || device < 0 || bytes > maximum_bytes)
         return std::unexpected(operation_error{"sensor TSDF exceeds storage budget"});
@@ -57,7 +65,7 @@ operation_result<std::unique_ptr<gpu_map>> gpu_map::create(const lookup& table,
     if (status) status = data.allocate(data.resident.hash, hash_capacity);
     if (status) status = data.allocate(data.resident.scratch_keys, capacity);
     if (status) status = data.allocate(data.resident.offsets, capacity);
-    if (status) status = data.allocate(data.resident.sums, (capacity + 255) / 256);
+    if (status) status = data.allocate(data.resident.sums, detail::scan_block_count(capacity));
     if (status) status = data.allocate(data.resident.missing, capacity);
 
     for (auto& event : data.events)

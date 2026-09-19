@@ -117,9 +117,12 @@ int cuda_sensor_discover(field_view source, const std::uint8_t* observed,
     for (float value : transform.translation)
         if (!std::isfinite(value)) return int(cudaErrorInvalidValue);
     const auto stream = static_cast<cudaStream_t>(opaque_stream);
-    auto error = cudaMemsetAsync(view.state, 0, 2 * sizeof(std::uint32_t), stream);
-    if (!error) error = cudaMemsetAsync(view.hash, 255, std::size_t(view.hash_capacity) * 8, stream);
-    if (!error) error = cudaMemsetAsync(view.keys, 255, std::size_t(view.capacity) * 8, stream);
+    auto error = cudaMemsetAsync(view.state, 0,
+        sizeof(view.state->count) + sizeof(view.state->error), stream);
+    if (!error) error = cudaMemsetAsync(view.hash, 255,
+        std::size_t(view.hash_capacity) * sizeof(*view.hash), stream);
+    if (!error) error = cudaMemsetAsync(view.keys, 255,
+        std::size_t(view.capacity) * sizeof(*view.keys), stream);
 
     if (error) return int(error);
     const unsigned n = (source.side + tile_edge - 1) / tile_edge;
