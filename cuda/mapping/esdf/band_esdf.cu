@@ -6,6 +6,14 @@
 
 namespace covoxslam::store
 {
+namespace
+{
+inline constexpr unsigned tile_kernel_threads = 128;
+inline constexpr unsigned tile_kernel_blocks = unsigned(tile_voxels) / tile_kernel_threads;
+inline constexpr unsigned sweep_tiles_per_block = tile_kernel_threads / unsigned(tile_face_voxels);
+static_assert(tile_voxels % tile_kernel_threads == 0);
+static_assert(tile_kernel_threads % tile_face_voxels == 0);
+}
 int run_band_esdf(storage::device_descriptor source, device_index_view source_index,
     storage::device_descriptor target, device_index_view target_index,
     storage::device_descriptor work, const block_key* keys, unsigned count,
@@ -41,7 +49,8 @@ int run_band_esdf(storage::device_descriptor source, device_index_view source_in
     if (error || invalid) return int(error ? error : cudaErrorInvalidValue);
     error = timer.start(stream);
     if (error) return int(error);
-    initialize_band_fields<<<count * 4, 128, 0, stream>>>(input, output, slots, coordinates,
+    initialize_band_fields<<<count * tile_kernel_blocks, tile_kernel_threads, 0, stream>>>(
+        input, output, slots, coordinates,
         count, options.field, squared, status);
     error = cudaGetLastError();
 
@@ -60,7 +69,8 @@ int run_band_esdf(storage::device_descriptor source, device_index_view source_in
         if (error) return int(error);
 
         for (int axis = 0; axis < 3; ++axis) {
-            sweep_band_axis<<<(count + 1) / 2, 128, 0, stream>>>(coordinates, count,
+            sweep_band_axis<<<(count + sweep_tiles_per_block - 1) / sweep_tiles_per_block,
+                tile_kernel_threads, 0, stream>>>(coordinates, count,
                 output, axis, squared, status + 1);
             error = cudaGetLastError();
             if (error) return int(error);
@@ -68,7 +78,8 @@ int run_band_esdf(storage::device_descriptor source, device_index_view source_in
 
         for (int parity = 0; parity < 2; ++parity)
         {
-            relax_band_neighbors<<<count * 4, 128, 0, stream>>>(coordinates, count,
+            relax_band_neighbors<<<count * tile_kernel_blocks, tile_kernel_threads, 0, stream>>>(
+                coordinates, count,
                 output, squared, parity, status + 1);
              error = cudaGetLastError();
             if (error) return int(error);
@@ -84,11 +95,13 @@ int run_band_esdf(storage::device_descriptor source, device_index_view source_in
     if (error) return int(error);
     const band_output_view destination{storage::device_accessor<storage::schema::esdf>{target}};
     if (target.size_tiles) {
-        clear_band_output<<<unsigned(target.size_tiles * 4), 128, 0, stream>>>(destination);
+        clear_band_output<<<unsigned(target.size_tiles * tile_kernel_blocks),
+            tile_kernel_threads, 0, stream>>>(destination);
         error = cudaGetLastError();
         if (error) return int(error);
     }
-    publish_band_fields<<<count * 4, 128, 0, stream>>>(output, destination, slots, coordinates,
+    publish_band_fields<<<count * tile_kernel_blocks, tile_kernel_threads, 0, stream>>>(
+        output, destination, slots, coordinates,
         count, options.field.voxel_size, options.field.maximum_distance_m, status);
     error = cudaGetLastError();
     if (error) return int(error);

@@ -9,6 +9,11 @@ namespace covoxslam::sensor_grid
 using sensor_tsdf_view = storage::device_map_view<storage::schema::tsdf>;
 namespace
 {
+inline constexpr unsigned tile_kernel_threads = 128;
+inline constexpr unsigned tile_kernel_blocks = unsigned(tile_voxels) / tile_kernel_threads;
+static_assert(tile_voxels % tile_kernel_threads == 0);
+static_assert(tile_voxels <= 1024);
+
 __global__ void mask_cells(field_view source, unsigned n, std::uint8_t* flags)
 {
     const auto block = blockIdx.x, local = threadIdx.x;
@@ -29,8 +34,9 @@ __global__ void transfer_cells(field_view source, const std::uint32_t* slots,
     detail::cuda_projective_pose transform, float size, float maximum_weight, float band,
     unsigned long long* count, const discovery_state* resident_state)
 {
-    if (resident_state->error || blockIdx.x / 4 >= resident_state->count) return;
-    const auto slot = slots[blockIdx.x / 4], local = (blockIdx.x % 4) * 128 + threadIdx.x;
+    if (resident_state->error || blockIdx.x / tile_kernel_blocks >= resident_state->count) return;
+    const auto slot = slots[blockIdx.x / tile_kernel_blocks];
+    const auto local = (blockIdx.x % tile_kernel_blocks) * tile_kernel_threads + threadIdx.x;
     const auto key = keys[slot];
     const float3 point{(key.x * tile_edge + int(local % tile_edge) + .5f) * size,
         (key.y * tile_edge + int(local / tile_edge % tile_edge) + .5f) * size,
@@ -68,10 +74,11 @@ int cuda_sensor_resident_soa(field_view source, resident_discovery_view view,
         !(size > 0) || !isfinite(size) || !(maximum_weight > 0) || !isfinite(maximum_weight) ||
         !(band >= 0) || !isfinite(band)) return int(cudaErrorInvalidValue);
 
-    for (unsigned i = 0; i < 4; ++i)
+    for (unsigned i = 0; i < storage::field_count<storage::schema::tsdf>; ++i)
         if (!tiles.fields[i]) return int(cudaErrorInvalidValue);
     sensor_tsdf_view target{storage::device_accessor<storage::schema::tsdf>{tiles}};
-    transfer_cells<<<view.scan.capacity * 4, 128, 0, static_cast<cudaStream_t>(stream)>>>(
+    transfer_cells<<<view.scan.capacity * tile_kernel_blocks, tile_kernel_threads,
+        0, static_cast<cudaStream_t>(stream)>>>(
         source, view.slots, view.keys, target, transform, size, maximum_weight, band, updates, view.scan.state);
     return int(cudaGetLastError());
 }
@@ -79,7 +86,8 @@ int cuda_sensor_mask(field_view source, std::uint8_t* flags, void* stream)
 {
     if (!source.voxels || !source.side || source.side > 1624 || !flags) return int(cudaErrorInvalidValue);
     const auto n = (source.side + tile_edge - 1) / tile_edge;
-    mask_cells<<<n * n * n, 512, 0, static_cast<cudaStream_t>(stream)>>>(source, n, flags);
+    mask_cells<<<n * n * n, unsigned(tile_voxels), 0,
+        static_cast<cudaStream_t>(stream)>>>(source, n, flags);
     return int(cudaGetLastError());
 }
 }
