@@ -64,7 +64,7 @@ __global__ void discover_sensor_tiles(field_view source, const std::uint8_t* obs
 
         for (unsigned a = 0; a < 3; ++a)
             p[a] = __fadd_rn(source.origin, __fmul_rn(__fadd_rn(float(cell[a]),
-                corner & (1U << a) ? 9.f : -1.f), source.voxel_size));
+                corner & (1U << a) ? float(tile_edge + 1) : -1.f), source.voxel_size));
         const auto v = discovery_point(pose, {p[0], p[1], p[2]});
         const float values[]{v.x, v.y, v.z};
 
