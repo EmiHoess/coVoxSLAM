@@ -65,7 +65,7 @@ private:
         if (handle->slot < count) {
             auto view = field_.payload.view();
 
-            for (std::size_t voxel = 0; voxel < 512; ++voxel)
+            for (std::size_t voxel = 0; voxel < tile_voxels; ++voxel)
                 storage::scatter_record(view[handle->slot].voxels[voxel], storage::value<s>{});
         }
         return handle;
@@ -96,7 +96,7 @@ public:
         if (failure_) return std::unexpected(*failure_);
         auto checked = field_.index.resolve(handle);
         if (!checked) { failure_ = checked.error(); return std::unexpected(*failure_); }
-        if (local >= 512) {
+        if (local >= tile_voxels) {
             failure_ = operation_error{"local voxel index is invalid"};
             return std::unexpected(*failure_);
         }
@@ -151,7 +151,7 @@ template<storage::layout l, storage::schema es = storage::schema::esdf> class ma
             auto out = target->payload.view();
 
             for (std::size_t tile = 0; tile < std::min(count, in.size()); ++tile)
-                for (std::size_t voxel = 0; voxel < 512; ++voxel)
+                for (std::size_t voxel = 0; voxel < tile_voxels; ++voxel)
                     storage::scatter_record(out[tile].voxels[voxel], storage::gather_record(in[tile].voxels[voxel]));
         }
         else {
@@ -442,7 +442,7 @@ public:
         (*replacement)->index = std::move(index);
         auto view = (*replacement)->payload.view();
 
-        for (std::size_t voxel = 0; voxel < 512; ++voxel)
+        for (std::size_t voxel = 0; voxel < tile_voxels; ++voxel)
             storage::scatter_record(view[handle->slot].voxels[voxel], storage::value<s>{});
         (*replacement)->content_epoch = *epoch;
         if (source && source->memory) source->memory->retire();
@@ -470,7 +470,7 @@ public:
             if (!checked) return checked;
             auto view = (*replacement)->payload.view();
 
-            for (std::size_t voxel = 0; voxel < 512; ++voxel)
+            for (std::size_t voxel = 0; voxel < tile_voxels; ++voxel)
                 storage::scatter_record(view[handle.slot].voxels[voxel], storage::value<s>{});
             (*replacement)->content_epoch = *epoch;
             if (source->memory) source->memory->retire();
@@ -496,7 +496,7 @@ public:
 
         if (field) return std::unexpected(operation_error{"field import cannot replace published storage"});
         if (keys.size() > maximum_tiles_ || keys.size() > std::numeric_limits<std::uint32_t>::max() ||
-            records.size() / 512 != keys.size() || records.size() % 512)
+            records.size() / tile_voxels != keys.size() || records.size() % tile_voxels)
             return std::unexpected(operation_error{"field payload size is invalid"});
         std::unordered_set<block_key, key_hash> unique;
 
@@ -511,7 +511,7 @@ public:
         auto view = replacement->payload.view();
 
         for (std::size_t i = 0; i < records.size(); ++i)
-            storage::scatter_record<s>(view[i / 512].voxels[i % 512], records[i]);
+            storage::scatter_record<s>(view[i / tile_voxels].voxels[i % tile_voxels], records[i]);
         replacement->content_epoch = 1;
         field = std::move(replacement);
         entry.record.versions.allocation = *allocation;

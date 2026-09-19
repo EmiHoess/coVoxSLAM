@@ -94,12 +94,12 @@ operation_result<geometry_volume_data> geometry_volume(const geometry_snapshot<l
     if (!map) return std::unexpected(operation_error{"geometry submap is absent"});
     const auto& field = select_field<s, es>(*map);
     if (!field) return std::unexpected(operation_error{"geometry field is not captured"});
-    if (field->index.size() > maximum_payload_bytes / (512 * sizeof(storage::value<s>)))
+    if (field->index.size() > maximum_payload_bytes / storage::canonical_tile_bytes<s>)
         return std::unexpected(operation_error{"geometry payload limit exceeded"});
     geometry_volume_data result;
     const auto records = field->index.records();
     const auto view = field->payload.view();
-    std::array<storage::value<s>, 512> packed;
+    std::array<storage::value<s>, tile_voxels> packed;
 
     for (std::size_t i = 0; i < records.size(); ++i) {
         if (!records[i].occupied) continue;
@@ -109,10 +109,11 @@ operation_result<geometry_volume_data> geometry_volume(const geometry_snapshot<l
         for (auto base : bases)
             if (base < INT32_MIN || base + 7 > INT32_MAX) return std::unexpected(operation_error{"geometry tile overflows"});
         std::conditional_t<s == storage::schema::tsdf, tsdf_tile, esdf_tile> tile;
-        auto copied = storage::pack_records(view, i * 512, 512, std::span<storage::value<s>>(packed), {512});
+        auto copied = storage::pack_records(view, i * tile_voxels, tile_voxels,
+            std::span<storage::value<s>>(packed), {tile_voxels});
         if (!copied) return std::unexpected(copied.error());
 
-        for (unsigned j = 0; j < 512; ++j) {
+        for (std::size_t j = 0; j < tile_voxels; ++j) {
             const auto& value = packed[j];
             if constexpr (s == storage::schema::tsdf) {
                 if (!std::isfinite(value.distance) || !std::isfinite(value.weight) || value.weight < 0 ||

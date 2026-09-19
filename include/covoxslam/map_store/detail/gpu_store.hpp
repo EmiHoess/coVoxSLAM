@@ -37,7 +37,7 @@ template<storage::layout l, storage::schema es = storage::schema::esdf> class gp
         if (!payload) return std::unexpected(payload.error());
         auto index = field->index.view();
         if (!index) return std::unexpected(index.error());
-        const auto payload_bytes = payload->capacity_tiles * payload->tile_stride * (l == storage::layout::pool_soa ? storage::field_count<s> : 1);
+        const auto payload_bytes = payload->capacity_tiles * storage::payload_tile_bytes<s, l>;
         const auto index_bytes = index->capacity * sizeof(device_hash_entry);
         if (payload_bytes > std::numeric_limits<std::size_t>::max() - index_bytes)
             return std::unexpected(operation_error{"resident byte accounting overflows"});
@@ -77,10 +77,11 @@ template<storage::layout l, storage::schema es = storage::schema::esdf> class gp
         auto checked = field->payload.initialize(source->payload.size());
         if (!checked) return std::unexpected(checked.error());
         storage::transfer_measurement measured;
-        if (copy_values) checked = field->payload.upload_range(source->payload, 0, 0, source->payload.size() * 512,
+        if (copy_values) checked = field->payload.upload_range(source->payload, 0, 0,
+            source->payload.size() * tile_voxels,
             (1U << storage::field_count<s>) - 1, storage::transfer_method::bulk_same_layout, measured);
         if (device_source)
-            checked = field->payload.copy_from(*device_source, 0, 0, source->payload.size() * 512,
+            checked = field->payload.copy_from(*device_source, 0, 0, source->payload.size() * tile_voxels,
                 (1U << storage::field_count<s>) - 1, storage::transfer_method::bulk_same_layout, measured);
         if (!checked) return std::unexpected(checked.error());
         checked = field->index.initialize(source->index, generation);
@@ -134,7 +135,8 @@ public:
         if (!checked) return std::unexpected(checked.error());
         candidate->index = metadata->index;
         storage::transfer_measurement measured;
-        checked = (*resident)->payload.download_range(candidate->payload, 0, 0, candidate->payload.size() * 512,
+        checked = (*resident)->payload.download_range(candidate->payload, 0, 0,
+            candidate->payload.size() * tile_voxels,
             (1U << storage::field_count<s>) - 1, storage::transfer_method::bulk_same_layout, measured);
         if (!checked) return std::unexpected(checked.error());
         candidate->content_epoch = (*resident)->content_epoch;
@@ -158,7 +160,8 @@ public:
         storage::transfer_measurement copied;
         operation_status checked;
         if (preserve_values)
-            checked = candidate->payload.copy_from((*previous)->payload, 0, 0, source->payload.size() * 512,
+            checked = candidate->payload.copy_from((*previous)->payload, 0, 0,
+                source->payload.size() * tile_voxels,
                 (1U << storage::field_count<s>) - 1, storage::transfer_method::bulk_same_layout, copied);
         if (!checked) return checked;
         auto view = candidate->payload.view();

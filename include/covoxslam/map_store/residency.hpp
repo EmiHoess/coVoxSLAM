@@ -268,7 +268,8 @@ operation_result<dirty_measurement> upload_dirty(const storage::host_buffer<s, h
 
     for (const auto& range : *ranges) {
         storage::transfer_measurement transfer;
-        auto checked = destination.upload_range(source, range.first_slot * 512, range.first_slot * 512, range.slots * 512,
+        auto checked = destination.upload_range(source, range.first_slot * tile_voxels,
+            range.first_slot * tile_voxels, range.slots * tile_voxels,
             range.fields, storage::transfer_method::bulk_same_layout, transfer);
         if (!checked) return std::unexpected(checked.error());
         measured.logical_bytes += transfer.useful_bytes;
@@ -293,7 +294,8 @@ operation_result<dirty_measurement> download_dirty(const storage::device_buffer<
 
     for (const auto& range : *ranges) {
         storage::transfer_measurement transfer;
-        auto checked = source.download_range(destination, range.first_slot * 512, range.first_slot * 512, range.slots * 512,
+        auto checked = source.download_range(destination, range.first_slot * tile_voxels,
+            range.first_slot * tile_voxels, range.slots * tile_voxels,
             range.fields, storage::transfer_method::bulk_same_layout, transfer);
         if (!checked) return std::unexpected(checked.error());
         measured.logical_bytes += transfer.useful_bytes;
