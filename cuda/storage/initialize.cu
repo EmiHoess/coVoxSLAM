@@ -27,11 +27,8 @@ template<schema s> __global__ void initialize_fields_kernel(device_descriptor de
 }
 int initialize_device_fields(device_descriptor descriptor, void* stream) noexcept
 {
-    if (descriptor.storage_layout != layout::pool_soa ||
-        descriptor.tile_stride != pool_soa_tile_stride_bytes ||
-        descriptor.voxel_stride != pool_soa_voxel_stride_bytes ||
-        descriptor.size_tiles > descriptor.capacity_tiles ||
-        !descriptor.generation || descriptor.record_schema == schema::blocks_esdf)
+    if (!valid_pool_soa_descriptor_shape(descriptor) || !descriptor.generation ||
+        descriptor.record_schema == schema::blocks_esdf)
         return int(cudaErrorInvalidValue);
     if (descriptor.capacity_tiles == 0) return int(cudaSuccess);
     const auto count = descriptor.capacity_tiles * tile_voxels;

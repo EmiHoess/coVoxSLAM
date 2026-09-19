@@ -207,6 +207,14 @@ struct device_descriptor
     layout storage_layout{layout::pool_soa};
     int device{-1};
 };
+covoxslam_storage_hd constexpr bool valid_pool_soa_descriptor_shape(
+    const device_descriptor& descriptor) noexcept
+{
+    return descriptor.storage_layout == layout::pool_soa &&
+        descriptor.tile_stride == pool_soa_tile_stride_bytes &&
+        descriptor.voxel_stride == pool_soa_voxel_stride_bytes &&
+        descriptor.size_tiles <= descriptor.capacity_tiles;
+}
 template<schema s, bool constant = false> struct device_accessor
 {
     device_descriptor descriptor;
@@ -215,10 +223,8 @@ template<schema s, bool constant = false> struct device_accessor
     covoxslam_storage_hd std::size_t capacity() const noexcept { return descriptor.capacity_tiles; }
     covoxslam_storage_hd bool valid() const noexcept
     {
-        return descriptor.record_schema == s && descriptor.storage_layout == layout::pool_soa &&
-            descriptor.tile_stride == pool_soa_tile_stride_bytes &&
-            descriptor.voxel_stride == pool_soa_voxel_stride_bytes &&
-            descriptor.generation != 0 && size() <= capacity();
+        return descriptor.record_schema == s && valid_pool_soa_descriptor_shape(descriptor) &&
+            descriptor.generation != 0;
     }
 #if defined(__CUDACC__)
     template<std::size_t field>

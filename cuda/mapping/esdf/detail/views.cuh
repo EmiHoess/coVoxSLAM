@@ -23,11 +23,9 @@ __device__ inline void band_store(band_work_view values, std::size_t tile,
 }
 inline bool band_descriptor_valid(storage::device_descriptor value, storage::schema schema)
 {
-    const bool shape = value.record_schema == schema && value.storage_layout == storage::layout::pool_soa &&
-        value.generation && value.size_tiles <= value.capacity_tiles &&
-        value.capacity_tiles <= UINT32_MAX / tile_voxels &&
-        value.tile_stride == storage::pool_soa_tile_stride_bytes &&
-        value.voxel_stride == storage::pool_soa_voxel_stride_bytes;
+    const bool shape = value.record_schema == schema &&
+        storage::valid_pool_soa_descriptor_shape(value) && value.generation &&
+        value.capacity_tiles <= UINT32_MAX / tile_voxels;
     if (!shape) return false;
     const unsigned fields = schema == storage::schema::tsdf ? 4 : 5;
 
