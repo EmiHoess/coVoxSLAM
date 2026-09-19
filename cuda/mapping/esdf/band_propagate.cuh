@@ -9,16 +9,16 @@ __global__ void sweep_band_axis(const detail::cuda_tile_coordinate* keys, unsign
 {
     const auto line = std::size_t(blockIdx.x) * blockDim.x + threadIdx.x;
 
-    if (line >= std::size_t(count) * 64) return;
-    const auto tile = line / 64;
-     const int a = int(line % 8), b = int(line / 8 % 8);
+    if (line >= std::size_t(count) * tile_face_voxels) return;
+    const auto tile = line / tile_face_voxels;
+     const int a = int(line % tile_edge), b = int(line / tile_edge % tile_edge);
     bool modified{};
 
     for (int pass = 0; pass < 2; ++pass) {
 
-        for (int step = 1; step < 8; ++step)
+        for (int step = 1; step < tile_edge; ++step)
         {
-            const int current = pass ? 7 - step : step;
+            const int current = pass ? tile_edge - 1 - step : step;
             const int previous = current + (pass ? 1 : -1);
             int cell[]{a, b, current}, source[]{a, b, previous};
 
@@ -30,8 +30,8 @@ __global__ void sweep_band_axis(const detail::cuda_tile_coordinate* keys, unsign
                 cell[1] = current; cell[2] = b;
                 source[1] = previous; source[2] = b;
             }
-            const auto local = unsigned(cell[0] + 8 * (cell[1] + 8 * cell[2]));
-            const auto neighbor = unsigned(source[0] + 8 * (source[1] + 8 * source[2]));
+            const auto local = unsigned(cell[0] + tile_edge * (cell[1] + tile_edge * cell[2]));
+            const auto neighbor = unsigned(source[0] + tile_edge * (source[1] + tile_edge * source[2]));
             int position[3];
 
             if (!detail::site_coordinate(keys[tile], int(local), position)) return;
@@ -53,11 +53,14 @@ __global__ void relax_band_neighbors(const detail::cuda_tile_coordinate* keys, u
 {
     const auto i = std::size_t(blockIdx.x) * blockDim.x + threadIdx.x;
 
-    if (i >= std::size_t(count) * 512) return;
-    const auto tile = i / 512;
-    const int local = int(i % 512);
+    if (i >= std::size_t(count) * tile_voxels) return;
+    const auto tile = i / tile_voxels;
+    const int local = int(i % tile_voxels);
 
-    if (((local + (local >> 3) + (local >> 6)) & 1) != parity) return;
+    const int local_x = local % tile_edge;
+    const int local_y = local / tile_edge % tile_edge;
+    const int local_z = local / int(tile_face_voxels);
+    if (((local_x + local_y + local_z) & 1) != parity) return;
     int position[3];
     if (!detail::site_coordinate(keys[tile], local, position)) return;
     auto value = band_load(output, tile, unsigned(local));

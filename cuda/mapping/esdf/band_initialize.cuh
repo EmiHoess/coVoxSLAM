@@ -12,9 +12,9 @@ __global__ void initialize_band_fields(band_tsdf_view input, band_work_view outp
 {
     const auto i = std::size_t(blockIdx.x) * blockDim.x + threadIdx.x;
 
-    if (i >= std::size_t(count) * 512) return;
-    const auto tile = i / 512;
-    const auto local = unsigned(i % 512);
+    if (i >= std::size_t(count) * tile_voxels) return;
+    const auto tile = i / tile_voxels;
+    const auto local = unsigned(i % tile_voxels);
     int position[3];
 
     if (!detail::site_coordinate(coordinates[tile], int(local), position)) {

@@ -9,8 +9,9 @@ __global__ void clear_band_output(band_output_view output)
 {
     const auto i = std::size_t(blockIdx.x) * blockDim.x + threadIdx.x;
 
-    if (i < output.size() * 512)
-        storage::scatter_record<storage::schema::esdf>(output[i / 512].voxels[i % 512], {});
+    if (i < output.size() * tile_voxels)
+        storage::scatter_record<storage::schema::esdf>(
+            output[i / tile_voxels].voxels[i % tile_voxels], {});
 }
 __global__ void publish_band_fields(band_work_view input, band_output_view output,
     const band_tile_slot* slots, const detail::cuda_tile_coordinate* keys,
@@ -18,9 +19,9 @@ __global__ void publish_band_fields(band_work_view input, band_output_view outpu
 {
     const auto i = std::size_t(blockIdx.x) * blockDim.x + threadIdx.x;
 
-    if (i >= std::size_t(count) * 512) return;
-    const auto tile = i / 512;
-    const unsigned local = unsigned(i % 512);
+    if (i >= std::size_t(count) * tile_voxels) return;
+    const auto tile = i / tile_voxels;
+    const unsigned local = unsigned(i % tile_voxels);
     const auto value = band_load(input, tile, local);
     const float extent = maximum / voxel_size;
     const bool clipped = value.squared_distance_voxels >= extent * extent;

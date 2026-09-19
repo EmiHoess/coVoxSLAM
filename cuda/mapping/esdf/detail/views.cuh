@@ -25,7 +25,7 @@ inline bool band_descriptor_valid(storage::device_descriptor value, storage::sch
 {
     const bool shape = value.record_schema == schema && value.storage_layout == storage::layout::pool_soa &&
         value.generation && value.size_tiles <= value.capacity_tiles &&
-        value.capacity_tiles <= UINT32_MAX / 512 && value.tile_stride == 2048 && value.voxel_stride == 4;
+        value.capacity_tiles <= UINT32_MAX / tile_voxels && value.tile_stride == 2048 && value.voxel_stride == 4;
     if (!shape) return false;
     const unsigned fields = schema == storage::schema::tsdf ? 4 : 5;
 

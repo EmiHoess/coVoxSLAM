@@ -10,11 +10,11 @@ struct band_tile_slot
 };
 __device__ inline bool band_coordinate_valid(detail::cuda_tile_coordinate coordinate)
 {
-    const std::int64_t bases[]{std::int64_t(coordinate.x) * 8,
-        std::int64_t(coordinate.y) * 8, std::int64_t(coordinate.z) * 8};
+    const std::int64_t bases[]{std::int64_t(coordinate.x) * tile_edge,
+        std::int64_t(coordinate.y) * tile_edge, std::int64_t(coordinate.z) * tile_edge};
 
     for (auto base : bases)
-        if (base < INT_MIN || base + 7 > INT_MAX) return false;
+        if (base < INT_MIN || base + tile_edge - 1 > INT_MAX) return false;
     return true;
 }
 __device__ inline bool band_neighbor(int value, int direction, int& result)

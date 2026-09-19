@@ -1,6 +1,7 @@
 #pragma once
 #include "../../detail/types.cuh"
 #include <covoxslam/voxel/esdf_encodings.hpp>
+#include <covoxslam/voxel/tile_shape.hpp>
 #include <cuda_runtime.h>
 #include <climits>
 
@@ -15,8 +16,10 @@ __device__ inline bool site_tile_less(cuda_tile_coordinate left, cuda_tile_coord
 __device__ inline bool site_coordinate(cuda_tile_coordinate key, int local, int* position)
 {
     const int blocks[3]{key.x, key.y, key.z};
+    const int offsets[]{local % tile_edge, local / tile_edge % tile_edge,
+        local / int(tile_face_voxels)};
     for (int axis = 0; axis < 3; ++axis) {
-        const auto value = static_cast<long long>(blocks[axis]) * 8 + ((local >> (axis * 3)) & 7);
+        const auto value = static_cast<long long>(blocks[axis]) * tile_edge + offsets[axis];
          if (value < INT_MIN || value > INT_MAX) return false;
         position[axis] = static_cast<int>(value);
     }
@@ -39,12 +42,15 @@ __device__ inline std::size_t site_tile_slot(const cuda_tile_coordinate* keys,
 
 __device__ inline int site_block_index(int coordinate)
 {
-    return coordinate / 8 - (coordinate % 8 < 0 ? 1 : 0);
+    return coordinate / tile_edge - (coordinate % tile_edge < 0 ? 1 : 0);
 }
 
 __device__ inline int site_local_index(int x, int y, int z)
 {
-    return ((x % 8 + 8) % 8) + 8 * (((y % 8 + 8) % 8) + 8 * ((z % 8 + 8) % 8));
+    const int local_x = (x % tile_edge + tile_edge) % tile_edge;
+    const int local_y = (y % tile_edge + tile_edge) % tile_edge;
+    const int local_z = (z % tile_edge + tile_edge) % tile_edge;
+    return local_x + tile_edge * (local_y + tile_edge * local_z);
 }
 
 __device__ inline bool relax_site_distance(cuda_site_esdf_voxel& target,
