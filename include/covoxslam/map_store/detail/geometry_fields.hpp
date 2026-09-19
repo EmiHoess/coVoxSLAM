@@ -104,10 +104,12 @@ operation_result<geometry_volume_data> geometry_volume(const geometry_snapshot<l
     for (std::size_t i = 0; i < records.size(); ++i) {
         if (!records[i].occupied) continue;
         const auto key = records[i].key;
-        const std::int64_t bases[]{std::int64_t(key.x) * 8, std::int64_t(key.y) * 8, std::int64_t(key.z) * 8};
+        const std::int64_t bases[]{std::int64_t(key.x) * tile_edge,
+            std::int64_t(key.y) * tile_edge, std::int64_t(key.z) * tile_edge};
 
         for (auto base : bases)
-            if (base < INT32_MIN || base + 7 > INT32_MAX) return std::unexpected(operation_error{"geometry tile overflows"});
+            if (base < INT32_MIN || base + tile_edge - 1 > INT32_MAX)
+                return std::unexpected(operation_error{"geometry tile overflows"});
         std::conditional_t<s == storage::schema::tsdf, tsdf_tile, esdf_tile> tile;
         auto copied = storage::pack_records(view, i * tile_voxels, tile_voxels,
             std::span<storage::value<s>>(packed), {tile_voxels});
@@ -122,7 +124,10 @@ operation_result<geometry_volume_data> geometry_volume(const geometry_snapshot<l
                 tile.voxels[j] = {value.distance, value.weight, value.sample_count, value.flags};
             }
             else {
-                const int3 position{int(bases[0] + (j & 7)), int(bases[1] + ((j >> 3) & 7)), int(bases[2] + (j >> 6))};
+                const int3 position{
+                    int(bases[0] + std::int64_t(j % tile_edge)),
+                    int(bases[1] + std::int64_t(j / tile_edge % tile_edge)),
+                    int(bases[2] + std::int64_t(j / tile_face_voxels))};
                 auto converted = geometry_esdf<s>(value, position, source.parameters());
                 if (!converted) return std::unexpected(converted.error());
                 tile.voxels[j] = *converted;

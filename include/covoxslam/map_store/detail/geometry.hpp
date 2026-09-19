@@ -3,6 +3,7 @@
 #include <covoxslam/core/result.hpp>
 #include <covoxslam/storage/layout.hpp>
 #include <covoxslam/map_store/snapshot.hpp>
+#include <covoxslam/voxel/tile_geometry.hpp>
 
 #include <climits>
 #include <cmath>
@@ -64,12 +65,11 @@ public:
         if (!map) return std::unexpected(operation_error{"geometry submap is absent"});
         const auto& field = select_field<s, es>(*map);
         if (!field) return std::unexpected(operation_error{"geometry field is not captured"});
-        const auto divide = [](int v) { return v / 8 - (v % 8 < 0); };
-        const auto local = [](int v) { return unsigned((v % 8 + 8) % 8); };
-        const block_key key{id, divide(index.x), divide(index.y), divide(index.z)};
+        const auto block = covoxslam::block_index(index);
+        const block_key key{id, block.x, block.y, block.z};
         auto handle = field->index.find(key);
         if (!handle) return std::optional<storage::value<s>>{};
-        const auto offset = local(index.x) + 8 * (local(index.y) + 8 * local(index.z));
+        const auto offset = covoxslam::local_index(index);
         return storage::gather_record(field->payload.view()[handle->slot].voxels[offset]);
     }
     operation_result<int3> local_index(std::uint64_t id, double x, double y, double z) const
