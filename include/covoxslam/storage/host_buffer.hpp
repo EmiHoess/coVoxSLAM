@@ -25,8 +25,8 @@ template<schema s> using urd_pool = urd::v2::struct_container<value<s>, 0,
 template<schema s> struct storage_traits<s, layout::pool_soa>
 {
     using type = urd_pool<s>;
-    static constexpr std::size_t voxel_stride = 4;
-     static constexpr std::size_t tile_stride = tile_voxels * 4;
+    static constexpr std::size_t voxel_stride = pool_soa_voxel_stride_bytes;
+     static constexpr std::size_t tile_stride = pool_soa_tile_stride_bytes;
     static constexpr std::array<std::size_t, field_count<s>> offsets{};
 };
 #endif

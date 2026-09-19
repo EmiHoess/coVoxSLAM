@@ -344,13 +344,15 @@ inline operation_status validate_endpoint(const transfer_endpoint& value)
         return std::unexpected(operation_error{"invalid transfer descriptor extent"});
     if (value.storage_layout != layout::pool_soa)
         return std::unexpected(operation_error{"transfer requires SoA storage"});
-    if (value.voxel_stride != 4 || value.tile_stride != 2048)
+    if (value.voxel_stride != pool_soa_voxel_stride_bytes ||
+        value.tile_stride != pool_soa_tile_stride_bytes)
         return std::unexpected(operation_error{"invalid SoA transfer strides"});
     const auto bytes = value.tiles * value.tile_stride;
 
     for (std::size_t field = 0; field < fields; ++field) {
         const auto address = reinterpret_cast<std::uintptr_t>(value.fields[field]);
-        if (value.tiles && (!address || address % 4 || address > std::numeric_limits<std::uintptr_t>::max() - bytes))
+        if (value.tiles && (!address || address % pool_soa_scalar_alignment ||
+            address > std::numeric_limits<std::uintptr_t>::max() - bytes))
             return std::unexpected(operation_error{"invalid transfer field address"});
     }
     if (value.tiles) {
@@ -421,8 +423,9 @@ inline operation_result<transfer_plan> plan_transfer(const transfer_endpoint& so
                 const auto* end = transfer_address(source, a, source_first + count - 1);
                 const auto* target = transfer_address(destination, b, destination_first);
                 const auto* last = transfer_address(destination, b, destination_first + count - 1);
-                if (byte_ranges_overlap(begin, std::uintptr_t(end) - std::uintptr_t(begin) + 4,
-                    target, std::uintptr_t(last) - std::uintptr_t(target) + 4))
+                if (byte_ranges_overlap(begin,
+                    std::uintptr_t(end) - std::uintptr_t(begin) + pool_soa_voxel_stride_bytes,
+                    target, std::uintptr_t(last) - std::uintptr_t(target) + pool_soa_voxel_stride_bytes))
                     return std::unexpected(operation_error{"transfer payloads overlap"});
             }
     }
@@ -432,8 +435,10 @@ inline operation_result<transfer_plan> plan_transfer(const transfer_endpoint& so
     std::size_t copied{};
     while (copied < count) {
         const auto a = source_first + copied, b = destination_first + copied;
-        if (bulk && source.storage_layout == layout::pool_soa && source.tile_stride == 2048 && destination.tile_stride == 2048) {
-            const auto bytes = (count - copied) * 4;
+        if (bulk && source.storage_layout == layout::pool_soa &&
+            source.tile_stride == pool_soa_tile_stride_bytes &&
+            destination.tile_stride == pool_soa_tile_stride_bytes) {
+            const auto bytes = (count - copied) * pool_soa_voxel_stride_bytes;
 
             for (std::size_t f = 0; f < field_count; ++f) {
                 if (!(fields & (1U << f))) continue;
@@ -449,14 +454,18 @@ inline operation_result<transfer_plan> plan_transfer(const transfer_endpoint& so
 
         for (std::size_t field = 0; field < field_count; ++field) {
             if (!(fields & (1U << field))) continue;
-            if (method == transfer_method::bulk_same_layout && source.voxel_stride == 4 && destination.voxel_stride == 4) {
+            if (method == transfer_method::bulk_same_layout &&
+                source.voxel_stride == pool_soa_voxel_stride_bytes &&
+                destination.voxel_stride == pool_soa_voxel_stride_bytes) {
                 checked = append_transfer(result, {transfer_address(source, field, a), transfer_address(destination, field, b),
-                    length * 4, length * 4, length * 4, 1}, maximum_pitch);
+                    length * pool_soa_voxel_stride_bytes, length * pool_soa_voxel_stride_bytes,
+                    length * pool_soa_voxel_stride_bytes, 1}, maximum_pitch);
                 result.fallback = true;
             }
             else {
                 checked = append_transfer(result, {transfer_address(source, field, a), transfer_address(destination, field, b),
-                    source.voxel_stride, destination.voxel_stride, 4, length}, maximum_pitch);
+                    source.voxel_stride, destination.voxel_stride,
+                    pool_soa_voxel_stride_bytes, length}, maximum_pitch);
             }
             if (!checked) return std::unexpected(checked.error());
         }

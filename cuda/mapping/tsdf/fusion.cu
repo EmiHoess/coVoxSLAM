@@ -64,7 +64,8 @@ int cuda_sensor_resident_soa(field_view source, resident_discovery_view view,
     if (!valid_resident_discovery(view) || !sampling_detail::valid_view(source) ||
         tiles.record_schema != storage::schema::tsdf || tiles.storage_layout != storage::layout::pool_soa ||
         tiles.size_tiles < view.scan.capacity || tiles.size_tiles > tiles.capacity_tiles || !tiles.generation ||
-        tiles.tile_stride != 2048 || tiles.voxel_stride != 4 || !updates ||
+        tiles.tile_stride != storage::pool_soa_tile_stride_bytes ||
+        tiles.voxel_stride != storage::pool_soa_voxel_stride_bytes || !updates ||
         !(size > 0) || !isfinite(size) || !(maximum_weight > 0) || !isfinite(maximum_weight) ||
         !(band >= 0) || !isfinite(band)) return int(cudaErrorInvalidValue);
 

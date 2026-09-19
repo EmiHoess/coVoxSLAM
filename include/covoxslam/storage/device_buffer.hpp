@@ -204,7 +204,8 @@ operation_status device_buffer<s, l>::upload(const host_buffer<s, host_layout>& 
             for (std::size_t i = 0; i < field_count<s> && submitted == cudaSuccess; ++i)
                 submitted = cudaMemcpy2DAsync(reinterpret_cast<void*>(reinterpret_cast<std::uintptr_t>(state_->descriptor.fields[i]) +
                     tile * traits::tile_stride), traits::voxel_stride, fields[i], storage_traits<s, host_layout>::voxel_stride,
-                    4, tile_voxels, cudaMemcpyHostToDevice, state_->stream);
+                    pool_soa_voxel_stride_bytes, tile_voxels,
+                    cudaMemcpyHostToDevice, state_->stream);
         }(std::make_index_sequence<field_count<s>>{});
     }
     const auto completed = cudaStreamSynchronize(state_->stream);
@@ -230,7 +231,8 @@ operation_status device_buffer<s, l>::download(host_buffer<s, host_layout>& dest
             for (std::size_t i = 0; i < field_count<s> && submitted == cudaSuccess; ++i)
                 submitted = cudaMemcpy2DAsync(fields[i], storage_traits<s, host_layout>::voxel_stride,
                     reinterpret_cast<const void*>(reinterpret_cast<std::uintptr_t>(state_->descriptor.fields[i]) + tile * traits::tile_stride),
-                    traits::voxel_stride, 4, tile_voxels, cudaMemcpyDeviceToHost, state_->stream);
+                    traits::voxel_stride, pool_soa_voxel_stride_bytes, tile_voxels,
+                    cudaMemcpyDeviceToHost, state_->stream);
         }(std::make_index_sequence<field_count<s>>{});
     }
     const auto completed = cudaStreamSynchronize(state_->stream);

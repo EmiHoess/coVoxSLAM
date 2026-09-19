@@ -25,18 +25,21 @@ inline bool band_descriptor_valid(storage::device_descriptor value, storage::sch
 {
     const bool shape = value.record_schema == schema && value.storage_layout == storage::layout::pool_soa &&
         value.generation && value.size_tiles <= value.capacity_tiles &&
-        value.capacity_tiles <= UINT32_MAX / tile_voxels && value.tile_stride == 2048 && value.voxel_stride == 4;
+        value.capacity_tiles <= UINT32_MAX / tile_voxels &&
+        value.tile_stride == storage::pool_soa_tile_stride_bytes &&
+        value.voxel_stride == storage::pool_soa_voxel_stride_bytes;
     if (!shape) return false;
     const unsigned fields = schema == storage::schema::tsdf ? 4 : 5;
 
     for (unsigned i = 0; i < fields; ++i)
     {
         const auto address = reinterpret_cast<std::uintptr_t>(value.fields[i]);
-        if (!address || address % 4 || value.capacity_tiles > (UINTPTR_MAX - address) / 2048) return false;
+        if (!address || address % storage::pool_soa_scalar_alignment ||
+            value.capacity_tiles > (UINTPTR_MAX - address) / storage::pool_soa_tile_stride_bytes) return false;
 
         for (unsigned j = 0; j < i; ++j) {
             const auto other = reinterpret_cast<std::uintptr_t>(value.fields[j]);
-            const auto bytes = value.capacity_tiles * 2048;
+            const auto bytes = value.capacity_tiles * storage::pool_soa_tile_stride_bytes;
             if (address < other + bytes && other < address + bytes) return false;
         }
     }
@@ -51,7 +54,8 @@ inline bool band_disjoint(storage::device_descriptor a, storage::device_descript
         for (unsigned j = 0; j < 5; ++j) {
             const auto x = reinterpret_cast<std::uintptr_t>(a.fields[i]);
              const auto y = reinterpret_cast<std::uintptr_t>(b.fields[j]);
-            if (x < y + b.capacity_tiles * 2048 && y < x + a.capacity_tiles * 2048) return false;
+            if (x < y + b.capacity_tiles * storage::pool_soa_tile_stride_bytes &&
+                y < x + a.capacity_tiles * storage::pool_soa_tile_stride_bytes) return false;
         }
     return true;
 }

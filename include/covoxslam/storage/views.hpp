@@ -216,7 +216,8 @@ template<schema s, bool constant = false> struct device_accessor
     covoxslam_storage_hd bool valid() const noexcept
     {
         return descriptor.record_schema == s && descriptor.storage_layout == layout::pool_soa &&
-            descriptor.tile_stride == 2048 && descriptor.voxel_stride == 4 &&
+            descriptor.tile_stride == pool_soa_tile_stride_bytes &&
+            descriptor.voxel_stride == pool_soa_voxel_stride_bytes &&
             descriptor.generation != 0 && size() <= capacity();
     }
 #if defined(__CUDACC__)
