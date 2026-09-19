@@ -179,7 +179,7 @@ template<schema s, std::size_t field, class accessor> operation_status gather_fi
             copied += length;
         }
         else {
-            auto v = source[first / 512].voxels[first % 512];
+            auto v = source[first / tile_voxels].voxels[first % tile_voxels];
             copy_scalar_bits(output[copied++], std::get<field>(scalar_fields<s>(v)));
         }
     }
@@ -201,7 +201,7 @@ template<schema s, std::size_t field, class accessor> operation_status assign_fi
             copied += length;
         }
         else {
-            auto v = destination[first / 512].voxels[first % 512];
+            auto v = destination[first / tile_voxels].voxels[first % tile_voxels];
             copy_scalar_bits(std::get<field>(scalar_fields<s>(v)), input[copied++]);
         }
     }
@@ -216,7 +216,7 @@ template<schema s, std::size_t field, class accessor> operation_status gather_fi
         return std::unexpected(operation_error{"indexed field output extent is invalid"});
     const auto bytes = indices.size() * sizeof(field_type<s, field>);
     if (byte_ranges_overlap(indices.data(), indices.size_bytes(), output.data(), bytes) ||
-        overlaps_bytes(source, {0, source.size() * 512}, output.data(), bytes))
+        overlaps_bytes(source, {0, source.size() * tile_voxels}, output.data(), bytes))
         return std::unexpected(operation_error{"indexed field output aliases an input"});
 
     for (auto index : indices) {
@@ -225,7 +225,7 @@ template<schema s, std::size_t field, class accessor> operation_status gather_fi
     }
 
     for (std::size_t i = 0; i < indices.size(); ++i) {
-        auto v = source[indices[i] / 512].voxels[indices[i] % 512];
+        auto v = source[indices[i] / tile_voxels].voxels[indices[i] % tile_voxels];
         copy_scalar_bits(output[i], std::get<field>(scalar_fields<s>(v)));
     }
     return {};
@@ -238,7 +238,7 @@ template<schema s, std::size_t field, class accessor> operation_status assign_fi
     if (!checked) return checked;
     if (indices.size() > input.size() || indices.size() > std::size_t(std::numeric_limits<std::ptrdiff_t>::max()) / sizeof(std::size_t))
         return std::unexpected(operation_error{"indexed field input extent is invalid"});
-    const voxel_range extent{0, destination.size() * voxels_per_tile};
+    const voxel_range extent{0, destination.size() * tile_voxels};
 
     if (overlaps_bytes(destination, extent, input.data(), indices.size() * sizeof(field_type<s, field>)) ||
         overlaps_bytes(destination, extent, indices.data(), indices.size_bytes()))
@@ -251,7 +251,7 @@ template<schema s, std::size_t field, class accessor> operation_status assign_fi
 
     for (std::size_t i = 0; i < indices.size(); ++i)
     {
-        auto v = destination[indices[i] / 512].voxels[indices[i] % 512];
+        auto v = destination[indices[i] / tile_voxels].voxels[indices[i] % tile_voxels];
         copy_scalar_bits(std::get<field>(scalar_fields<s>(v)), input[i]);
     }
     return {};
@@ -273,7 +273,7 @@ operation_status update_field(const map_view<s, accessor>& destination, voxel_ra
             copied += length;
         }
         else {
-            auto v = destination[first / 512].voxels[first % 512];
+            auto v = destination[first / tile_voxels].voxels[first % tile_voxels];
             auto& scalar = std::get<field>(scalar_fields<s>(v));
             scalar = update(scalar);
             ++copied;
@@ -339,7 +339,7 @@ inline operation_status validate_endpoint(const transfer_endpoint& value)
 {
     constexpr auto maximum = std::size_t(std::numeric_limits<std::ptrdiff_t>::max());
     const auto fields = transfer_fields(value.record_schema);
-    if (!fields || value.device < -1 || value.tiles > maximum / 512 || !value.tile_stride ||
+    if (!fields || value.device < -1 || value.tiles > maximum / tile_voxels || !value.tile_stride ||
         value.tile_stride > maximum / std::max<std::size_t>(value.tiles, 1))
         return std::unexpected(operation_error{"invalid transfer descriptor extent"});
     if (value.storage_layout != layout::pool_soa)
@@ -368,7 +368,7 @@ inline operation_status validate_endpoint(const transfer_endpoint& value)
 inline std::byte* transfer_address(const transfer_endpoint& value, std::size_t field, std::size_t voxel)
 {
     return reinterpret_cast<std::byte*>(reinterpret_cast<std::uintptr_t>(value.fields[field]) +
-        voxel / 512 * value.tile_stride + voxel % 512 * value.voxel_stride);
+        voxel / tile_voxels * value.tile_stride + voxel % tile_voxels * value.voxel_stride);
 }
 inline operation_status append_transfer(transfer_plan& plan, transfer_region region, std::size_t maximum_pitch)
 {
@@ -400,8 +400,8 @@ inline operation_result<transfer_plan> plan_transfer(const transfer_endpoint& so
     if (!checked) return std::unexpected(checked.error());
     const auto field_count = transfer_fields(source.record_schema);
     if (source.record_schema != destination.record_schema || fields >> field_count ||
-        source_first > source.tiles * 512 || count > source.tiles * 512 - source_first ||
-        destination_first > destination.tiles * 512 || count > destination.tiles * 512 - destination_first ||
+        source_first > source.tiles * tile_voxels || count > source.tiles * tile_voxels - source_first ||
+        destination_first > destination.tiles * tile_voxels || count > destination.tiles * tile_voxels - destination_first ||
         (source.device >= 0 && destination.device >= 0 && source.device != destination.device) ||
         (method != transfer_method::fieldwise_reference && method != transfer_method::bulk_same_layout))
         return std::unexpected(operation_error{"incompatible transfer ranges"});
@@ -444,7 +444,8 @@ inline operation_result<transfer_plan> plan_transfer(const transfer_endpoint& so
             copied = count;
             continue;
         }
-        const auto length = std::min({count - copied, 512 - a % 512, 512 - b % 512});
+        const auto length = std::min({count - copied, tile_voxels - a % tile_voxels,
+            tile_voxels - b % tile_voxels});
 
         for (std::size_t field = 0; field < field_count; ++field) {
             if (!(fields & (1U << field))) continue;

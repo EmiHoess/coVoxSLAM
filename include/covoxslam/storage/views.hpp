@@ -72,7 +72,7 @@ template<schema s, class accessor> struct voxel_array_view
 {
     accessor access;
     std::size_t tile{};
-    covoxslam_storage_hd constexpr std::size_t size() const noexcept { return voxels_per_tile; }
+    covoxslam_storage_hd constexpr std::size_t size() const noexcept { return tile_voxels; }
     covoxslam_storage_hd auto operator[](std::size_t voxel) const noexcept
     {
         return bind_voxel<s>(access, tile, voxel);
@@ -166,7 +166,7 @@ template<schema s, class accessor> struct device_voxel_array
 {
     accessor access;
     std::size_t tile{};
-    covoxslam_storage_hd constexpr std::size_t size() const noexcept { return 512; }
+    covoxslam_storage_hd constexpr std::size_t size() const noexcept { return tile_voxels; }
 #if defined(__CUDACC__)
     __device__ auto operator[](std::size_t voxel) const noexcept
     {
@@ -245,7 +245,7 @@ operation_result<voxel_reference<s, accessor::read_only>> checked_at(
     auto selected = checked_at(view, tile);
 
     if (!selected) return std::unexpected(selected.error());
-    if (voxel >= voxels_per_tile) return std::unexpected(operation_error{"voxel index is outside tile"});
+    if (voxel >= tile_voxels) return std::unexpected(operation_error{"voxel index is outside tile"});
     return selected->voxels[voxel];
 }
 struct voxel_range { std::size_t first{}, count{}; };
@@ -256,16 +256,16 @@ template<class t> void copy_scalar_bits(t& destination, const t& source) noexcep
 template<schema s, class accessor> operation_status validate_range(const map_view<s, accessor>& source, voxel_range range)
 {
     if (!source.valid()) return std::unexpected(operation_error{"range source view is stale"});
-    if (source.size() > std::numeric_limits<std::size_t>::max() / voxels_per_tile)
+    if (source.size() > std::numeric_limits<std::size_t>::max() / tile_voxels)
         return std::unexpected(operation_error{"range extent overflows"});
-    const auto extent = source.size() * voxels_per_tile;
+    const auto extent = source.size() * tile_voxels;
     if (range.first > extent || range.count > extent - range.first)
         return std::unexpected(operation_error{"voxel range exceeds collection"});
     return {};
 }
 inline std::size_t tile_segment_size(std::size_t first, std::size_t remaining) noexcept
 {
-    return std::min(remaining, voxels_per_tile - first % voxels_per_tile);
+    return std::min(remaining, tile_voxels - first % tile_voxels);
 }
 inline bool byte_ranges_overlap(const void* first, std::size_t first_bytes, const void* second, std::size_t second_bytes) noexcept
 {
@@ -279,8 +279,8 @@ template<schema s, class accessor> bool overlaps_bytes(const map_view<s, accesso
     while (range.count)
     {
         const auto count = tile_segment_size(range.first, range.count);
-        auto first = source[range.first / 512].voxels[range.first % 512];
-        auto last = source[range.first / 512].voxels[range.first % 512 + count - 1];
+        auto first = source[range.first / tile_voxels].voxels[range.first % tile_voxels];
+        auto last = source[range.first / tile_voxels].voxels[range.first % tile_voxels + count - 1];
         const auto begins = scalar_fields<s>(first), ends = scalar_fields<s>(last);
         const bool overlap = [&]<std::size_t... field>(std::index_sequence<field...>) {
             const auto check = [&](const auto& begin, const auto& end) {
@@ -308,7 +308,7 @@ template<schema s, class accessor> operation_status copy_records(const map_view<
         return std::unexpected(operation_error{"record ranges overlap"});
     {
         for (std::size_t i = 0; i < count; ++i) {
-            auto input = source[(first + i) / 512].voxels[(first + i) % 512];
+            auto input = source[(first + i) / tile_voxels].voxels[(first + i) % tile_voxels];
             const auto fields = scalar_fields<s>(input);
             auto output = scalar_fields<s>(destination[i]);
             [&]<std::size_t... field>(std::index_sequence<field...>) {
@@ -335,8 +335,8 @@ void copy_field_range(const map_view<s, source_accessor>& source, std::size_t so
         }
         else {
             const auto a = source_first + copied, b = destination_first + copied;
-            auto input = source[a / 512].voxels[a % 512];
-            auto output = destination[b / 512].voxels[b % 512];
+            auto input = source[a / tile_voxels].voxels[a % tile_voxels];
+            auto output = destination[b / tile_voxels].voxels[b % tile_voxels];
             auto&& value = std::get<field>(scalar_fields<s>(input));
             auto&& target = std::get<field>(scalar_fields<s>(output));
             copy_scalar_bits(target, value);

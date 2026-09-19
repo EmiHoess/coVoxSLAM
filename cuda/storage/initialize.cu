@@ -8,9 +8,9 @@ namespace covoxslam::storage
 template<schema s> __global__ void initialize_fields_kernel(device_descriptor descriptor)
 {
     for (std::size_t i = std::size_t(blockIdx.x) * blockDim.x + threadIdx.x;
-        i < descriptor.capacity_tiles * voxels_per_tile; i += std::size_t(blockDim.x) * gridDim.x)
+        i < descriptor.capacity_tiles * tile_voxels; i += std::size_t(blockDim.x) * gridDim.x)
     {
-        const auto offset = i / voxels_per_tile * descriptor.tile_stride + i % voxels_per_tile * descriptor.voxel_stride;
+        const auto offset = i / tile_voxels * descriptor.tile_stride + i % tile_voxels * descriptor.voxel_stride;
         ::new (static_cast<void*>(descriptor.fields[0] + offset)) float{};
         if constexpr (s == schema::tsdf) {
             ::new (static_cast<void*>(descriptor.fields[1] + offset)) float{};
@@ -32,7 +32,7 @@ int initialize_device_fields(device_descriptor descriptor, void* stream) noexcep
         !descriptor.generation || descriptor.record_schema == schema::blocks_esdf)
         return int(cudaErrorInvalidValue);
     if (descriptor.capacity_tiles == 0) return int(cudaSuccess);
-    const auto count = descriptor.capacity_tiles * voxels_per_tile;
+    const auto count = descriptor.capacity_tiles * tile_voxels;
     const unsigned blocks = unsigned(std::min<std::size_t>((count + 255) / 256, 65535));
     const auto queue = static_cast<cudaStream_t>(stream);
     switch (descriptor.record_schema)

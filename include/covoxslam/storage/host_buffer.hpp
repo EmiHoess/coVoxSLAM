@@ -26,7 +26,7 @@ template<schema s> struct storage_traits<s, layout::pool_soa>
 {
     using type = urd_pool<s>;
     static constexpr std::size_t voxel_stride = 4;
-     static constexpr std::size_t tile_stride = voxels_per_tile * 4;
+     static constexpr std::size_t tile_stride = tile_voxels * 4;
     static constexpr std::array<std::size_t, field_count<s>> offsets{};
 };
 #endif
@@ -36,7 +36,7 @@ template<schema s, layout l> inline constexpr std::size_t payload_tile_bytes =
 template<schema s, layout l, std::size_t field, class t>
 decltype(auto) storage_field(t& storage, std::size_t tile, std::size_t voxel) noexcept
 {
-    return storage.template get<field>()[tile * voxels_per_tile + voxel];
+    return storage.template get<field>()[tile * tile_voxels + voxel];
 }
 template<schema s, layout l> class host_buffer
 {
@@ -50,12 +50,12 @@ template<schema s, layout l> class host_buffer
     template<std::size_t... i> static void initialize_fields(storage_type& storage,
         std::size_t count, std::index_sequence<i...>)
     {
-        (storage.template get<i>().resize(count * voxels_per_tile), ...);
+        (storage.template get<i>().resize(count * tile_voxels), ...);
     }
     static operation_status check_capacity(std::size_t count)
     {
         constexpr auto bound = std::size_t(std::numeric_limits<std::ptrdiff_t>::max());
-        constexpr auto bytes = std::max(sizeof(value<s>) * voxels_per_tile, traits::tile_stride);
+        constexpr auto bytes = std::max(sizeof(value<s>) * tile_voxels, traits::tile_stride);
         if (count > bound / bytes)
             return std::unexpected(operation_error{"collection capacity exceeds addressable storage"});
         return {};
@@ -63,14 +63,14 @@ template<schema s, layout l> class host_buffer
     template<std::size_t... i> void copy_live(storage_type& destination, std::index_sequence<i...>) const
     {
         for (std::size_t tile = 0; tile < size_; ++tile)
-            for (std::size_t voxel = 0; voxel < voxels_per_tile; ++voxel)
+            for (std::size_t voxel = 0; voxel < tile_voxels; ++voxel)
                 ((storage_field<s, l, i>(destination, tile, voxel) =
                     storage_field<s, l, i>(std::as_const(*storage_), tile, voxel)), ...);
     }
     template<std::size_t... i> void zero_range(std::size_t first, std::size_t last, std::index_sequence<i...>) noexcept
     {
         for (std::size_t tile = first; tile < last; ++tile)
-            for (std::size_t voxel = 0; voxel < voxels_per_tile; ++voxel)
+            for (std::size_t voxel = 0; voxel < tile_voxels; ++voxel)
                 ((storage_field<s, l, i>(*storage_, tile, voxel) = field_type<s, i>{}), ...);
     }
 public:
@@ -91,8 +91,8 @@ public:
         template<std::size_t field> auto field_segment(std::size_t first) const noexcept
         {
             using scalar_type = std::conditional_t<constant, const field_type<s, field>, field_type<s, field>>;
-            const auto count = size_ * voxels_per_tile - first;
-            return std::span<scalar_type>(&owner_->template scalar<field>(first / voxels_per_tile, first % voxels_per_tile), count);
+            const auto count = size_ * tile_voxels - first;
+            return std::span<scalar_type>(&owner_->template scalar<field>(first / tile_voxels, first % tile_voxels), count);
         }
         std::size_t size() const noexcept { return size_; }
         std::size_t capacity() const noexcept { return capacity_; }

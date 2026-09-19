@@ -21,7 +21,7 @@ template<> struct schema_traits<schema::blocks_esdf> { using value_type = blocks
 template<> struct schema_traits<schema::projective_esdf> { using value_type = projective_esdf_value; static constexpr std::size_t fields = 5; };
 template<schema s> using value = typename schema_traits<s>::value_type;
 template<schema s> inline constexpr std::size_t record_bytes = sizeof(value<s>);
-template<schema s> inline constexpr std::size_t canonical_tile_bytes = voxels_per_tile * record_bytes<s>;
+template<schema s> inline constexpr std::size_t canonical_tile_bytes = tile_voxels * record_bytes<s>;
 template<schema s> inline constexpr std::size_t field_count = schema_traits<s>::fields;
 static_assert(field_count<schema::tsdf> == 4 && field_count<schema::esdf> == 5 &&
     field_count<schema::blocks_esdf> == 5 && field_count<schema::projective_esdf> == 5);
@@ -42,5 +42,5 @@ static_assert(std::is_same_v<field_type<schema::blocks_esdf, 0>, float> &&
 static_assert(std::is_same_v<field_type<schema::projective_esdf, 0>, float> &&
     std::is_same_v<field_type<schema::projective_esdf, 1>, std::int32_t> &&
     std::is_same_v<field_type<schema::projective_esdf, 4>, std::uint32_t>);
-template<schema s> struct aos_tile { std::array<value<s>, voxels_per_tile> voxels{}; };
+template<schema s> struct aos_tile { std::array<value<s>, tile_voxels> voxels{}; };
 }
