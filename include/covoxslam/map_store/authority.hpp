@@ -1,8 +1,6 @@
 #pragma once
 #include <covoxslam/core/result.hpp>
-#include <covoxslam/storage/layout.hpp>
-#include <covoxslam/storage/schema.hpp>
-#include <covoxslam/map_store/key.hpp>
+#include <cstdint>
 #include <limits>
 #include <memory>
 #include <mutex>
@@ -24,13 +22,6 @@ struct tile_handle
 };
 struct epochs {
     std::uint64_t descriptor{1}, allocation{1}, tsdf{}, esdf{}, esdf_source{}, pose{1};
-};
-struct layout_version
-{
-    storage::schema schema{};
-    storage::layout layout{};
-    std::uint32_t format{1}, voxels_per_tile{512};
-    bool operator==(const layout_version&) const = default;
 };
 struct pose_record
 {
