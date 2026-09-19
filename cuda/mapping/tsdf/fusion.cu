@@ -1,6 +1,7 @@
 #include "fusion.cuh"
 #include "allocation.cuh"
 #include <covoxslam/storage/views.hpp>
+#include <covoxslam/voxel/tile_shape.hpp>
 #include "detail/geometry.cuh"
 
 namespace covoxslam::sensor_grid
@@ -11,9 +12,9 @@ namespace
 __global__ void mask_cells(field_view source, unsigned n, std::uint8_t* flags)
 {
     const auto block = blockIdx.x, local = threadIdx.x;
-    const auto x = block % n * 8 + local % 8;
-    const auto y = block / n % n * 8 + local / 8 % 8;
-    const auto z = block / (n * n) * 8 + local / 64;
+    const auto x = block % n * tile_edge + local % tile_edge;
+    const auto y = block / n % n * tile_edge + local / tile_edge % tile_edge;
+    const auto z = block / (n * n) * tile_edge + local / tile_face_voxels;
     bool observed{};
 
     if (x < source.side && y < source.side && z < source.side) {
@@ -31,8 +32,9 @@ __global__ void transfer_cells(field_view source, const std::uint32_t* slots,
     if (resident_state->error || blockIdx.x / 4 >= resident_state->count) return;
     const auto slot = slots[blockIdx.x / 4], local = (blockIdx.x % 4) * 128 + threadIdx.x;
     const auto key = keys[slot];
-    const float3 point{(key.x * 8 + int(local % 8) + .5f) * size,
-        (key.y * 8 + int(local / 8 % 8) + .5f) * size, (key.z * 8 + int(local / 64) + .5f) * size};
+    const float3 point{(key.x * tile_edge + int(local % tile_edge) + .5f) * size,
+        (key.y * tile_edge + int(local / tile_edge % tile_edge) + .5f) * size,
+        (key.z * tile_edge + int(local / tile_face_voxels) + .5f) * size};
     const auto sensor = detail::projective_reference_point(transform, point);
     const auto measured = sample(source, sensor.x, sensor.y, sensor.z, interpolation::nearest);
     bool updated{};
@@ -76,7 +78,7 @@ int cuda_sensor_resident_soa(field_view source, resident_discovery_view view,
 int cuda_sensor_mask(field_view source, std::uint8_t* flags, void* stream)
 {
     if (!source.voxels || !source.side || source.side > 1624 || !flags) return int(cudaErrorInvalidValue);
-    const auto n = (source.side + 7) / 8;
+    const auto n = (source.side + tile_edge - 1) / tile_edge;
     mask_cells<<<n * n * n, 512, 0, static_cast<cudaStream_t>(stream)>>>(source, n, flags);
     return int(cudaGetLastError());
 }

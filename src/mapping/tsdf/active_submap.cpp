@@ -14,7 +14,8 @@ operation_result<std::unique_ptr<gpu_map>> gpu_map::create(const lookup& table,
         options.source_mask != source_mask_mode::dense || options.candidates != candidate_mode::whole_tiles ||
         options.specialized || options.arithmetic != transfer_arithmetic::fp64)
         return std::unexpected(operation_error{"coVoxSLAM requires resident SoA reference transfer"});
-    const std::size_t side = (table.grid.side + 7) / 8, count = side * side * side;
+    const std::size_t side = (table.grid.side + tile_edge - 1) / tile_edge;
+    const std::size_t count = side * side * side;
     const auto hash_capacity = discovery_hash_size(capacity);
     const std::size_t discovery_bytes = (std::size_t(hash_capacity) + capacity) * 8 + sizeof(discovery_state);
     const std::size_t resident_bytes = std::size_t(hash_capacity) * 16 +

@@ -50,7 +50,7 @@ operation_result<transfer_times> gpu_map::implementation::integrate_resident(fie
         }
         indices.push_back(coordinate);
     }
-    result.candidate_voxels = std::uint64_t(counters.count) * 512;
+    result.candidate_voxels = std::uint64_t(counters.count) * tile_voxels;
     result.kernel_launches = 330;
     result.resident_dispatch_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
     return result;

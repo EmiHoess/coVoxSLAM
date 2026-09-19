@@ -49,7 +49,7 @@ operation_result<tsdf_tiles> gpu_map::implementation::download_soa()
     checked = staging.initialize(indices.size());
     if (!checked) return std::unexpected(checked.error());
     storage::transfer_measurement measured;
-    checked = soa->download_range(staging, 0, 0, indices.size() * 512, 15,
+    checked = soa->download_range(staging, 0, 0, indices.size() * tile_voxels, 15,
         storage::transfer_method::bulk_same_layout, measured);
 
     if (!checked) return std::unexpected(checked.error());
@@ -61,7 +61,7 @@ operation_result<tsdf_tiles> gpu_map::implementation::download_soa()
     {
         auto& destination = output[indices[slot]];
 
-        for (std::size_t local = 0; local < 512; ++local) {
+        for (std::size_t local = 0; local < tile_voxels; ++local) {
             const auto value = view[slot].voxels[local];
              destination.voxels[local] = {value.distance, value.weight, value.sample_count, value.flags};
         }

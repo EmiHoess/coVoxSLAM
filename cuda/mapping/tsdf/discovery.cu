@@ -1,5 +1,6 @@
 #include "discovery.cuh"
 #include "detail/tile_hash.cuh"
+#include <covoxslam/voxel/tile_shape.hpp>
 #include <cmath>
 #include <climits>
 #include <math_constants.h>
@@ -54,7 +55,8 @@ __global__ void discover_sensor_tiles(field_view source, const std::uint8_t* obs
     const auto index = std::size_t(blockIdx.x) * blockDim.x + threadIdx.x;
 
     if (index >= std::size_t(n) * n * n || !observed[index]) return;
-    const unsigned cell[]{unsigned(index % n) * 8, unsigned(index / n % n) * 8, unsigned(index / (n * n)) * 8};
+    const unsigned cell[]{unsigned(index % n) * tile_edge,
+        unsigned(index / n % n) * tile_edge, unsigned(index / (n * n)) * tile_edge};
     float lo[]{CUDART_INF_F, CUDART_INF_F, CUDART_INF_F}, hi[]{-CUDART_INF_F, -CUDART_INF_F, -CUDART_INF_F};
 
     for (unsigned corner = 0; corner < 8; ++corner) {
@@ -77,8 +79,8 @@ __global__ void discover_sensor_tiles(field_view source, const std::uint8_t* obs
 
     for (unsigned a = 0; a < 3; ++a)
     {
-        const double first = floor(__ddiv_rn(lo[a], double(source.voxel_size) * 8));
-        const double last = floor(__ddiv_rn(hi[a], double(source.voxel_size) * 8));
+        const double first = floor(__ddiv_rn(lo[a], double(source.voxel_size) * tile_edge));
+        const double last = floor(__ddiv_rn(hi[a], double(source.voxel_size) * tile_edge));
 
         if (!isfinite(first) || !isfinite(last) || first < -1048576 || last >= 1048576 || last < first) {
             atomicOr(&view.state->error, discovery_coordinate); return;
@@ -120,7 +122,7 @@ int cuda_sensor_discover(field_view source, const std::uint8_t* observed,
     if (!error) error = cudaMemsetAsync(view.keys, 255, std::size_t(view.capacity) * 8, stream);
 
     if (error) return int(error);
-    const unsigned n = (source.side + 7) / 8;
+    const unsigned n = (source.side + tile_edge - 1) / tile_edge;
     discover_sensor_tiles<<<(n * n * n + 127) / 128, 128, 0, stream>>>(source, observed, n, transform, view);
     return int(cudaGetLastError());
 }
