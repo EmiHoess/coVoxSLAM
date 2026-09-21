@@ -15,7 +15,7 @@ __global__ void clear_band_output(band_output_view output)
 }
 __global__ void publish_band_fields(band_work_view input, band_output_view output,
     const band_tile_slot* slots, const detail::cuda_tile_coordinate* keys,
-    unsigned count, float voxel_size, float maximum, unsigned* status)
+    unsigned count, float voxel_size, float maximum, band_status* status)
 {
     const auto i = std::size_t(blockIdx.x) * blockDim.x + threadIdx.x;
 
@@ -58,7 +58,7 @@ __global__ void publish_band_fields(band_work_view input, band_output_view outpu
         result.signed_distance_m = copysignf(maximum, result.signed_distance_m);
         result.parent_dx = result.parent_dy = result.parent_dz = 0;
     }
-    if (!valid) { atomicOr(status, 2U); return; }
+    if (!valid) { atomicOr(&status->invalid, 2U); return; }
     storage::scatter_record<storage::schema::esdf>(output[slots[tile].target].voxels[local], result);
 }
 }

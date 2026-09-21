@@ -2,7 +2,6 @@
 #include "mapping/detail/types.cuh"
 #include "mapping/esdf/detail/driver.cuh"
 #include <covoxslam/storage/device_buffer.hpp>
-#include <array>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -27,7 +26,10 @@ operation_status validate_band_generation(const authority_snapshot& state)
 struct esdf_scratch
 {
     std::shared_ptr<budget_claim> memory;
-    std::array<void*, 12> buffers{};
+    block_key* keys{};
+    detail::cuda_tile_coordinate* coordinates{};
+    band_tile_slot* slots{};
+    band_status* status{};
     cudaStream_t stream{};
     int device{-1};
     esdf_scratch() = default;
@@ -41,33 +43,42 @@ struct esdf_scratch
         if (cudaSetDevice(device) != cudaSuccess) return;
         cudaStreamSynchronize(stream);
 
-        for (auto pointer : buffers) if (pointer) cudaFree(pointer);
+        if (keys) cudaFree(keys);
+        if (coordinates) cudaFree(coordinates);
+        if (slots) cudaFree(slots);
+        if (status) cudaFree(status);
         if (queried == cudaSuccess && previous != device) cudaSetDevice(previous);
     }
-    operation_status initialize(std::span<const std::size_t> sizes, std::size_t maximum,
+    operation_status initialize(std::size_t count, std::size_t maximum,
         memory_budget& budget, cudaStream_t selected)
     {
-        if (memory || sizes.size() > buffers.size()) return std::unexpected(operation_error{"ESDF scratch is invalid"});
-        std::size_t total{};
-
-        for (auto bytes : sizes) {
-            if (bytes > maximum - total) return std::unexpected(operation_error{"ESDF scratch limit exceeded"});
-            total += bytes;
-        }
+        if (memory || keys || coordinates || slots || status || !count)
+            return std::unexpected(operation_error{"ESDF scratch is invalid"});
+        constexpr auto per_tile = sizeof(block_key) + sizeof(detail::cuda_tile_coordinate) +
+            sizeof(band_tile_slot);
+        constexpr auto fixed = sizeof(band_status);
+        if (maximum < fixed || count > (maximum - fixed) / per_tile)
+            return std::unexpected(operation_error{"ESDF scratch limit exceeded"});
+        const auto total = count * per_tile + fixed;
         auto claimed = budget.reserve({0, 0, total});
         if (!claimed) return std::unexpected(claimed.error());
         memory = std::move(*claimed); stream = selected;
         auto checked = storage::cuda_storage_status(cudaGetDevice(&device));
         if (!checked) return checked;
-
-        for (std::size_t i = 0; i < sizes.size(); ++i)
-            if (sizes[i]) {
-                checked = storage::cuda_storage_status(cudaMalloc(&buffers[i], sizes[i]));
-                if (!checked) return checked;
-            }
+        checked = storage::cuda_storage_status(
+            cudaMalloc(reinterpret_cast<void**>(&keys), count * sizeof(*keys)));
+        if (!checked) return checked;
+        checked = storage::cuda_storage_status(
+            cudaMalloc(reinterpret_cast<void**>(&coordinates), count * sizeof(*coordinates)));
+        if (!checked) return checked;
+        checked = storage::cuda_storage_status(
+            cudaMalloc(reinterpret_cast<void**>(&slots), count * sizeof(*slots)));
+        if (!checked) return checked;
+        checked = storage::cuda_storage_status(
+            cudaMalloc(reinterpret_cast<void**>(&status), sizeof(*status)));
+        if (!checked) return checked;
         return {};
     }
-    template<class t> t* get(std::size_t i) const noexcept { return static_cast<t*>(buffers[i]); }
 };
 operation_status esdf_launch_status(int error)
 {
@@ -75,12 +86,16 @@ operation_status esdf_launch_status(int error)
 }
 operation_result<std::size_t> band_workspace_bytes(std::size_t count, std::size_t maximum)
 {
-    constexpr std::size_t per_tile = 512 * 20 + sizeof(block_key) +
-        sizeof(detail::cuda_tile_coordinate) + 2 * sizeof(unsigned);
+    constexpr auto field_bytes = storage::payload_tile_bytes<storage::schema::projective_esdf,
+        storage::layout::pool_soa>;
+    constexpr auto per_tile = field_bytes + sizeof(block_key) +
+        sizeof(detail::cuda_tile_coordinate) + sizeof(band_tile_slot);
+    constexpr auto fixed = sizeof(band_status);
 
-    if (!count || count > UINT32_MAX / 512 || maximum < 8 || count > (maximum - 8) / per_tile)
+    if (!count || count > UINT32_MAX / tile_voxels || maximum < fixed ||
+        count > (maximum - fixed) / per_tile)
         return std::unexpected(operation_error{"band ESDF workspace exceeds its limit"});
-    return count * per_tile + 8;
+    return count * per_tile + fixed;
 }
 struct band_esdf_workspace
 {
@@ -101,7 +116,9 @@ struct band_esdf_workspace
         if (field_memory) return std::unexpected(operation_error{"band workspace is already allocated"});
         auto total = band_workspace_bytes(count, maximum);
         if (!total) return std::unexpected(total.error());
-        const auto bytes = count * 512 * 20;
+        constexpr auto field_bytes = storage::payload_tile_bytes<storage::schema::projective_esdf,
+            storage::layout::pool_soa>;
+        const auto bytes = count * field_bytes;
         auto claimed = budget.reserve({0, 0, bytes});
 
         if (!claimed) return std::unexpected(claimed.error());
@@ -109,9 +126,7 @@ struct band_esdf_workspace
         auto checked = fields.initialize(count);
 
         if (!checked) return checked;
-        const std::array<std::size_t, 4> sizes{count * sizeof(block_key),
-            count * sizeof(detail::cuda_tile_coordinate), count * 2 * sizeof(unsigned), 8};
-        checked = metadata.initialize(sizes, maximum - bytes, budget, stream);
+        checked = metadata.initialize(count, maximum - bytes, budget, stream);
         if (!checked) return checked;
         reserved_bytes = *total;
         return {};
@@ -144,16 +159,15 @@ operation_result<band_esdf_metrics> generate_band_esdf(
         auto& metadata = workspace.metadata;
         auto host_memory = budget.reserve({keys.size_bytes(), 0, 0});
         if (!host_memory) return std::unexpected(host_memory.error());
-        valid = storage::cuda_storage_status(cudaMemcpyAsync(metadata.get<block_key>(0),
+        valid = storage::cuda_storage_status(cudaMemcpyAsync(metadata.keys,
             keys.data(), keys.size_bytes(), cudaMemcpyHostToDevice, stream));
         if (!valid) return valid;
         result.upload_bytes = keys.size_bytes();
         result.upload_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - allocated).count();
         const auto code = run_band_esdf(source.native_accessor().descriptor, source_index,
             target.native_accessor().descriptor, target_index, *descriptor,
-            metadata.get<block_key>(0), unsigned(keys.size()),
-            metadata.get<detail::cuda_tile_coordinate>(1), metadata.get<void>(2),
-            metadata.get<unsigned>(3), options, &result, stream);
+            metadata.keys, unsigned(keys.size()), metadata.coordinates, metadata.slots,
+            metadata.status, options, &result, stream);
         valid = esdf_launch_status(code);
 
         if (!valid) return valid;

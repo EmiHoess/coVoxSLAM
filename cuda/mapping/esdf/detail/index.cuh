@@ -1,13 +1,10 @@
 #pragma once
 #include "views.cuh"
 #include "geometry.cuh"
+#include "driver.cuh"
 
 namespace covoxslam::store
 {
-struct band_tile_slot
-{
-    unsigned source{}, target{};
-};
 __device__ inline bool band_coordinate_valid(detail::cuda_tile_coordinate coordinate)
 {
     const std::int64_t bases[]{std::int64_t(coordinate.x) * tile_edge,
@@ -28,7 +25,7 @@ __device__ inline bool band_neighbor(int value, int direction, int& result)
 __global__ void index_band_tiles(const block_key* keys, unsigned count,
     device_index_view input, device_index_view output, std::size_t input_size,
     std::size_t output_size, detail::cuda_tile_coordinate* coordinates,
-    band_tile_slot* slots, unsigned* status)
+    band_tile_slot* slots, band_status* status)
 {
     const auto i = std::size_t(blockIdx.x) * blockDim.x + threadIdx.x;
 
@@ -46,7 +43,7 @@ __global__ void index_band_tiles(const block_key* keys, unsigned count,
     }
     if (!valid)
     {
-        atomicOr(status, 1U);
+        atomicOr(&status->invalid, 1U);
         return;
     }
     coordinates[i] = coordinate;

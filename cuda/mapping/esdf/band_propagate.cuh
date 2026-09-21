@@ -5,7 +5,7 @@
 namespace covoxslam::store
 {
 __global__ void sweep_band_axis(const detail::cuda_tile_coordinate* keys, unsigned count,
-    band_work_view output, int axis, float maximum_squared, unsigned* changed)
+    band_work_view output, int axis, float maximum_squared, band_status* status)
 {
     const auto line = std::size_t(blockIdx.x) * blockDim.x + threadIdx.x;
 
@@ -46,10 +46,10 @@ __global__ void sweep_band_axis(const detail::cuda_tile_coordinate* keys, unsign
             }
         }
     }
-    if (modified) atomicExch(changed, 1U);
+    if (modified) atomicExch(&status->changed, 1U);
 }
 __global__ void relax_band_neighbors(const detail::cuda_tile_coordinate* keys, unsigned count,
-    band_work_view output, float maximum_squared, int parity, unsigned* changed)
+    band_work_view output, float maximum_squared, int parity, band_status* status)
 {
     const auto i = std::size_t(blockIdx.x) * blockDim.x + threadIdx.x;
 
@@ -85,7 +85,7 @@ __global__ void relax_band_neighbors(const detail::cuda_tile_coordinate* keys, u
     if (modified)
     {
         band_store(output, tile, unsigned(local), value);
-        atomicExch(changed, 1U);
+        atomicExch(&status->changed, 1U);
     }
 }
 }
