@@ -1,5 +1,6 @@
 #include <covoxslam/pgo/solver.hpp>
 #include <covoxslam/pgo/publication.hpp>
+#include <covoxslam/core/hash.hpp>
 #include <algorithm>
 #include <cmath>
 
@@ -29,12 +30,9 @@ operation_result<std::optional<optimization_result>> optimize_submaps(std::span<
 }
 std::uint64_t publication_hash(std::span<const submap> maps)
 {
-    std::uint64_t hash = 14695981039346656037ULL;
+    std::uint64_t hash = fnv1a_offset_basis;
     const auto scalar = [&]<class t>(const t& value) {
-        for (auto byte : std::as_bytes(std::span(&value, 1))) {
-            hash ^= std::to_integer<unsigned char>(byte);
-            hash *= 1099511628211ULL;
-        }
+        hash = fnv1a(std::as_bytes(std::span(&value, 1)), hash);
     };
     const auto pose_hash = [&](const pose4& p) { scalar(p.x); scalar(p.y); scalar(p.z); scalar(p.yaw); };
     scalar(maps.size());

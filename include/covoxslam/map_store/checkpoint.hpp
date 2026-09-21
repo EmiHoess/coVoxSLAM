@@ -1,4 +1,5 @@
 #pragma once
+#include <covoxslam/core/hash.hpp>
 #include <covoxslam/core/result.hpp>
 #include <covoxslam/storage/layout.hpp>
 #include <covoxslam/map_store/snapshot.hpp>
@@ -77,13 +78,6 @@ struct checkpoint_reader
     }
     std::size_t remaining() const { return bytes.size() - position; }
 };
-inline std::uint64_t checkpoint_hash(std::span<const std::byte> bytes)
-{
-    std::uint64_t hash{14695981039346656037ULL};
-
-    for (auto value : bytes) { hash ^= std::to_integer<unsigned char>(value); hash *= 1099511628211ULL; }
-    return hash;
-}
 template<class archive> void archive_v1_header(archive& stream, checkpoint_v1_header& header)
 {
     stream.scalar(header.magic); stream.scalar(header.version); stream.scalar(header.layout);
@@ -157,7 +151,7 @@ template<storage::layout l, storage::schema es> operation_result<std::vector<std
     output.bytes.reserve(required);
     if (snapshot.tsdf) encode_v1_field(output, *snapshot.tsdf);
     if (snapshot.esdf) encode_v1_field(output, *snapshot.esdf);
-    output.scalar(checkpoint_hash(output.bytes));
+    output.scalar(fnv1a(output.bytes));
     return std::move(output.bytes);
 }
 template<storage::schema s, storage::layout l> operation_result<std::shared_ptr<const field_pool<s, l>>> decode_v1_field(
@@ -207,7 +201,7 @@ template<storage::layout l, storage::schema es> operation_result<map_snapshot<l,
     checkpoint_reader trailer{bytes.last(checkpoint_v1::checksum_width)};
     std::uint64_t hash{};
     trailer.scalar(hash);
-    if (hash != checkpoint_hash(bytes.first(bytes.size() - checkpoint_v1::checksum_width)))
+    if (hash != fnv1a(bytes.first(bytes.size() - checkpoint_v1::checksum_width)))
         return std::unexpected(operation_error{"checkpoint checksum differs"});
     checkpoint_reader input{bytes.first(bytes.size() - checkpoint_v1::checksum_width)};
     checkpoint_v1_header header;

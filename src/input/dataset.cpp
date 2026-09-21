@@ -1,6 +1,7 @@
 #include <covoxslam/input/dataset.hpp>
 #include "json_reader.hpp"
 #include "dataset_metadata.hpp"
+#include <covoxslam/core/hash.hpp>
 
 #include <algorithm>
 #include <array>
@@ -796,18 +797,14 @@ namespace covoxslam
 {
 namespace
 {
-constexpr std::uint64_t hash_basis = 14695981039346656037ULL;
+constexpr std::uint64_t hash_basis = fnv1a_offset_basis;
 constexpr std::uint64_t cache_magic = 0x31584449434f5658ULL;
 constexpr std::size_t maximum_cache_bytes = 1024U * 1024U * 1024U;
  constexpr std::size_t maximum_trajectory_samples = 16U * 1024U * 1024U;
 
 std::uint64_t hash_bytes(std::span<const std::uint8_t> bytes, std::uint64_t hash = hash_basis)
 {
-    for (const auto byte : bytes) {
-        hash ^= byte;
-        hash *= 1099511628211ULL;
-    }
-    return hash;
+    return fnv1a(std::as_bytes(bytes), hash);
 }
 
 operation_result<cache_file_identity> file_identity(const std::filesystem::path& path)
