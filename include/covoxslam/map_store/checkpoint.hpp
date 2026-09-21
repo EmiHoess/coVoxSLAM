@@ -10,6 +10,28 @@
 
 namespace covoxslam::store
 {
+namespace checkpoint_v1
+{
+inline constexpr std::uint64_t magic = 0x3150414d53564f43ULL;
+inline constexpr std::uint32_t version = 1;
+inline constexpr std::uint32_t fixed_tile_voxels = 512;
+inline constexpr std::size_t scalar_width = sizeof(std::uint32_t);
+inline constexpr std::size_t field_count_width = sizeof(std::uint64_t);
+inline constexpr std::size_t slot_width = 3 * sizeof(std::int32_t) +
+    sizeof(std::uint64_t) + sizeof(std::uint32_t);
+inline constexpr std::size_t checksum_width = sizeof(std::uint64_t);
+inline constexpr std::size_t header_width = 188;
+inline constexpr char filename[] = "map.bin";
+inline constexpr char staging_infix[] = ".pending.";
+inline constexpr unsigned maximum_staging_attempts = 64;
+}
+static_assert(tile_voxels == checkpoint_v1::fixed_tile_voxels);
+static_assert(sizeof(field_mask) == checkpoint_v1::scalar_width);
+static_assert(sizeof(float) == checkpoint_v1::scalar_width &&
+    sizeof(std::int32_t) == checkpoint_v1::scalar_width);
+static_assert(checkpoint_v1::field_count_width == 8 &&
+    checkpoint_v1::slot_width == 24 && checkpoint_v1::checksum_width == 8 &&
+    checkpoint_v1::header_width == 188);
 struct checkpoint_parameters
 {
     double voxel_size{}, truncation{}, maximum_weight{}, esdf_distance{};
@@ -23,10 +45,11 @@ inline bool valid_parameters(const checkpoint_parameters& value)
         std::isfinite(value.maximum_weight) && value.maximum_weight > 0 &&
         std::isfinite(value.esdf_distance) && value.esdf_distance > 0;
 }
-struct checkpoint_header
+struct checkpoint_v1_header
 {
-    std::uint64_t magic{0x3150414d53564f43ULL};
-    std::uint32_t version{1}, layout{}, esdf_schema{}, fields{}, tile_voxels{512};
+    std::uint64_t magic{checkpoint_v1::magic};
+    std::uint32_t version{checkpoint_v1::version}, layout{}, esdf_schema{}, fields{},
+        tile_voxels{checkpoint_v1::fixed_tile_voxels};
     submap_record record;
     checkpoint_parameters parameters;
 };
@@ -61,7 +84,7 @@ inline std::uint64_t checkpoint_hash(std::span<const std::byte> bytes)
     for (auto value : bytes) { hash ^= std::to_integer<unsigned char>(value); hash *= 1099511628211ULL; }
     return hash;
 }
-template<class archive> void archive_header(archive& stream, checkpoint_header& header)
+template<class archive> void archive_v1_header(archive& stream, checkpoint_v1_header& header)
 {
     stream.scalar(header.magic); stream.scalar(header.version); stream.scalar(header.layout);
     stream.scalar(header.esdf_schema); stream.scalar(header.fields); stream.scalar(header.tile_voxels);
@@ -78,7 +101,7 @@ template<class archive> void archive_header(archive& stream, checkpoint_header& 
     stream.scalar(header.parameters.maximum_weight); stream.scalar(header.parameters.esdf_distance);
     stream.scalar(header.parameters.algorithm);
 }
-template<storage::schema s, storage::layout l> void encode_field(checkpoint_writer& output, const field_pool<s, l>& field)
+template<storage::schema s, storage::layout l> void encode_v1_field(checkpoint_writer& output, const field_pool<s, l>& field)
 {
     output.scalar(std::uint64_t(field.payload.size()));
 
@@ -89,7 +112,7 @@ template<storage::schema s, storage::layout l> void encode_field(checkpoint_writ
     const auto view = field.payload.view();
 
     for (std::size_t tile = 0; tile < view.size(); ++tile)
-        for (std::size_t voxel = 0; voxel < 512; ++voxel)
+        for (std::size_t voxel = 0; voxel < checkpoint_v1::fixed_tile_voxels; ++voxel)
             [&]<std::size_t... f>(std::index_sequence<f...>) {
                 (output.scalar(field.payload.template scalar<f>(tile, voxel)), ...);
             }(std::make_index_sequence<storage::field_count<s>>{});
@@ -106,21 +129,25 @@ template<storage::layout l, storage::schema es> operation_result<std::vector<std
     if (bool(record.versions.tsdf) != bool(snapshot.tsdf) || bool(record.versions.esdf) != bool(snapshot.esdf) ||
         (snapshot.esdf && record.versions.esdf_source != record.versions.tsdf))
         return std::unexpected(operation_error{"checkpoint snapshot is incomplete or stale"});
-    checkpoint_header header;
+    checkpoint_v1_header header;
     header.layout = std::uint32_t(l); header.esdf_schema = std::uint32_t(es);
     header.fields = field_mask_value(fields); header.record = record; header.parameters = parameters;
     checkpoint_writer output;
-    archive_header(output, header);
-    std::size_t required = output.bytes.size() + 8;
+    archive_v1_header(output, header);
+    if (output.bytes.size() != checkpoint_v1::header_width)
+        return std::unexpected(operation_error{"checkpoint header width is invalid"});
+    std::size_t required = output.bytes.size() + checkpoint_v1::checksum_width;
     const auto count = [&]<storage::schema s>(const std::shared_ptr<const field_pool<s, l>>& field) -> operation_status {
         if (!field) return {};
-        constexpr auto stride = 24 + 512 * storage::field_count<s> * 4;
+        constexpr auto stride = checkpoint_v1::slot_width + checkpoint_v1::fixed_tile_voxels *
+            storage::field_count<s> * checkpoint_v1::scalar_width;
         const auto epoch = s == storage::schema::tsdf ? record.versions.tsdf : record.versions.esdf;
         if (field->index.submap() != record.id || field->content_epoch != epoch ||
             field->payload.size() != field->index.slot_count() || required > maximum_bytes ||
-            maximum_bytes - required < 8 || field->payload.size() > (maximum_bytes - required - 8) / stride)
+            maximum_bytes - required < checkpoint_v1::field_count_width ||
+            field->payload.size() > (maximum_bytes - required - checkpoint_v1::field_count_width) / stride)
             return std::unexpected(operation_error{"checkpoint field or byte budget is invalid"});
-        required += 8 + field->payload.size() * stride;
+        required += checkpoint_v1::field_count_width + field->payload.size() * stride;
         return {};
     };
     auto checked = count(snapshot.tsdf);
@@ -128,17 +155,18 @@ template<storage::layout l, storage::schema es> operation_result<std::vector<std
     checked = count(snapshot.esdf);
     if (!checked) return std::unexpected(checked.error());
     output.bytes.reserve(required);
-    if (snapshot.tsdf) encode_field(output, *snapshot.tsdf);
-    if (snapshot.esdf) encode_field(output, *snapshot.esdf);
+    if (snapshot.tsdf) encode_v1_field(output, *snapshot.tsdf);
+    if (snapshot.esdf) encode_v1_field(output, *snapshot.esdf);
     output.scalar(checkpoint_hash(output.bytes));
     return std::move(output.bytes);
 }
-template<storage::schema s, storage::layout l> operation_result<std::shared_ptr<const field_pool<s, l>>> decode_field(
+template<storage::schema s, storage::layout l> operation_result<std::shared_ptr<const field_pool<s, l>>> decode_v1_field(
     checkpoint_reader& input, std::uint64_t id, std::uint64_t epoch, std::size_t maximum_tiles, memory_budget& budget)
 {
     std::uint64_t count{};
     input.scalar(count);
-    constexpr auto wire_stride = 24 + 512 * storage::field_count<s> * 4;
+    constexpr auto wire_stride = checkpoint_v1::slot_width + checkpoint_v1::fixed_tile_voxels *
+        storage::field_count<s> * checkpoint_v1::scalar_width;
     constexpr auto storage_stride = storage::payload_tile_bytes<s, l>;
     if (!input.good || !epoch || count > maximum_tiles || count > input.remaining() / wire_stride ||
         count > std::numeric_limits<std::uint32_t>::max() || count > std::numeric_limits<std::size_t>::max() / storage_stride)
@@ -163,7 +191,7 @@ template<storage::schema s, storage::layout l> operation_result<std::shared_ptr<
     if (!checked) return std::unexpected(checked.error());
 
     for (std::size_t tile = 0; tile < count; ++tile)
-        for (std::size_t voxel = 0; voxel < 512; ++voxel)
+        for (std::size_t voxel = 0; voxel < checkpoint_v1::fixed_tile_voxels; ++voxel)
             [&]<std::size_t... f>(std::index_sequence<f...>) {
                 (input.scalar(field->payload.template scalar<f>(tile, voxel)), ...);
             }(std::make_index_sequence<storage::field_count<s>>{});
@@ -174,17 +202,19 @@ template<storage::schema s, storage::layout l> operation_result<std::shared_ptr<
 template<storage::layout l, storage::schema es> operation_result<map_snapshot<l, es>> decode_checkpoint(
     std::span<const std::byte> bytes, checkpoint_parameters expected, std::size_t maximum_tiles, memory_budget& budget)
 {
-    if (bytes.size() < 8) return std::unexpected(operation_error{"checkpoint is truncated"});
-    checkpoint_reader trailer{bytes.last(8)};
+    if (bytes.size() < checkpoint_v1::checksum_width)
+        return std::unexpected(operation_error{"checkpoint is truncated"});
+    checkpoint_reader trailer{bytes.last(checkpoint_v1::checksum_width)};
     std::uint64_t hash{};
     trailer.scalar(hash);
-    if (hash != checkpoint_hash(bytes.first(bytes.size() - 8)))
+    if (hash != checkpoint_hash(bytes.first(bytes.size() - checkpoint_v1::checksum_width)))
         return std::unexpected(operation_error{"checkpoint checksum differs"});
-    checkpoint_reader input{bytes.first(bytes.size() - 8)};
-    checkpoint_header header;
-    archive_header(input, header);
+    checkpoint_reader input{bytes.first(bytes.size() - checkpoint_v1::checksum_width)};
+    checkpoint_v1_header header;
+    archive_v1_header(input, header);
     const auto fields = static_cast<field_mask>(header.fields);
-    if (!input.good || header.magic != 0x3150414d53564f43ULL || header.version != 1 || header.tile_voxels != 512 ||
+    if (!input.good || header.magic != checkpoint_v1::magic || header.version != checkpoint_v1::version ||
+        header.tile_voxels != checkpoint_v1::fixed_tile_voxels ||
         header.layout > std::uint32_t(storage::layout::pool_soa) || header.esdf_schema != std::uint32_t(es) ||
         !valid_field_mask(fields) || !any_field(fields) ||
         !valid_parameters(header.parameters) || header.parameters != expected)
@@ -203,12 +233,14 @@ template<storage::layout l, storage::schema es> operation_result<map_snapshot<l,
     result.record.state = lifecycle::finalized;
     result.record.cpu = residency::resident;
     if (has_field(fields, field_kind::tsdf)) {
-        auto field = decode_field<storage::schema::tsdf, l>(input, header.record.id, header.record.versions.tsdf, maximum_tiles, budget);
+        auto field = decode_v1_field<storage::schema::tsdf, l>(input, header.record.id,
+            header.record.versions.tsdf, maximum_tiles, budget);
         if (!field) return std::unexpected(field.error());
         result.tsdf = std::move(*field);
     }
     if (has_field(fields, field_kind::esdf)) {
-        auto field = decode_field<es, l>(input, header.record.id, header.record.versions.esdf, maximum_tiles, budget);
+        auto field = decode_v1_field<es, l>(input, header.record.id,
+            header.record.versions.esdf, maximum_tiles, budget);
         if (!field) return std::unexpected(field.error());
         result.esdf = std::move(*field);
     }
@@ -226,9 +258,9 @@ inline operation_status save_checkpoint_bytes(const std::filesystem::path& desti
     std::filesystem::path temporary;
     bool created{};
 
-    for (unsigned attempt = 0; attempt < 64 && !created; ++attempt) {
+    for (unsigned attempt = 0; attempt < checkpoint_v1::maximum_staging_attempts && !created; ++attempt) {
         temporary = destination;
-        temporary += ".pending." + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) +
+        temporary += checkpoint_v1::staging_infix + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) +
             "." + std::to_string(sequence.fetch_add(1));
         created = std::filesystem::create_directory(temporary, error);
         if (error) return std::unexpected(operation_error{"cannot create checkpoint staging directory"});
@@ -242,11 +274,11 @@ inline operation_status save_checkpoint_bytes(const std::filesystem::path& desti
         {
             if (!armed) return;
             std::error_code ignored;
-            std::filesystem::remove(directory / "map.bin", ignored);
+            std::filesystem::remove(directory / checkpoint_v1::filename, ignored);
             std::filesystem::remove(directory, ignored);
         }
     } pending{temporary};
-    std::ofstream file(temporary / "map.bin", std::ios::binary | std::ios::trunc);
+    std::ofstream file(temporary / checkpoint_v1::filename, std::ios::binary | std::ios::trunc);
     if (!file) return std::unexpected(operation_error{"cannot open checkpoint output"});
     file.write(reinterpret_cast<const char*>(bytes.data()), std::streamsize(bytes.size()));
     file.flush();
@@ -261,7 +293,7 @@ inline operation_status save_checkpoint_bytes(const std::filesystem::path& desti
 inline operation_result<std::vector<std::byte>> read_checkpoint_bytes(const std::filesystem::path& directory, std::size_t maximum_bytes)
 {
     std::error_code error;
-    const auto path = directory / "map.bin";
+    const auto path = directory / checkpoint_v1::filename;
     const auto size = std::filesystem::file_size(path, error);
     if (error || size > maximum_bytes || size > std::uintmax_t(std::numeric_limits<std::streamsize>::max()))
         return std::unexpected(operation_error{"checkpoint size is unavailable or exceeds its budget"});
