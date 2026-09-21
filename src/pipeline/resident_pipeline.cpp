@@ -71,7 +71,7 @@ operation_status resident_pipeline::close(sensor_grid::combined_map& mapper, sub
     auto generated = store::generate_band_esdf(*state_->maps, metadata.frame.id, settings);
 
     if (!generated) return std::unexpected(generated.error());
-    checked = state_->maps->finalize(metadata.frame.id, 3);
+    checked = state_->maps->finalize(metadata.frame.id, store::field_mask::all);
     if (!checked) return checked;
     state_->metrics.esdf_ms += generated->total_ms;
     state_->metrics.esdf_gpu_ms += generated->gpu_ms;
@@ -127,7 +127,7 @@ operation_result<stored_pipeline_result> resident_pipeline::finish(std::span<sub
     {
         const auto id = map.frame.id;
         const auto started = std::chrono::steady_clock::now();
-        auto captured = store::capture_geometry(*state_->maps, std::span(&id, 1), 3,
+        auto captured = store::capture_geometry(*state_->maps, std::span(&id, 1), store::field_mask::all,
             {map.config.voxel_size, map.config.esdf_maximum_distance_m},
             state_->options.cpu_bytes, state_->options.cpu_bytes);
         if (!captured) return std::unexpected(captured.error());

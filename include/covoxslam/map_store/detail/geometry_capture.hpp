@@ -7,7 +7,7 @@
 namespace covoxslam::store
 {
 template<storage::layout l, storage::schema es> operation_result<geometry_snapshot<l, es>> capture_geometry(
-    coordinated_store<l, es>& maps, std::span<const std::uint64_t> ids, std::uint32_t fields,
+    coordinated_store<l, es>& maps, std::span<const std::uint64_t> ids, field_mask fields,
     geometry_parameters parameters, std::size_t payload_budget, std::optional<std::size_t> readback_budget = {})
 {
     auto checked = validate_geometry(parameters);

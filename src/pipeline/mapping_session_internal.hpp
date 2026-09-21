@@ -74,7 +74,7 @@ inline operation_result<stored_pipeline_result> stored_pipeline(
             if (!state) return std::unexpected(state.error());
 
             if (state->state != lifecycle::finalized || state->cpu != state->content ||
-                !state->content[0] || !state->content[1] || state->esdf_source != state->content[0])
+                !state->content.tsdf || !state->content.esdf || state->esdf_source != state->content.tsdf)
                 return std::unexpected(operation_error{"retained completion requires finalized current fields"});
             if (options.fields == stored_pgo_fields::resident && state->gpu != state->content)
                 return std::unexpected(operation_error{"resident solver fields became stale before completion"});
@@ -101,7 +101,7 @@ inline operation_result<stored_pipeline_result> stored_pipeline(
         if (!has_esdf) return std::unexpected(operation_error{"stored PGO requires ESDF fields"});
         const auto& config = maps.front().config;
         geometry_parameters geometry{config.voxel_size, config.esdf_maximum_distance_m, geometry_pose::optimized};
-        auto host = capture_geometry(retained, ids, 3, geometry, options.cpu_bytes);
+        auto host = capture_geometry(retained, ids, field_mask::all, geometry, options.cpu_bytes);
         if (!host) return std::unexpected(host.error());
         auto graph = pgo::make_submap_graph(maps);
         if (!graph) return std::unexpected(graph.error());
@@ -139,7 +139,7 @@ inline operation_result<stored_pipeline_result> stored_pipeline(
             checked = storage::cuda_storage_status(cudaSetDevice(solver.device));
             if (!checked) return std::unexpected(checked.error());
 
-            auto resident = retained.lease_resident(ids, 3, options.gpu_bytes);
+            auto resident = retained.lease_resident(ids, field_mask::all, options.gpu_bytes);
             if (!resident) return std::unexpected(resident.error());
             auto gpu_fields = resident_pgo_fields<l, storage::schema::esdf>(*resident, bindings, geometry);
             if (!gpu_fields) return std::unexpected(gpu_fields.error());

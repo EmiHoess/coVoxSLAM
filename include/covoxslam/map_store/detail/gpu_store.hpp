@@ -196,16 +196,19 @@ public:
         if (authority.state != lifecycle::finalized || authority.writer != writer_kind::none)
             return std::unexpected(operation_error{"GPU eviction requires a finalized submap"});
         if (found == maps_.end()) return {};
-        auto available = [&]<storage::schema s>(const std::shared_ptr<const gpu_field<s, l>>& field, unsigned i) -> operation_status {
+        auto available = [&]<storage::schema s>(const std::shared_ptr<const gpu_field<s, l>>& field) -> operation_status {
             if (!field) return {};
             if (field.use_count() != 1) return std::unexpected(operation_error{"GPU allocation is pinned"});
-            if (authority.cpu[i] != authority.content[i] || field->content_epoch != authority.content[i])
+            constexpr auto kind = s == storage::schema::tsdf ? field_kind::tsdf : field_kind::esdf;
+            const auto content = s == storage::schema::tsdf ? authority.content.tsdf : authority.content.esdf;
+            const auto cpu = s == storage::schema::tsdf ? authority.cpu.tsdf : authority.cpu.esdf;
+            if (cpu != content || field->content_epoch != content)
                 return std::unexpected(operation_error{"GPU eviction has no current CPU replica"});
             auto recovery = field->source_identity.lock();
-            if (!recovery || recovery->content_epoch != authority.content[i] ||
+            if (!recovery || recovery->content_epoch != content ||
                 recovery->index.submap() != id || recovery->index.slot_count() != recovery->payload.size())
                 return std::unexpected(operation_error{"GPU eviction has no retained lossless recovery field"});
-            if (recovery->index.field() != (i ? field_kind::esdf : field_kind::tsdf))
+            if (recovery->index.field() != kind)
                 return std::unexpected(operation_error{"GPU recovery field identity conflicts"});
             auto descriptor = field->payload.descriptor();
             if (!descriptor) return std::unexpected(descriptor.error());
@@ -213,9 +216,9 @@ public:
                 return std::unexpected(operation_error{"GPU recovery field size conflicts"});
             return {};
         };
-        auto checked = available(found->second.tsdf, 0);
+        auto checked = available(found->second.tsdf);
         if (!checked) return checked;
-        checked = available(found->second.esdf, 1);
+        checked = available(found->second.esdf);
         if (!checked) return checked;
         found->second.tsdf.reset();
         found->second.esdf.reset();
@@ -231,9 +234,9 @@ public:
         finish_retirement(id);
         return {};
     }
-    operation_status publish(const map_snapshot<l, es>& source, std::uint32_t fields)
+    operation_status publish(const map_snapshot<l, es>& source, field_mask fields)
     {
-        if (!fields || (fields & ~3U) || source.record.state == lifecycle::retired)
+        if (!valid_field_mask(fields) || !any_field(fields) || source.record.state == lifecycle::retired)
             return std::unexpected(operation_error{"invalid resident publication"});
         resident_entry<l, es> candidate;
         auto old = maps_.find(source.record.id);
@@ -261,18 +264,19 @@ public:
             output = std::move(*replacement);
             return {};
         };
-        if (fields & 1U) {
+        if (has_field(fields, field_kind::tsdf)) {
             auto checked = prepare.template operator()<storage::schema::tsdf>(source.tsdf, candidate.tsdf);
             if (!checked) return checked;
         }
-        if (fields & 2U) {
+        if (has_field(fields, field_kind::esdf)) {
             auto checked = prepare.template operator()<es>(source.esdf, candidate.esdf);
             if (!checked) return checked;
         }
         candidate.record = source.record;
         candidate.record.versions.tsdf = candidate.tsdf ? candidate.tsdf->content_epoch : 0;
         candidate.record.versions.esdf = candidate.esdf ? candidate.esdf->content_epoch : 0;
-        if (!(fields & 2U)) candidate.record.versions.esdf_source = old == maps_.end() ? 0 : old->second.record.versions.esdf_source;
+        if (!has_field(fields, field_kind::esdf))
+            candidate.record.versions.esdf_source = old == maps_.end() ? 0 : old->second.record.versions.esdf_source;
         candidate.record.gpu = residency::resident;
         std::vector<retired_allocation> previous;
         if (old != maps_.end()) {

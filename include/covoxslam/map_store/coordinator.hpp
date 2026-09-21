@@ -296,9 +296,10 @@ public:
         return result;
     }
     operation_result<std::vector<map_snapshot<l, es>>> snapshot(std::span<const std::uint64_t> ids,
-        std::uint32_t fields, std::size_t maximum_payload_bytes) const
+        field_mask fields, std::size_t maximum_payload_bytes) const
     {
-        if (!fields || (fields & ~3U)) return std::unexpected(operation_error{"snapshot field mask is invalid"});
+        if (!valid_field_mask(fields) || !any_field(fields))
+            return std::unexpected(operation_error{"snapshot field mask is invalid"});
         std::unordered_set<std::uint64_t> unique;
         std::vector<map_snapshot<l, es>> result;
         std::size_t remaining = maximum_payload_bytes;
@@ -320,11 +321,11 @@ public:
                 target = *selected;
                 return {};
             };
-            if (fields & 1U) {
+            if (has_field(fields, field_kind::tsdf)) {
                 auto checked = bind.template operator()<storage::schema::tsdf>(copy.tsdf);
                 if (!checked) return std::unexpected(checked.error());
             }
-            if (fields & 2U) {
+            if (has_field(fields, field_kind::esdf)) {
                 auto checked = bind.template operator()<es>(copy.esdf);
                 if (!checked) return std::unexpected(checked.error());
             }
@@ -375,14 +376,16 @@ public:
         entry.record.cpu = entry.record.gpu = residency::absent;
         return {};
     }
-    operation_status seal(std::uint64_t id, std::uint32_t fields, std::uint64_t esdf_source)
+    operation_status seal(std::uint64_t id, field_mask fields, std::uint64_t esdf_source)
     {
         auto found = maps_.find(id);
-        if (found == maps_.end() || !fields || (fields & ~3U) || found->second.record.state != lifecycle::active)
+        if (found == maps_.end() || !valid_field_mask(fields) || !any_field(fields) ||
+            found->second.record.state != lifecycle::active)
             return std::unexpected(operation_error{"invalid submap seal"});
         auto& entry = found->second;
-        if (((fields & 1U) && !entry.tsdf) || ((fields & 2U) && (!entry.esdf || !entry.tsdf ||
-            esdf_source != entry.record.versions.tsdf)) || entry.record.writer != writer_kind::none)
+        if ((has_field(fields, field_kind::tsdf) && !entry.tsdf) ||
+            (has_field(fields, field_kind::esdf) && (!entry.esdf || !entry.tsdf ||
+                esdf_source != entry.record.versions.tsdf)) || entry.record.writer != writer_kind::none)
             return std::unexpected(operation_error{"submap seal requires current fields"});
         entry.record.versions.esdf_source = esdf_source;
         entry.record.state = lifecycle::finalized;
@@ -564,7 +567,7 @@ public:
             const auto* current = map.cpu.find(update.submap);
             if (!current || state.state == lifecycle::retired || state.writer != writer_kind::none ||
                 current->record.versions.pose != update.expected.pose || !next_epoch(update.expected.pose) ||
-                state.content[0] != update.expected.tsdf || state.content[1] != update.expected.esdf ||
+                state.content.tsdf != update.expected.tsdf || state.content.esdf != update.expected.esdf ||
                 state.esdf_source != update.expected.esdf_source)
                 return std::unexpected(operation_error{"pose batch source snapshot is stale"});
         }
@@ -603,7 +606,8 @@ public:
         auto found = maps_.find(id);
         if (found == maps_.end()) return std::unexpected(operation_error{"mapping submap is absent"});
         auto& map = *found->second;
-        auto writer = map.authority.acquire(writer_kind::cpu, s == storage::schema::tsdf ? 1U : 2U);
+        auto writer = map.authority.acquire(writer_kind::cpu,
+            field_mask_for(s == storage::schema::tsdf ? field_kind::tsdf : field_kind::esdf));
         if (!writer) return std::unexpected(writer.error());
         return writer->publish(esdf_source, [&](const auto&) {
             return map.cpu.template edit_field<s>(id, std::forward<function>(function_body));
@@ -618,7 +622,7 @@ public:
             auto found = maps_.find(id);
             if (found == maps_.end()) return std::unexpected(operation_error{"checkpoint submap is absent"});
             const auto state = found->second->authority.snapshot();
-            const auto fields = std::uint32_t(bool(state.content[0])) | (std::uint32_t(bool(state.content[1])) << 1);
+            const auto fields = make_field_mask(bool(state.content.tsdf), bool(state.content.esdf));
             if (state.state != lifecycle::finalized || state.cpu != state.content)
                 return std::unexpected(operation_error{"checkpoint requires complete finalized CPU storage"});
             const std::array<std::uint64_t, 1> ids{id};
@@ -667,10 +671,10 @@ public:
             result.retired += state.state == lifecycle::retired;
             if (state.state == lifecycle::retired) continue;
 
-            for (unsigned field = 0; field < 2; ++field) {
-                result.cpu_stale_fields += state.content[field] && state.cpu[field] != state.content[field];
-                result.gpu_stale_fields += state.content[field] && state.gpu[field] != state.content[field];
-            }
+            result.cpu_stale_fields += state.content.tsdf && state.cpu.tsdf != state.content.tsdf;
+            result.cpu_stale_fields += state.content.esdf && state.cpu.esdf != state.content.esdf;
+            result.gpu_stale_fields += state.content.tsdf && state.gpu.tsdf != state.content.tsdf;
+            result.gpu_stale_fields += state.content.esdf && state.gpu.esdf != state.content.esdf;
             auto current = map->cpu.statistics();
             if (!current) return std::unexpected(current.error());
             if (current->payload_capacity_bytes > std::numeric_limits<std::size_t>::max() - result.current_cpu_payload_bytes)
@@ -680,7 +684,8 @@ public:
         return result;
     }
 private:
-    operation_result<immutable_snapshot<l, es>> lease_locked(std::span<const std::uint64_t> ids, std::uint32_t fields, std::size_t budget) const
+    operation_result<immutable_snapshot<l, es>> lease_locked(std::span<const std::uint64_t> ids,
+        field_mask fields, std::size_t budget) const
     {
         std::vector<map_snapshot<l, es>> selected;
 
@@ -690,9 +695,9 @@ private:
             const auto state = found->second->authority.snapshot();
             auto dependency = require_current_esdf(state, fields);
             if (!dependency) return std::unexpected(dependency.error());
-            for (unsigned field = 0; field < 2; ++field)
-                if ((fields & (1U << field)) && state.cpu[field] != state.content[field])
-                    return std::unexpected(operation_error{"CPU snapshot requires mirror synchronization"});
+            if ((has_field(fields, field_kind::tsdf) && state.cpu.tsdf != state.content.tsdf) ||
+                (has_field(fields, field_kind::esdf) && state.cpu.esdf != state.content.esdf))
+                return std::unexpected(operation_error{"CPU snapshot requires mirror synchronization"});
             const std::array<std::uint64_t, 1> single{id};
             auto copied = found->second->cpu.snapshot(single, fields, budget);
             if (!copied) return std::unexpected(copied.error());
@@ -702,7 +707,8 @@ private:
         return immutable_snapshot<l, es>::create(std::move(selected), budget);
     }
 public:
-    operation_result<immutable_snapshot<l, es>> lease(std::span<const std::uint64_t> ids, std::uint32_t fields, std::size_t budget) const
+    operation_result<immutable_snapshot<l, es>> lease(std::span<const std::uint64_t> ids,
+        field_mask fields, std::size_t budget) const
     {
         std::lock_guard lock(mutex_);
         return lease_locked(ids, fields, budget);
@@ -773,7 +779,8 @@ public:
         auto found = maps_.find(id);
         if (found == maps_.end()) return std::unexpected(operation_error{"submap identity is absent"});
         auto& map = *found->second;
-        auto writer = map.authority.acquire(writer_kind::cpu, s == storage::schema::tsdf ? 1U : 2U);
+        auto writer = map.authority.acquire(writer_kind::cpu,
+            field_mask_for(s == storage::schema::tsdf ? field_kind::tsdf : field_kind::esdf));
         if (!writer) return std::unexpected(writer.error());
         return writer->publish(esdf_source, [&](const auto&) {
             return map.cpu.template import_field<s>(id, keys, values);
@@ -789,7 +796,8 @@ public:
         if (state.state != lifecycle::active) return std::unexpected(operation_error{"insertion requires an active submap"});
         auto existing = map.cpu.template lookup<s>(key);
         if (existing) return existing;
-        auto writer = map.authority.acquire(writer_kind::cpu, s == storage::schema::tsdf ? 1U : 2U);
+        auto writer = map.authority.acquire(writer_kind::cpu,
+            field_mask_for(s == storage::schema::tsdf ? field_kind::tsdf : field_kind::esdf));
         if (!writer) return std::unexpected(writer.error());
         operation_result<tile_handle> result = std::unexpected(operation_error{"insertion did not publish"});
         auto checked = writer->publish(state.esdf_source, [&](const auto&) -> operation_status {
@@ -807,11 +815,11 @@ public:
         if (found == maps_.end()) return std::unexpected(operation_error{"submap identity is absent"});
         auto& map = *found->second;
         const auto source = map.authority.snapshot().esdf_source;
-        auto writer = map.authority.acquire(writer_kind::cpu, handle.field == field_kind::tsdf ? 1U : 2U);
+        auto writer = map.authority.acquire(writer_kind::cpu, field_mask_for(handle.field));
         if (!writer) return std::unexpected(writer.error());
         return writer->publish(source, [&](const auto&) { return map.cpu.erase(handle); });
     }
-    operation_result<map_snapshot<l, es>> snapshot(std::uint64_t id, std::uint32_t fields, std::size_t budget) const
+    operation_result<map_snapshot<l, es>> snapshot(std::uint64_t id, field_mask fields, std::size_t budget) const
     {
         std::lock_guard lock(mutex_);
         auto found = maps_.find(id);
@@ -821,15 +829,15 @@ public:
         auto dependency = require_current_esdf(state, fields);
         if (!dependency) return std::unexpected(dependency.error());
 
-        for (unsigned field = 0; field < 2; ++field)
-            if ((fields & (1U << field)) && state.cpu[field] != state.content[field])
-                return std::unexpected(operation_error{"CPU snapshot requires mirror synchronization"});
+        if ((has_field(fields, field_kind::tsdf) && state.cpu.tsdf != state.content.tsdf) ||
+            (has_field(fields, field_kind::esdf) && state.cpu.esdf != state.content.esdf))
+            return std::unexpected(operation_error{"CPU snapshot requires mirror synchronization"});
         auto result = found->second->cpu.snapshot(ids, fields, budget);
         if (!result) return std::unexpected(result.error());
         result->front().record.versions.esdf_source = found->second->authority.snapshot().esdf_source;
         return std::move(result->front());
     }
-    operation_status finalize(std::uint64_t id, std::uint32_t fields)
+    operation_status finalize(std::uint64_t id, field_mask fields)
     {
         std::lock_guard lock(mutex_);
         auto found = maps_.find(id);
@@ -863,7 +871,7 @@ public:
         auto esdf = gpu_.template upload<es>(metadata->esdf, metadata->record.versions.allocation, false);
 
         if (!esdf) return std::unexpected(esdf.error());
-        auto writer = replacement->authority.acquire(writer_kind::gpu, 3);
+        auto writer = replacement->authority.acquire(writer_kind::gpu, field_mask::all);
         if (!writer) return std::unexpected(writer.error());
         checked = writer->publish(1, [](const auto&) -> operation_status { return {}; });
         if (!checked) return checked;
@@ -875,12 +883,13 @@ public:
         return {};
     }
     operation_result<std::vector<resident_entry<l, es>>> lease_resident(
-        std::span<const std::uint64_t> ids, std::uint32_t fields, std::size_t budget) const
+        std::span<const std::uint64_t> ids, field_mask fields, std::size_t budget) const
     {
         std::lock_guard lock(mutex_);
         std::vector<resident_entry<l, es>> result;
         std::unordered_set<std::uint64_t> unique;
-        if (!fields || (fields & ~3U)) return std::unexpected(operation_error{"invalid resident field selection"});
+        if (!valid_field_mask(fields) || !any_field(fields))
+            return std::unexpected(operation_error{"invalid resident field selection"});
 
         for (auto id : ids) {
             auto found = maps_.find(id);
@@ -894,14 +903,15 @@ public:
                 return std::unexpected(operation_error{"resident PGO requires finalized maps"});
             auto selected = resident->second;
             selected.record = found->second->cpu.find(id)->record;
-            selected.record.versions.tsdf = state.content[0];
-            selected.record.versions.esdf = state.content[1];
+            selected.record.versions.tsdf = state.content.tsdf;
+            selected.record.versions.esdf = state.content.esdf;
             selected.record.versions.esdf_source = state.esdf_source;
             const auto admit = [&]<storage::schema s>(const std::shared_ptr<const gpu_field<s, l>>& field) -> operation_status {
-                constexpr auto ordinal = s == storage::schema::tsdf ? 0 : 1;
-                if (!(fields & (1U << ordinal))) return {};
-                if (!field || !state.content[ordinal] || state.gpu[ordinal] != state.content[ordinal] ||
-                    field->content_epoch != state.content[ordinal])
+                constexpr auto kind = s == storage::schema::tsdf ? field_kind::tsdf : field_kind::esdf;
+                if (!has_field(fields, kind)) return {};
+                const auto content = s == storage::schema::tsdf ? state.content.tsdf : state.content.esdf;
+                const auto resident_version = s == storage::schema::tsdf ? state.gpu.tsdf : state.gpu.esdf;
+                if (!field || !content || resident_version != content || field->content_epoch != content)
                     return std::unexpected(operation_error{"resident snapshot requires current GPU fields"});
                 auto bytes = gpu_.retained_field(field);
                 if (!bytes) return std::unexpected(bytes.error());
@@ -913,8 +923,8 @@ public:
             if (!valid) return std::unexpected(valid.error());
             valid = admit(selected.esdf);
             if (!valid) return std::unexpected(valid.error());
-            if (!(fields & 1U)) selected.tsdf.reset();
-            if (!(fields & 2U)) selected.esdf.reset();
+            if (!has_field(fields, field_kind::tsdf)) selected.tsdf.reset();
+            if (!has_field(fields, field_kind::esdf)) selected.esdf.reset();
             result.push_back(std::move(selected));
         }
         return result;
@@ -926,7 +936,7 @@ public:
         if (found == maps_.end()) return std::unexpected(operation_error{"ESDF derivation submap is absent"});
         auto& map = *found->second;
         const auto state = map.authority.snapshot();
-        if (!state.content[0] || state.gpu[0] != state.content[0])
+        if (!state.content.tsdf || state.gpu.tsdf != state.content.tsdf)
             return std::unexpected(operation_error{"ESDF derivation requires the current GPU TSDF"});
         auto source = gpu_.template field<storage::schema::tsdf>(id);
         if (!source) return std::unexpected(source.error());
@@ -944,10 +954,10 @@ public:
         std::sort(keys.begin(), keys.end(), [](auto a, auto b) {
             return a.z < b.z || (a.z == b.z && (a.y < b.y || (a.y == b.y && a.x < b.x)));
         });
-        auto writer = map.authority.acquire(writer_kind::gpu, 2U);
+        auto writer = map.authority.acquire(writer_kind::gpu, field_mask::esdf);
         if (!writer) return std::unexpected(writer.error());
-        return writer->publish(state.content[0], [&](const auto& versions) {
-            return gpu_.template edit<es>(id, versions[1], state.content[0], [&](auto target, auto index, auto stream) {
+        return writer->publish(state.content.tsdf, [&](const auto& versions) {
+            return gpu_.template edit<es>(id, versions.esdf, state.content.tsdf, [&](auto target, auto index, auto stream) {
                 return consumer(*read_view, *read_index, target, index, stream, std::span<const block_key>(keys), *budget_);
             }, preserve_values);
         });
@@ -958,11 +968,12 @@ public:
         std::lock_guard lock(mutex_);
         auto found = maps_.find(id);
         if (found == maps_.end()) return std::unexpected(operation_error{"GPU writer submap is absent"});
-        auto writer = found->second->authority.acquire(writer_kind::gpu, s == storage::schema::tsdf ? 1U : 2U);
+        auto writer = found->second->authority.acquire(writer_kind::gpu,
+            field_mask_for(s == storage::schema::tsdf ? field_kind::tsdf : field_kind::esdf));
         if (!writer) return std::unexpected(writer.error());
         return writer->publish(esdf_source, [&](const auto& versions) {
-            return gpu_.template edit<s>(id, versions[s == storage::schema::tsdf ? 0 : 1], esdf_source,
-                std::forward<function>(consumer));
+            const auto version = s == storage::schema::tsdf ? versions.tsdf : versions.esdf;
+            return gpu_.template edit<s>(id, version, esdf_source, std::forward<function>(consumer));
         });
     }
 private:
@@ -971,7 +982,8 @@ private:
         auto found = maps_.find(id);
         if (found == maps_.end()) return std::unexpected(operation_error{"CPU mirror submap is absent"});
         auto& map = *found->second;
-        auto ticket = map.authority.transfer(writer_kind::gpu, writer_kind::cpu, s == storage::schema::tsdf ? 1U : 2U);
+        auto ticket = map.authority.transfer(writer_kind::gpu, writer_kind::cpu,
+            field_mask_for(s == storage::schema::tsdf ? field_kind::tsdf : field_kind::esdf));
         if (!ticket) return std::unexpected(ticket.error());
         const auto source = map.authority.snapshot().esdf_source;
         auto resident = gpu_.template field<s>(id);
@@ -991,10 +1003,11 @@ public:
         return synchronize_cpu_locked<s>(id);
     }
     operation_result<immutable_snapshot<l, es>> lease_readback(std::span<const std::uint64_t> ids,
-        std::uint32_t fields, std::size_t payload_budget, std::size_t readback_budget)
+        field_mask fields, std::size_t payload_budget, std::size_t readback_budget)
     {
         std::lock_guard lock(mutex_);
-        if (ids.empty() || !fields || (fields & ~3U)) return std::unexpected(operation_error{"invalid geometry selection"});
+        if (ids.empty() || !valid_field_mask(fields) || !any_field(fields))
+            return std::unexpected(operation_error{"invalid geometry selection"});
         std::unordered_set<std::uint64_t> unique;
         std::size_t download_bytes{}, payload_bytes{};
 
@@ -1008,14 +1021,18 @@ public:
             if (state.state == lifecycle::retired || state.writer != writer_kind::none)
                 return std::unexpected(operation_error{"geometry submap is unavailable"});
             const auto* cpu = found->second->cpu.find(id);
-            auto admit = [&]<storage::schema s>(unsigned field) -> operation_status {
-                if (!(fields & (1U << field))) return {};
-                if (!state.content[field]) return std::unexpected(operation_error{"geometry field is absent"});
+            auto admit = [&]<storage::schema s>() -> operation_status {
+                constexpr auto kind = s == storage::schema::tsdf ? field_kind::tsdf : field_kind::esdf;
+                if (!has_field(fields, kind)) return {};
+                const auto content = s == storage::schema::tsdf ? state.content.tsdf : state.content.esdf;
+                const auto cpu_version = s == storage::schema::tsdf ? state.cpu.tsdf : state.cpu.esdf;
+                const auto gpu_version = s == storage::schema::tsdf ? state.gpu.tsdf : state.gpu.esdf;
+                if (!content) return std::unexpected(operation_error{"geometry field is absent"});
                 constexpr auto stride = storage::payload_tile_bytes<s, l>;
                 const auto& host = select_field<s, es>(*cpu);
                 std::size_t capacity = host ? host->payload.capacity() : 0;
-                if (state.cpu[field] != state.content[field]) {
-                    if (state.gpu[field] != state.content[field]) return std::unexpected(operation_error{"geometry has no current replica"});
+                if (cpu_version != content) {
+                    if (gpu_version != content) return std::unexpected(operation_error{"geometry has no current replica"});
                     auto resident = gpu_.template field<s>(id);
                     if (!resident) return std::unexpected(resident.error());
                     capacity = (*resident)->payload.size();
@@ -1029,19 +1046,19 @@ public:
                 payload_bytes += capacity * stride;
                 return {};
             };
-            checked = admit.template operator()<storage::schema::tsdf>(0);
+            checked = admit.template operator()<storage::schema::tsdf>();
             if (!checked) return std::unexpected(checked.error());
-            checked = admit.template operator()<es>(1);
+            checked = admit.template operator()<es>();
             if (!checked) return std::unexpected(checked.error());
         }
 
         for (auto id : ids) {
             const auto state = maps_.find(id)->second->authority.snapshot();
-            if ((fields & 1U) && state.cpu[0] != state.content[0]) {
+            if (has_field(fields, field_kind::tsdf) && state.cpu.tsdf != state.content.tsdf) {
                 auto checked = synchronize_cpu_locked<storage::schema::tsdf>(id);
                 if (!checked) return std::unexpected(checked.error());
             }
-            if ((fields & 2U) && state.cpu[1] != state.content[1]) {
+            if (has_field(fields, field_kind::esdf) && state.cpu.esdf != state.content.esdf) {
                 auto checked = synchronize_cpu_locked<es>(id);
                 if (!checked) return std::unexpected(checked.error());
             }
@@ -1057,7 +1074,7 @@ public:
         const auto state = map.authority.snapshot();
         return map.authority.evict(writer_kind::gpu, [&] { return gpu_.evict(id, state); });
     }
-    operation_status synchronize_gpu(std::uint64_t id, std::uint32_t fields, std::size_t budget)
+    operation_status synchronize_gpu(std::uint64_t id, field_mask fields, std::size_t budget)
     {
         std::lock_guard lock(mutex_);
         auto found = maps_.find(id);
@@ -1078,10 +1095,12 @@ public:
         auto found = maps_.find(id);
         if (found == maps_.end()) return std::unexpected(operation_error{"submap identity is absent"});
         const auto state = found->second->authority.snapshot();
-        const unsigned field = s == storage::schema::tsdf ? 0 : 1;
-        auto dependency = require_current_esdf(state, 1U << field);
+        constexpr auto kind = s == storage::schema::tsdf ? field_kind::tsdf : field_kind::esdf;
+        auto dependency = require_current_esdf(state, field_mask_for(kind));
         if (!dependency) return std::unexpected(dependency.error());
-        if (!state.content[field] || state.gpu[field] != state.content[field])
+        const auto content = s == storage::schema::tsdf ? state.content.tsdf : state.content.esdf;
+        const auto resident = s == storage::schema::tsdf ? state.gpu.tsdf : state.gpu.esdf;
+        if (!content || resident != content)
             return std::unexpected(operation_error{"GPU mirror is not current"});
         return gpu_.template read_on<s>(id, stream, std::forward<function>(consumer));
     }

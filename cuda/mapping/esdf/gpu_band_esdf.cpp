@@ -16,7 +16,7 @@ namespace
 {
 operation_status validate_band_generation(const authority_snapshot& state)
 {
-    auto checked = require_current_esdf(state, 2);
+    auto checked = require_current_esdf(state, field_mask::esdf);
 
     if (!checked) return checked;
     if (state.state == lifecycle::retired || state.writer != writer_kind::none)
@@ -178,7 +178,7 @@ operation_result<band_esdf_metrics> generate_band_esdf(
     if (!state) return std::unexpected(state.error());
     auto current = validate_band_generation(*state);
     if (!current) return std::unexpected(current.error());
-    if (state->gpu[1] != state->content[1])
+    if (state->gpu.esdf != state->content.esdf)
         return std::unexpected(operation_error{"ESDF completion generation is stale"});
     result.total_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
     return result;

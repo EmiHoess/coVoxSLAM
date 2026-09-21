@@ -98,8 +98,8 @@ template<storage::layout l, storage::schema es> operation_result<std::vector<std
     const map_snapshot<l, es>& snapshot, checkpoint_parameters parameters, std::size_t maximum_bytes)
 {
     const auto& record = snapshot.record;
-    const auto fields = std::uint32_t(bool(snapshot.tsdf)) | (std::uint32_t(bool(snapshot.esdf)) << 1);
-    if (record.state != lifecycle::finalized || record.writer != writer_kind::none || !fields ||
+    const auto fields = make_field_mask(bool(snapshot.tsdf), bool(snapshot.esdf));
+    if (record.state != lifecycle::finalized || record.writer != writer_kind::none || !any_field(fields) ||
         !valid_parameters(parameters) || !finite_pose(record.initial_pose) || !finite_pose(record.optimized_pose) ||
         !record.versions.pose || !record.versions.descriptor || !record.versions.allocation)
         return std::unexpected(operation_error{"checkpoint requires a finalized valid snapshot"});
@@ -108,7 +108,7 @@ template<storage::layout l, storage::schema es> operation_result<std::vector<std
         return std::unexpected(operation_error{"checkpoint snapshot is incomplete or stale"});
     checkpoint_header header;
     header.layout = std::uint32_t(l); header.esdf_schema = std::uint32_t(es);
-    header.fields = fields; header.record = record; header.parameters = parameters;
+    header.fields = field_mask_value(fields); header.record = record; header.parameters = parameters;
     checkpoint_writer output;
     archive_header(output, header);
     std::size_t required = output.bytes.size() + 8;
@@ -183,28 +183,31 @@ template<storage::layout l, storage::schema es> operation_result<map_snapshot<l,
     checkpoint_reader input{bytes.first(bytes.size() - 8)};
     checkpoint_header header;
     archive_header(input, header);
+    const auto fields = static_cast<field_mask>(header.fields);
     if (!input.good || header.magic != 0x3150414d53564f43ULL || header.version != 1 || header.tile_voxels != 512 ||
         header.layout > std::uint32_t(storage::layout::pool_soa) || header.esdf_schema != std::uint32_t(es) ||
-        !header.fields || (header.fields & ~3U) || !valid_parameters(header.parameters) || header.parameters != expected)
+        !valid_field_mask(fields) || !any_field(fields) ||
+        !valid_parameters(header.parameters) || header.parameters != expected)
         return std::unexpected(operation_error{"checkpoint format or configuration differs"});
     const auto& record = header.record;
     if (!record.versions.pose || !record.versions.allocation || !record.versions.descriptor ||
         !finite_pose(record.initial_pose) || !finite_pose(record.optimized_pose) ||
-        bool(header.fields & 1U) != bool(record.versions.tsdf) ||
-        bool(header.fields & 2U) != bool(record.versions.esdf) ||
-        ((header.fields & 2U) && (!record.versions.tsdf || record.versions.esdf_source != record.versions.tsdf)) ||
-        (!(header.fields & 2U) && record.versions.esdf_source))
+        has_field(fields, field_kind::tsdf) != bool(record.versions.tsdf) ||
+        has_field(fields, field_kind::esdf) != bool(record.versions.esdf) ||
+        (has_field(fields, field_kind::esdf) &&
+            (!record.versions.tsdf || record.versions.esdf_source != record.versions.tsdf)) ||
+        (!has_field(fields, field_kind::esdf) && record.versions.esdf_source))
         return std::unexpected(operation_error{"checkpoint epochs or poses are inconsistent"});
     map_snapshot<l, es> result;
     result.record = header.record;
     result.record.state = lifecycle::finalized;
     result.record.cpu = residency::resident;
-    if (header.fields & 1U) {
+    if (has_field(fields, field_kind::tsdf)) {
         auto field = decode_field<storage::schema::tsdf, l>(input, header.record.id, header.record.versions.tsdf, maximum_tiles, budget);
         if (!field) return std::unexpected(field.error());
         result.tsdf = std::move(*field);
     }
-    if (header.fields & 2U) {
+    if (has_field(fields, field_kind::esdf)) {
         auto field = decode_field<es, l>(input, header.record.id, header.record.versions.esdf, maximum_tiles, budget);
         if (!field) return std::unexpected(field.error());
         result.esdf = std::move(*field);
