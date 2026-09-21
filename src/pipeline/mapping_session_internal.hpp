@@ -90,10 +90,15 @@ inline operation_result<stored_pipeline_result> stored_pipeline(
     auto export_ready = validate_stored_export(maps, options);
     if (!export_ready) return std::unexpected(export_ready.error());
     stored_pipeline_result output;
-    constexpr const char* field_modes[]{"copied", "borrowed", "resident"};
     report << "store layout soa, PGO fields "
-        << field_modes[unsigned(options.fields)] << ", checkpoint format 1, field view API 1\n"
-        << "mapping resident fields, deferred canonical readback, publication verification CPU\n";
+        << stored_pgo_fields_name(options.fields) << ", checkpoint format " << store::checkpoint_v1::version
+        << ", field view API ";
+#if defined(covoxslam_has_pgo)
+    report << ceronoceres::field_view_api_version;
+#else
+    report << "unavailable";
+#endif
+    report << '\n' << "mapping resident fields, deferred canonical readback, publication verification CPU\n";
     report << "store import ms " << std::chrono::duration<double, std::milli>(imported - started).count() << '\n';
     report << "ESDF direct SoA generation, retained map store, canonical CPU mirror\n";
 #if defined(covoxslam_has_pgo)

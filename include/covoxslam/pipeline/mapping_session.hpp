@@ -21,6 +21,7 @@
 namespace covoxslam
 {
 enum class stored_pgo_fields { copied, borrowed, resident };
+const char* stored_pgo_fields_name(stored_pgo_fields value) noexcept;
 
 struct store_pipeline_options
 {

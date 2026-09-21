@@ -2,6 +2,16 @@
 
 namespace covoxslam
 {
+const char* stored_pgo_fields_name(stored_pgo_fields value) noexcept
+{
+    switch (value) {
+    case stored_pgo_fields::copied: return "copied";
+    case stored_pgo_fields::borrowed: return "borrowed";
+    case stored_pgo_fields::resident: return "resident";
+    }
+    return "unknown";
+}
+
 operation_status validate_stored_export(std::span<const submap> maps, const store_pipeline_options& store)
 {
     for (const auto& map : maps) {
