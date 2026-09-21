@@ -2,6 +2,7 @@
 #include <covoxslam/voxel/flags.hpp>
 
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <cmath>
 #include <iomanip>
@@ -13,6 +14,26 @@ namespace covoxslam
 {
 namespace
 {
+
+struct tile_format_descriptor
+{
+    std::array<char, 8> magic;
+};
+
+inline constexpr tile_format_descriptor tsdf_tile_format{{'C', 'V', 'X', 'T', 'S', 'D', 'F', '1'}};
+inline constexpr tile_format_descriptor esdf_tile_format{{'C', 'V', 'X', 'E', 'S', 'D', 'F', '1'}};
+inline constexpr std::uint32_t tile_binary_version = 1;
+inline constexpr std::uint64_t maximum_export_tile_count = 100'000'000ULL;
+inline constexpr std::uint64_t maximum_exact_json_integer = 9'007'199'254'740'991ULL;
+inline constexpr char run_schema[] = "covoxslam.run.v1";
+inline constexpr char poses_filename[] = "poses.jsonl";
+inline constexpr char submaps_filename[] = "submaps.jsonl";
+inline constexpr char submaps_directory_name[] = "submaps";
+inline constexpr char submap_filename_prefix[] = "submap_";
+inline constexpr char tsdf_filename_suffix[] = ".tsdf.bin";
+inline constexpr char esdf_filename_suffix[] = ".esdf.bin";
+inline constexpr char run_filename[] = "run.json";
+inline constexpr char run_pending_filename[] = "run.json.pending";
 
 operation_result<std::ofstream> export_stream(const std::filesystem::path& path,
                                                std::string_view diagnostic, bool binary = false)
@@ -35,11 +56,11 @@ public:
     {
         if (!armed) return;
         std::error_code error;
-        std::filesystem::remove(directory / "poses.jsonl", error);
+        std::filesystem::remove(directory / poses_filename, error);
         error.clear();
-        std::filesystem::remove(directory / "submaps.jsonl", error);
+        std::filesystem::remove(directory / submaps_filename, error);
         error.clear();
-        std::filesystem::remove(directory / "submaps", error);
+        std::filesystem::remove(directory / submaps_directory_name, error);
         error.clear();
         std::filesystem::remove(directory, error);
     }
@@ -140,9 +161,9 @@ operation_status write_voxel(std::ofstream& output, const esdf_voxel& value) {
 
 template<class tile_map>
 operation_status write_tiles(const std::filesystem::path& path, const tile_map& tiles,
-                             std::string_view magic, float voxel_size, float distance)
+                             tile_format_descriptor format, float voxel_size, float distance)
 {
-    if (tiles.size() > 100'000'000ULL)
+    if (tiles.size() > maximum_export_tile_count)
         return std::unexpected(operation_error{"map export exceeds the format tile limit"});
     const auto order = ordered_blocks(tiles);
     for (const auto index : order)
@@ -153,8 +174,8 @@ operation_status write_tiles(const std::filesystem::path& path, const tile_map& 
     auto opened = export_stream(path, "cannot open map tile export", true);
     if (!opened) return std::unexpected(opened.error());
     auto output = std::move(*opened);
-    output.write(magic.data(), 8);
-     write_scalar(output, std::uint32_t{1});
+    output.write(format.magic.data(), format.magic.size());
+     write_scalar(output, tile_binary_version);
     write_scalar(output, static_cast<std::uint32_t>(tile_edge));
     write_scalar(output, voxel_size);
     write_scalar(output, distance);
@@ -184,7 +205,7 @@ operation_status validate_export_submap(const submap& value)
     const auto& frame = value.frame;
     const auto& config = value.config;
     const auto& statistics = value.statistics;
-    if (!config.valid() || frame.id > 9007199254740991ULL || frame.frame_ids.empty() ||
+    if (!config.valid() || frame.id > maximum_exact_json_integer || frame.frame_ids.empty() ||
         frame.end_stamp_ns <= frame.start_stamp_ns)
         return std::unexpected(operation_error{"invalid submap export descriptor"});
     for (const auto* pose : {&frame.anchor, &value.optimized_world_pose})
@@ -275,12 +296,12 @@ operation_result<std::unique_ptr<map_exporter>> map_exporter::create(
     if (error) return std::unexpected(operation_error{"cannot create map export output directory"});
     if (!created) return std::unexpected(operation_error{"map export output already exists"});
     export_directory_cleanup cleanup(output);
-    const auto submaps_created = std::filesystem::create_directory(output / "submaps", error);
+    const auto submaps_created = std::filesystem::create_directory(output / submaps_directory_name, error);
     if (error || !submaps_created)
         return std::unexpected(operation_error{"cannot create map export submap directory"});
-    auto pose_output = export_stream(output / "poses.jsonl", "cannot open map pose export");
+    auto pose_output = export_stream(output / poses_filename, "cannot open map pose export");
     if (!pose_output) return std::unexpected(pose_output.error());
-    auto metadata_output = export_stream(output / "submaps.jsonl", "cannot open map metadata export");
+    auto metadata_output = export_stream(output / submaps_filename, "cannot open map metadata export");
     if (!metadata_output) return std::unexpected(metadata_output.error());
     auto result = std::unique_ptr<map_exporter>(new map_exporter(
         output, std::move(description), std::move(*pose_output), std::move(*metadata_output)));
@@ -293,7 +314,7 @@ operation_status map_exporter::write(const submap& value)
     if (finished || failed)
         return std::unexpected(operation_error{"map export is closed or has failed"});
     const auto& frame = value.frame;
-    if ((previous_id && frame.id <= *previous_id) || frame.id > 9007199254740991ULL ||
+    if ((previous_id && frame.id <= *previous_id) || frame.id > maximum_exact_json_integer ||
         frame.frame_ids.empty() || frame.end_stamp_ns <= frame.start_stamp_ns || !value.config.valid())
         return std::unexpected(operation_error{"invalid or unordered submap export"});
     for (const auto* pose : {&frame.anchor, &value.optimized_world_pose})
@@ -305,15 +326,16 @@ operation_status map_exporter::write(const submap& value)
     const auto valid = validate_export_submap(value);
     if (!valid) return valid;
     failed = true;
-    const auto stem = directory / "submaps" / ("submap_" + std::to_string(frame.id));
+    const auto stem = directory / submaps_directory_name /
+        (std::string(submap_filename_prefix) + std::to_string(frame.id));
     auto tsdf_path = stem;
     auto esdf_path = stem;
-    tsdf_path += ".tsdf.bin";
-    esdf_path += ".esdf.bin";
-    const auto tsdf_written = write_tiles(tsdf_path, value.tsdf, "CVXTSDF1",
+    tsdf_path += tsdf_filename_suffix;
+    esdf_path += esdf_filename_suffix;
+    const auto tsdf_written = write_tiles(tsdf_path, value.tsdf, tsdf_tile_format,
         value.config.voxel_size, value.config.truncation_distance);
     if (!tsdf_written) return tsdf_written;
-    const auto esdf_written = write_tiles(esdf_path, value.esdf, "CVXESDF1",
+    const auto esdf_written = write_tiles(esdf_path, value.esdf, esdf_tile_format,
         value.config.voxel_size, value.config.esdf_maximum_distance_m);
     if (!esdf_written) return esdf_written;
     poses << "{\"submap_id\":" << frame.id << ",\"start_stamp_ns\":" << frame.start_stamp_ns
@@ -389,12 +411,12 @@ operation_status map_exporter::finish()
     if (!poses) return std::unexpected(operation_error{"cannot close map pose export"});
     metadata.close();
     if (!metadata) return std::unexpected(operation_error{"cannot close map metadata export"});
-    const auto temporary = directory / "run.json.pending";
+    const auto temporary = directory / run_pending_filename;
     auto opened = export_stream(temporary, "cannot open map run export");
     if (!opened) return std::unexpected(opened.error());
     auto run = std::move(*opened);
     export_file_cleanup cleanup(temporary);
-    run << "{\"schema\":\"covoxslam.run.v1\",\"dataset_fingerprint\":\""
+    run << "{\"schema\":\"" << run_schema << "\",\"dataset_fingerprint\":\""
         << json_escape(manifest.dataset_fingerprint) << "\",\"mapping_backend\":\""
          << json_escape(manifest.mapping_backend) << "\",\"fusion_order\":\"" << json_escape(manifest.fusion_order)
         << "\",\"esdf_backend\":\""
@@ -410,7 +432,7 @@ operation_status map_exporter::finish()
     run.close();
     if (!run) return std::unexpected(operation_error{"cannot close map run export"});
     std::error_code error;
-    const auto destination = directory / "run.json";
+    const auto destination = directory / run_filename;
     if (std::filesystem::exists(destination, error) || error)
         return std::unexpected(operation_error{"cannot publish map export"});
     std::filesystem::rename(temporary, destination, error);
