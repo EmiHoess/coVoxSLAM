@@ -33,15 +33,9 @@ template<storage::layout l, storage::schema es = storage::schema::esdf> class gp
     std::shared_ptr<memory_budget> budget_;
     template<storage::schema s> operation_result<retired_allocation> retained_field(const std::shared_ptr<const gpu_field<s, l>>& field) const
     {
-        auto payload = field->payload.descriptor();
-        if (!payload) return std::unexpected(payload.error());
-        auto index = field->index.view();
-        if (!index) return std::unexpected(index.error());
-        const auto payload_bytes = payload->capacity_tiles * storage::payload_tile_bytes<s, l>;
-        const auto index_bytes = index->capacity * sizeof(device_hash_entry);
-        if (payload_bytes > std::numeric_limits<std::size_t>::max() - index_bytes)
-            return std::unexpected(operation_error{"resident byte accounting overflows"});
-        return retired_allocation{field, payload_bytes + index_bytes};
+        if (!field || !field->memory)
+            return std::unexpected(operation_error{"resident allocation has no budget claim"});
+        return retired_allocation{field, field->memory};
     }
     template<storage::schema s> operation_result<std::shared_ptr<const gpu_field<s, l>>> upload(
         const std::shared_ptr<const field_pool<s, l>>& source, std::uint64_t generation, bool copy_values = true,
@@ -176,7 +170,7 @@ public:
         drain.armed = false;
         auto retired = retained_field(*previous);
         if (!retired) return std::unexpected(retired.error());
-        checked = retired_.retain(retired->owner, retired->bytes);
+        checked = retired_.retain(retired->owner, retired->memory);
         if (!checked) return checked;
         candidate->content_epoch = content_epoch;
         if ((*previous)->memory) (*previous)->memory->retire();
@@ -188,8 +182,7 @@ public:
         return {};
     }
     std::size_t size() const noexcept { return maps_.size(); }
-    std::size_t collect() { return retired_.collect(); }
-    std::size_t pending_bytes() const noexcept { return retired_.pending_bytes(); }
+    operation_result<std::size_t> collect() { return retired_.collect(); }
     operation_status evict(std::uint64_t id, const authority_snapshot& authority)
     {
         auto found = maps_.find(id);

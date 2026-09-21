@@ -170,6 +170,15 @@ inline operation_result<memory_bytes> add_memory(memory_bytes first, memory_byte
     });
     return first;
 }
+inline operation_result<std::size_t> memory_total(memory_bytes bytes)
+{
+    if (bytes.pinned > std::numeric_limits<std::size_t>::max() - bytes.host)
+        return std::unexpected(operation_error{"memory total overflows"});
+    const auto host_and_pinned = bytes.host + bytes.pinned;
+    if (bytes.device > std::numeric_limits<std::size_t>::max() - host_and_pinned)
+        return std::unexpected(operation_error{"memory total overflows"});
+    return host_and_pinned + bytes.device;
+}
 struct dirty_slot
 {
     std::uint64_t generation{};

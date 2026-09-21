@@ -658,12 +658,9 @@ public:
     {
         std::lock_guard lock(mutex_);
         residency_diagnostics result;
-        result.pending_reclamation_bytes = retired_.pending_bytes();
-#if defined(covoxslam_has_cuda)
-        if (gpu_.pending_bytes() > std::numeric_limits<std::size_t>::max() - result.pending_reclamation_bytes)
-            return std::unexpected(operation_error{"pending retirement count overflows"});
-        result.pending_reclamation_bytes += gpu_.pending_bytes();
-#endif
+        auto pending = memory_total(budget_->snapshot().pending);
+        if (!pending) return std::unexpected(pending.error());
+        result.pending_reclamation_bytes = *pending;
 
         for (const auto& [id, map] : maps_) {
             const auto state = map->authority.snapshot();
@@ -727,18 +724,23 @@ public:
         if (!entry || !next_epoch(entry->record.versions.descriptor))
             return std::unexpected(operation_error{"retirement descriptor is exhausted"});
         std::vector<retired_allocation> retained;
-        auto append = [&]<storage::schema s>(const std::shared_ptr<const field_pool<s, l>>& field) {
-            if (!field) return;
-            constexpr auto stride = storage::payload_tile_bytes<s, l>;
-            retained.push_back({field, field->payload.capacity() * stride});
+        auto append = [&]<storage::schema s>(const std::shared_ptr<const field_pool<s, l>>& field) -> operation_status {
+            if (!field) return {};
+            if (!field->memory)
+                return std::unexpected(operation_error{"CPU allocation has no budget claim"});
+            retained.push_back({field, field->memory});
+            return {};
         };
-        append(entry->tsdf); append(entry->esdf);
+        auto checked = append(entry->tsdf);
+        if (!checked) return checked;
+        checked = append(entry->esdf);
+        if (!checked) return checked;
 #if defined(covoxslam_has_cuda)
         auto gpu_retained = gpu_.prepare_retirement(id);
         if (!gpu_retained) return std::unexpected(gpu_retained.error());
         retained.insert(retained.end(), gpu_retained->begin(), gpu_retained->end());
 #endif
-        auto checked = retired_.retain_many(retained);
+        checked = retired_.retain_many(retained);
         if (!checked) return checked;
 #if defined(covoxslam_has_cuda)
         gpu_.finish_retirement(id);
@@ -747,12 +749,17 @@ public:
         if (!checked) return checked;
         return map.authority.retire();
     }
-    std::size_t collect()
+    operation_result<std::size_t> collect()
     {
         std::lock_guard lock(mutex_);
         auto bytes = retired_.collect();
+        if (!bytes) return std::unexpected(bytes.error());
 #if defined(covoxslam_has_cuda)
-        bytes += gpu_.collect();
+        auto gpu_bytes = gpu_.collect();
+        if (!gpu_bytes) return std::unexpected(gpu_bytes.error());
+        if (*gpu_bytes > std::numeric_limits<std::size_t>::max() - *bytes)
+            return std::unexpected(operation_error{"retirement collection overflows"});
+        *bytes += *gpu_bytes;
 #endif
         return bytes;
     }

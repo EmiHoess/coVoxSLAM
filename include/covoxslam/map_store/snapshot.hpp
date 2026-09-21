@@ -91,28 +91,26 @@ public:
 struct retired_allocation
 {
     std::shared_ptr<const void> owner;
-    std::size_t bytes{};
+    std::shared_ptr<budget_claim> memory;
 };
 class retirement_queue
 {
     std::vector<retired_allocation> entries_;
-    std::size_t bytes_{};
 public:
-    operation_status retain(std::shared_ptr<const void> owner, std::size_t bytes)
+    operation_status retain(std::shared_ptr<const void> owner, std::shared_ptr<budget_claim> memory)
     {
-        const std::array<retired_allocation, 1> items{{{std::move(owner), bytes}}};
+        const std::array<retired_allocation, 1> items{{{std::move(owner), std::move(memory)}}};
         return retain_many(items);
     }
     operation_status retain_many(std::span<const retired_allocation> items)
     {
         if (items.size() > entries_.max_size() - entries_.size())
             return std::unexpected(operation_error{"retirement queue capacity exceeded"});
-        auto bytes = bytes_;
 
         for (std::size_t i = 0; i < items.size(); ++i) {
             const auto& owner = items[i].owner;
-            if (!owner || items[i].bytes > std::numeric_limits<std::size_t>::max() - bytes)
-                return std::unexpected(operation_error{"retirement accounting overflows"});
+            if (!owner || !items[i].memory)
+                return std::unexpected(operation_error{"retirement allocation is incomplete"});
 
             for (const auto& entry : entries_)
                 if (!owner.owner_before(entry.owner) && !entry.owner.owner_before(owner))
@@ -121,28 +119,30 @@ public:
             for (std::size_t j = 0; j < i; ++j)
                 if (!owner.owner_before(items[j].owner) && !items[j].owner.owner_before(owner))
                     return std::unexpected(operation_error{"retirement batch repeats an allocation"});
-            bytes += items[i].bytes;
         }
         entries_.reserve(entries_.size() + items.size());
         entries_.insert(entries_.end(), items.begin(), items.end());
-        bytes_ = bytes;
         return {};
     }
-    std::size_t collect()
+    operation_result<std::size_t> collect()
     {
-        std::size_t released{};
-        auto current = entries_.begin();
-        while (current != entries_.end()) {
-            if (current->owner.use_count() == 1) {
-                released += current->bytes;
-                bytes_ -= current->bytes;
-                current = entries_.erase(current);
-            }
-            else ++current;
+        memory_bytes released;
+        std::vector<std::size_t> ready;
+        ready.reserve(entries_.size());
+
+        for (std::size_t i = 0; i < entries_.size(); ++i) {
+            if (entries_[i].owner.use_count() != 1) continue;
+            auto next = add_memory(released, entries_[i].memory->bytes());
+            if (!next) return std::unexpected(next.error());
+            released = *next;
+            ready.push_back(i);
         }
-        return released;
+        auto total = memory_total(released);
+        if (!total) return std::unexpected(total.error());
+        for (auto current = ready.rbegin(); current != ready.rend(); ++current)
+            entries_.erase(entries_.begin() + *current);
+        return *total;
     }
-    std::size_t pending_bytes() const noexcept { return bytes_; }
     std::size_t pending_allocations() const noexcept { return entries_.size(); }
 };
 }

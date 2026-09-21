@@ -81,7 +81,8 @@ operation_status resident_pipeline::close(sensor_grid::combined_map& mapper, sub
     metadata.statistics.cuda_uploaded_bytes += generated->upload_bytes;
     metadata.config.esdf_generator = esdf_backend::cuda_block_band_soa;
     state_->configurations.emplace(metadata.frame.id, metadata.config);
-    state_->maps->collect();
+    auto collected = state_->maps->collect();
+    if (!collected) return std::unexpected(collected.error());
     state_->failed = false;
     return {};
 #else
