@@ -200,7 +200,7 @@ inline operation_result<stored_pipeline_result> stored_pipeline(
         }
     }
     const auto memory = retained.memory();
-    report << "store CPU payload bytes " << memory.used[0] << ", GPU allocation bytes " << memory.used[2] << '\n'
+    report << "store CPU payload bytes " << memory.used.host << ", GPU allocation bytes " << memory.used.device << '\n'
         << "store pipeline wall ms " << std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count() << '\n';
     output.report = std::move(report).str();
     return output;

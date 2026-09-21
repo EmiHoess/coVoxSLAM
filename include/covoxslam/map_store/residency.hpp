@@ -18,7 +18,38 @@
 namespace covoxslam::store
 {
 enum class memory_space : std::size_t { host, pinned, device };
-using memory_bytes = std::array<std::size_t, 3>;
+struct memory_bytes
+{
+    std::size_t host{}, pinned{}, device{};
+    bool operator==(const memory_bytes&) const = default;
+};
+template<memory_space space> constexpr std::size_t& memory_bytes_for(memory_bytes& bytes) noexcept
+{
+    static_assert(space == memory_space::host || space == memory_space::pinned || space == memory_space::device);
+    if constexpr (space == memory_space::host) return bytes.host;
+    else if constexpr (space == memory_space::pinned) return bytes.pinned;
+    else return bytes.device;
+}
+template<memory_space space> constexpr std::size_t memory_bytes_for(const memory_bytes& bytes) noexcept
+{
+    static_assert(space == memory_space::host || space == memory_space::pinned || space == memory_space::device);
+    if constexpr (space == memory_space::host) return bytes.host;
+    else if constexpr (space == memory_space::pinned) return bytes.pinned;
+    else return bytes.device;
+}
+template<class function> constexpr void for_each_memory_space(function&& operation)
+{
+    operation.template operator()<memory_space::host>();
+    operation.template operator()<memory_space::pinned>();
+    operation.template operator()<memory_space::device>();
+}
+constexpr memory_bytes host_memory(std::size_t bytes) noexcept { return {bytes, 0, 0}; }
+constexpr memory_bytes pinned_memory(std::size_t bytes) noexcept { return {0, bytes, 0}; }
+constexpr memory_bytes device_memory(std::size_t bytes) noexcept { return {0, 0, bytes}; }
+constexpr memory_bytes host_device_memory(std::size_t host, std::size_t device) noexcept
+{
+    return {host, 0, device};
+}
 struct residency_policy
 {
     memory_bytes limits{1024U * 1024U * 1024U, 128U * 1024U * 1024U, 1024U * 1024U * 1024U};
@@ -48,10 +79,11 @@ public:
         if (!state_) return;
         std::lock_guard lock(state_->mutex);
 
-        for (unsigned i = 0; i < 3; ++i) {
-            state_->counters.used[i] -= bytes_[i];
-            if (pending_) state_->counters.pending[i] -= bytes_[i];
-        }
+        for_each_memory_space([&]<memory_space space> {
+            memory_bytes_for<space>(state_->counters.used) -= memory_bytes_for<space>(bytes_);
+            if (pending_)
+                memory_bytes_for<space>(state_->counters.pending) -= memory_bytes_for<space>(bytes_);
+        });
     }
     void retire()
     {
@@ -59,7 +91,9 @@ public:
         std::lock_guard lock(state_->mutex);
         if (pending_) return;
 
-        for (unsigned i = 0; i < 3; ++i) state_->counters.pending[i] += bytes_[i];
+        for_each_memory_space([&]<memory_space space> {
+            memory_bytes_for<space>(state_->counters.pending) += memory_bytes_for<space>(bytes_);
+        });
         pending_ = true;
     }
     const memory_bytes& bytes() const noexcept { return bytes_; }
@@ -82,14 +116,18 @@ public:
         std::lock_guard lock(state_->mutex);
         auto& current = state_->counters;
 
-        for (unsigned i = 0; i < 3; ++i)
-            if (bytes[i] > current.limit[i] - current.used[i])
-                return std::unexpected(operation_error{"map store memory budget exhausted"});
-
-        for (unsigned i = 0; i < 3; ++i) {
-            current.used[i] += bytes[i];
-            current.peak[i] = std::max(current.peak[i], current.used[i]);
-        }
+        bool exhausted{};
+        for_each_memory_space([&]<memory_space space> {
+            exhausted = exhausted || memory_bytes_for<space>(bytes) >
+                memory_bytes_for<space>(current.limit) - memory_bytes_for<space>(current.used);
+        });
+        if (exhausted) return std::unexpected(operation_error{"map store memory budget exhausted"});
+        for_each_memory_space([&]<memory_space space> {
+            auto& used = memory_bytes_for<space>(current.used);
+            auto& peak = memory_bytes_for<space>(current.peak);
+            used += memory_bytes_for<space>(bytes);
+            peak = std::max(peak, used);
+        });
         claim->bytes_ = bytes;
         claim->state_ = state_;
         return claim;
@@ -98,8 +136,12 @@ public:
     {
         std::lock_guard lock(state_->mutex);
 
-        for (unsigned i = 0; i < 3; ++i)
-            if (limits[i] < state_->counters.used[i]) return std::unexpected(operation_error{"new budget is below retained allocations"});
+        bool below_used{};
+        for_each_memory_space([&]<memory_space space> {
+            below_used = below_used ||
+                memory_bytes_for<space>(limits) < memory_bytes_for<space>(state_->counters.used);
+        });
+        if (below_used) return std::unexpected(operation_error{"new budget is below retained allocations"});
         state_->counters.limit = limits;
         return {};
     }
@@ -111,11 +153,15 @@ public:
 };
 inline operation_result<memory_bytes> add_memory(memory_bytes first, memory_bytes second)
 {
-    for (unsigned i = 0; i < 3; ++i) {
-        if (second[i] > std::numeric_limits<std::size_t>::max() - first[i])
-            return std::unexpected(operation_error{"memory accounting overflows"});
-        first[i] += second[i];
-    }
+    bool overflow{};
+    for_each_memory_space([&]<memory_space space> {
+        overflow = overflow || memory_bytes_for<space>(second) >
+            std::numeric_limits<std::size_t>::max() - memory_bytes_for<space>(first);
+    });
+    if (overflow) return std::unexpected(operation_error{"memory accounting overflows"});
+    for_each_memory_space([&]<memory_space space> {
+        memory_bytes_for<space>(first) += memory_bytes_for<space>(second);
+    });
     return first;
 }
 struct dirty_slot

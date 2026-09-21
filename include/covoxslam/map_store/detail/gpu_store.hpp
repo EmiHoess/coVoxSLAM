@@ -65,12 +65,12 @@ template<storage::layout l, storage::schema es = storage::schema::esdf> class gp
             return std::unexpected(operation_error{"resident capacity is unsupported"});
         while (buckets / 2 < source->index.size()) buckets *= 2;
         const auto index_bytes = buckets * sizeof(device_hash_entry);
-        auto bytes = add_memory({0, 0, source->payload.size() * stride}, {0, 0, index_bytes});
+        auto bytes = add_memory(device_memory(source->payload.size() * stride), device_memory(index_bytes));
         if (!bytes) return std::unexpected(bytes.error());
         auto retained = budget_->reserve(*bytes);
         if (!retained) return std::unexpected(retained.error());
         const auto input_bytes = source->index.size() * sizeof(device_hash_entry);
-        auto transient = budget_->reserve({input_bytes, 0, input_bytes + sizeof(unsigned)});
+        auto transient = budget_->reserve(host_device_memory(input_bytes, input_bytes + sizeof(unsigned)));
         if (!transient) return std::unexpected(transient.error());
         auto field = std::make_shared<gpu_field<s, l>>();
         field->memory = std::move(*retained);
@@ -127,7 +127,7 @@ public:
         auto metadata = (*resident)->source_identity.lock();
         if (!metadata) return std::unexpected(operation_error{"GPU readback topology is unavailable"});
         constexpr auto stride = storage::payload_tile_bytes<s, l>;
-        auto memory = budget_->reserve({metadata->payload.size() * stride, 0, 0});
+        auto memory = budget_->reserve(host_memory(metadata->payload.size() * stride));
         if (!memory) return std::unexpected(memory.error());
         auto candidate = std::make_shared<field_pool<s, l>>();
         candidate->memory = std::move(*memory);

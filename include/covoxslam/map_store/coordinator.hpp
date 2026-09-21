@@ -55,7 +55,7 @@ private:
             constexpr auto stride = storage::payload_tile_bytes<s, l>;
             if (capacity > std::numeric_limits<std::size_t>::max() / stride)
                 return std::unexpected(operation_error{"mapping field growth overflows"});
-            auto memory = budget_.reserve({capacity * stride, 0, 0});
+            auto memory = budget_.reserve(host_memory(capacity * stride));
             if (!memory) return std::unexpected(memory.error());
             replacement = std::move(*memory);
         }
@@ -131,7 +131,7 @@ template<storage::layout l, storage::schema es = storage::schema::esdf> class ma
         constexpr auto stride = storage::payload_tile_bytes<s, l>;
         if (count > maximum_tiles_ || count > std::numeric_limits<std::size_t>::max() / stride)
             return std::unexpected(operation_error{"field allocation exceeds capacity"});
-        auto claim = budget_->reserve({count * stride, 0, 0});
+        auto claim = budget_->reserve(host_memory(count * stride));
         if (!claim) return std::unexpected(claim.error());
         auto field = std::make_shared<field_pool<s, l>>();
         field->memory = std::move(*claim);

@@ -165,7 +165,7 @@ template<storage::schema s, storage::layout l> operation_result<std::shared_ptr<
     if (!input.good || !epoch || count > maximum_tiles || count > input.remaining() / wire_stride ||
         count > std::numeric_limits<std::uint32_t>::max() || count > std::numeric_limits<std::size_t>::max() / storage_stride)
         return std::unexpected(operation_error{"checkpoint field length is invalid"});
-    auto memory = budget.reserve({std::size_t(count) * storage_stride, 0, 0});
+    auto memory = budget.reserve(host_memory(std::size_t(count) * storage_stride));
     if (!memory) return std::unexpected(memory.error());
     auto field = std::make_shared<field_pool<s, l>>();
     field->memory = std::move(*memory);

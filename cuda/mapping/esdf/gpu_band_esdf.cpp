@@ -60,7 +60,7 @@ struct esdf_scratch
         if (maximum < fixed || count > (maximum - fixed) / per_tile)
             return std::unexpected(operation_error{"ESDF scratch limit exceeded"});
         const auto total = count * per_tile + fixed;
-        auto claimed = budget.reserve({0, 0, total});
+        auto claimed = budget.reserve(device_memory(total));
         if (!claimed) return std::unexpected(claimed.error());
         memory = std::move(*claimed); stream = selected;
         auto checked = storage::cuda_storage_status(cudaGetDevice(&device));
@@ -119,7 +119,7 @@ struct band_esdf_workspace
         constexpr auto field_bytes = storage::payload_tile_bytes<storage::schema::projective_esdf,
             storage::layout::pool_soa>;
         const auto bytes = count * field_bytes;
-        auto claimed = budget.reserve({0, 0, bytes});
+        auto claimed = budget.reserve(device_memory(bytes));
 
         if (!claimed) return std::unexpected(claimed.error());
         field_memory = std::move(*claimed);
@@ -152,13 +152,13 @@ operation_result<band_esdf_metrics> generate_band_esdf(
         const auto allocated = std::chrono::steady_clock::now();
         result.allocation_ms = std::chrono::duration<double, std::milli>(allocated - started).count();
         result.scratch_bytes = workspace.reserved_bytes;
-        result.peak_device_bytes = budget.snapshot().peak[2];
+        result.peak_device_bytes = budget.snapshot().peak.device;
         auto descriptor = workspace.fields.descriptor();
 
         if (!descriptor) return std::unexpected(descriptor.error());
         auto& metadata = workspace.metadata;
-        auto host_memory = budget.reserve({keys.size_bytes(), 0, 0});
-        if (!host_memory) return std::unexpected(host_memory.error());
+        auto host_claim = budget.reserve(host_memory(keys.size_bytes()));
+        if (!host_claim) return std::unexpected(host_claim.error());
         valid = storage::cuda_storage_status(cudaMemcpyAsync(metadata.keys,
             keys.data(), keys.size_bytes(), cudaMemcpyHostToDevice, stream));
         if (!valid) return valid;
