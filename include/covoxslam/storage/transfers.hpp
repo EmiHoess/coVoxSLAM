@@ -392,7 +392,7 @@ inline operation_result<transfer_plan> plan_transfer(const transfer_endpoint& so
     if (!checked) return std::unexpected(checked.error());
     checked = validate_endpoint(destination);
     if (!checked) return std::unexpected(checked.error());
-    const auto field_count = transfer_fields(source.record_schema);
+    const auto field_count = schema_field_count(source.record_schema);
     if (source.record_schema != destination.record_schema || fields >> field_count ||
         source_first > source.tiles * tile_voxels || count > source.tiles * tile_voxels - source_first ||
         destination_first > destination.tiles * tile_voxels || count > destination.tiles * tile_voxels - destination_first ||
