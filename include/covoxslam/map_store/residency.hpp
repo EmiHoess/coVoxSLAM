@@ -1,4 +1,5 @@
 #pragma once
+#include <covoxslam/core/byte_units.hpp>
 #include <covoxslam/core/result.hpp>
 #include <covoxslam/map_store/cpu_index.hpp>
 #include <covoxslam/storage/schema.hpp>
@@ -52,7 +53,7 @@ constexpr memory_bytes host_device_memory(std::size_t host, std::size_t device) 
 }
 struct residency_policy
 {
-    memory_bytes limits{1024U * 1024U * 1024U, 128U * 1024U * 1024U, 1024U * 1024U * 1024U};
+    memory_bytes limits{bytes_per_gibibyte, 128U * bytes_per_mebibyte, bytes_per_gibibyte};
     std::size_t maximum_tiles{1000000};
 };
 struct budget_snapshot

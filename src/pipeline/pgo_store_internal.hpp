@@ -1,4 +1,5 @@
 #pragma once
+#include <covoxslam/core/byte_units.hpp>
 #include <covoxslam/core/result.hpp>
 #include <covoxslam/map_store/coordinator.hpp>
 #include <covoxslam/storage/layout.hpp>
@@ -278,7 +279,7 @@ class preparation_cache
     preparation_metrics metrics_;
     std::size_t maximum_key_bytes_;
 public:
-    explicit preparation_cache(std::size_t maximum_key_bytes = 64 * 1024 * 1024)
+    explicit preparation_cache(std::size_t maximum_key_bytes = 64U * bytes_per_mebibyte)
         : maximum_key_bytes_(maximum_key_bytes) {}
     preparation_metrics metrics() const
     {

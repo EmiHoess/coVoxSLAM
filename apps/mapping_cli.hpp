@@ -1,5 +1,6 @@
 #pragma once
 
+#include <covoxslam/core/byte_units.hpp>
 #include <covoxslam/core/result.hpp>
 #include <covoxslam/mapping/config.hpp>
 #include "cli_lookup.hpp"
@@ -34,7 +35,7 @@ inline constexpr cli_option_entry<esdf_value> esdf_values[]{
 struct mapping_device_options
 {
     int device{};
-    std::size_t maximum_device_bytes{2ULL << 30};
+    std::size_t maximum_device_bytes{2U * bytes_per_gibibyte};
 };
 enum class mapping_device_option { unknown, device, bytes, tiles };
 inline constexpr cli_option_entry<mapping_device_option> mapping_device_options_table[]{

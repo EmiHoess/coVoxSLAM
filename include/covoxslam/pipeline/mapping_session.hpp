@@ -1,5 +1,6 @@
 #pragma once
 
+#include <covoxslam/core/byte_units.hpp>
 #include <covoxslam/core/result.hpp>
 #include <covoxslam/mapping/config.hpp>
 #include <covoxslam/pgo/pose_graph.hpp>
@@ -31,7 +32,7 @@ struct store_pipeline_options
     storage::layout layout{storage::layout::pool_soa};
     stored_pgo_fields fields{stored_pgo_fields::copied};
     std::filesystem::path checkpoint_root;
-    std::size_t cpu_bytes{1073741824}, gpu_bytes{1073741824};
+    std::size_t cpu_bytes{bytes_per_gibibyte}, gpu_bytes{bytes_per_gibibyte};
 };
 
 struct stored_pipeline_result
@@ -77,7 +78,7 @@ struct mapping_session_options
     sensor_grid::interpolation sampling{sensor_grid::interpolation::nearest};
     store_pipeline_options store;
     pgo::options solver;
-    std::size_t maximum_device_bytes{2ULL << 30};
+    std::size_t maximum_device_bytes{2U * bytes_per_gibibyte};
     bool shadow{};
 };
 

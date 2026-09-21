@@ -1,5 +1,6 @@
 #pragma once
 
+#include <covoxslam/core/byte_units.hpp>
 #include <covoxslam/core/result.hpp>
 #include <covoxslam/sensor/lookup.hpp>
 #include <covoxslam/sensor/detail/gather_layout.hpp>
@@ -58,7 +59,7 @@ class gpu_grid
     gpu_grid();
 public:
     static operation_result<std::unique_ptr<gpu_grid>> create(const lookup& table,
-        int device = 0, std::size_t maximum_bytes = 1073741824, gather_options options = {});
+        int device = 0, std::size_t maximum_bytes = bytes_per_gibibyte, gather_options options = {});
     ~gpu_grid();
      gpu_grid(const gpu_grid&) = delete;
     gpu_grid& operator=(const gpu_grid&) = delete;

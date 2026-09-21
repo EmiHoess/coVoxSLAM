@@ -1,4 +1,5 @@
 #pragma once
+#include <covoxslam/core/byte_units.hpp>
 #include <covoxslam/core/result.hpp>
 #include <covoxslam/map_store/device_index.hpp>
 #include <covoxslam/map_store/cpu_index.hpp>
@@ -31,7 +32,7 @@ class gpu_block_index
     std::shared_ptr<index_allocation> state_;
 public:
     operation_status initialize(const cpu_block_index& source, std::uint64_t allocation_generation,
-        std::size_t byte_budget = 256U * 1024U * 1024U)
+        std::size_t byte_budget = 256U * bytes_per_mebibyte)
     {
         if (state_ || !source.initialized() || !allocation_generation)
             return std::unexpected(operation_error{"invalid GPU index initialization"});

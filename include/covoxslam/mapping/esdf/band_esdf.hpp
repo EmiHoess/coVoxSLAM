@@ -1,4 +1,5 @@
 #pragma once
+#include <covoxslam/core/byte_units.hpp>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -25,7 +26,7 @@ struct band_esdf_options
 {
     detail::cuda_site_esdf_parameters field{};
     std::uint32_t maximum_rounds{10000};
-     std::size_t scratch_bytes{256U * 1024U * 1024U};
+     std::size_t scratch_bytes{256U * bytes_per_mebibyte};
 
     bool valid() const noexcept
     {

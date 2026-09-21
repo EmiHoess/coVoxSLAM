@@ -1,4 +1,5 @@
 #pragma once
+#include <covoxslam/core/byte_units.hpp>
 #include <covoxslam/core/geometry.hpp>
 #include <covoxslam/core/result.hpp>
 #include <covoxslam/mapping/config.hpp>
@@ -35,7 +36,7 @@ class combined_map
     combined_map() = default;
 public:
     static operation_result<std::unique_ptr<combined_map>> create(const lookup& table,
-        std::uint32_t capacity = 32768, int device = 0, std::size_t maximum_bytes = 1073741824,
+        std::uint32_t capacity = 32768, int device = 0, std::size_t maximum_bytes = bytes_per_gibibyte,
         gather_options options = {gather_backend::hybrid_combined}, transfer_options transfer = {},
         bool resident_soa = true);
     operation_result<combined_times> integrate(std::span<const float> ranges, pose local_from_sensor,

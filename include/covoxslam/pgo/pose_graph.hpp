@@ -1,4 +1,5 @@
 #pragma once
+#include <covoxslam/core/byte_units.hpp>
 #include <covoxslam/core/geometry.hpp>
 #include <covoxslam/core/result.hpp>
 #include <covoxslam/pipeline/submap.hpp>
@@ -19,7 +20,7 @@ struct options
     std::size_t maximum_iterations{50};
     double maximum_seconds{30};
     int device{};
-    std::uint64_t memory_budget_bytes{1073741824};
+    std::uint64_t memory_budget_bytes{bytes_per_gibibyte};
 };
 struct graph_node
 {

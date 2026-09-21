@@ -1,10 +1,10 @@
 #pragma once
+#include <covoxslam/core/byte_units.hpp>
 #include <covoxslam/core/result.hpp>
 #include <covoxslam/pipeline/mapping_session.hpp>
 #include "cli_lookup.hpp"
 #include <charconv>
 #include <filesystem>
-#include <limits>
 #include <string_view>
 #include <system_error>
 
@@ -71,10 +71,11 @@ inline operation_result<bool> parse_store_option(std::string_view key, std::stri
     case store_option::memory: {
         std::size_t amount{};
         const auto parsed = std::from_chars(value.data(), value.data() + value.size(), amount);
-        if (parsed.ec != std::errc{} || parsed.ptr != value.data() + value.size() || !amount ||
-            amount > std::numeric_limits<std::size_t>::max() / 1048576)
+        if (parsed.ec != std::errc{} || parsed.ptr != value.data() + value.size() || !amount)
             return std::unexpected(operation_error{"store memory must be a positive MiB count"});
-        result.cpu_bytes = result.gpu_bytes = amount * 1048576;
+        auto bytes = byte_count(amount, byte_unit::mebibyte);
+        if (!bytes) return std::unexpected(operation_error{"store memory must be a positive MiB count"});
+        result.cpu_bytes = result.gpu_bytes = *bytes;
         return true;
     }
     default: return false;

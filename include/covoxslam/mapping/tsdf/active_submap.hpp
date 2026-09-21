@@ -1,5 +1,6 @@
 #pragma once
 
+#include <covoxslam/core/byte_units.hpp>
 #include <covoxslam/core/geometry.hpp>
 #include <covoxslam/core/result.hpp>
 #include <covoxslam/sensor/dense_field.hpp>
@@ -103,7 +104,7 @@ class gpu_map
      gpu_map();
 public:
     static operation_result<std::unique_ptr<gpu_map>> create(const lookup& table,
-        std::uint32_t capacity = 32768, int device = 0, std::size_t maximum_bytes = 1073741824,
+        std::uint32_t capacity = 32768, int device = 0, std::size_t maximum_bytes = bytes_per_gibibyte,
         transfer_options options = {}, bool resident_soa = true);
     ~gpu_map();
     gpu_map(const gpu_map&) = delete;

@@ -1,4 +1,5 @@
 #pragma once
+#include <covoxslam/core/byte_units.hpp>
 #include <covoxslam/core/geometry.hpp>
 #include <covoxslam/core/result.hpp>
 #include <cstddef>
@@ -34,7 +35,7 @@ struct dataset; struct frame_descriptor {
 enum class beam_status : std::uint8_t { invalid_no_return = 0, valid_hit = 1, synthetic_dropout = 2, valid_outlier = 3 };
 enum class point_source { raw, deskewed };
 struct frame_load_options { bool raw_xyz{true}, deskewed_xyz{false}, range{true}, status{true}, time_offset_ns{true};
-    std::size_t max_payload_bytes{256U * 1024U * 1024U}; };
+    std::size_t max_payload_bytes{256U * bytes_per_mebibyte}; };
 struct organized_frame {
     frame_descriptor descriptor;
     input_timing timing;

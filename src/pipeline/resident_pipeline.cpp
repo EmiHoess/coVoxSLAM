@@ -38,7 +38,8 @@ operation_result<std::unique_ptr<resident_pipeline>> resident_pipeline::create(
     owner->state_ = std::make_unique<implementation>();
     owner->state_->options = options;
     store::residency_policy policy;
-    policy.limits = {options.cpu_bytes, 128U * 1024U * 1024U, options.gpu_bytes};
+    policy.limits.host = options.cpu_bytes;
+    policy.limits.device = options.gpu_bytes;
      owner->state_->maps = std::make_unique<store::coordinated_store<storage::layout::pool_soa>>(policy);
     return owner;
 #else

@@ -1,6 +1,7 @@
 #include <covoxslam/input/dataset.hpp>
 #include "json_reader.hpp"
 #include "dataset_metadata.hpp"
+#include <covoxslam/core/byte_units.hpp>
 #include <covoxslam/core/hash.hpp>
 
 #include <algorithm>
@@ -799,7 +800,8 @@ namespace
 {
 constexpr std::uint64_t hash_basis = fnv1a_offset_basis;
 constexpr std::uint64_t cache_magic = 0x31584449434f5658ULL;
-constexpr std::size_t maximum_cache_bytes = 1024U * 1024U * 1024U;
+constexpr std::size_t maximum_cache_bytes = bytes_per_gibibyte;
+constexpr std::size_t maximum_trajectory_line_bytes = bytes_per_mebibyte;
  constexpr std::size_t maximum_trajectory_samples = 16U * 1024U * 1024U;
 
 std::uint64_t hash_bytes(std::span<const std::uint8_t> bytes, std::uint64_t hash = hash_basis)
@@ -967,14 +969,14 @@ operation_result<std::vector<pose_sample>> read_trajectory(
     std::ifstream file(path, std::ios::binary);
     if (!file) return std::unexpected(operation_error{"cannot open trajectory"});
     std::vector<pose_sample> result;
-    std::vector<char> line(1024U * 1024U + 2);
+    std::vector<char> line(maximum_trajectory_line_bytes + 2);
     std::size_t line_number{};
     while (file.getline(line.data(), static_cast<std::streamsize>(line.size())))
     {
         ++line_number;
         const auto count = static_cast<std::size_t>(file.gcount()) - (file.eof() ? 0 : 1);
         if (count == 0 || (count == 1 && line[0] == '\r')) continue;
-        if (count > 1024U * 1024U || result.size() >= maximum_trajectory_samples)
+        if (count > maximum_trajectory_line_bytes || result.size() >= maximum_trajectory_samples)
             return std::unexpected(trajectory_record_error(path, line_number,
                 operation_error{"trajectory exceeds its line or sample limit"}));
         auto parsed = detail::parse_json(std::string_view(line.data(), count));
