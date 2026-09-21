@@ -51,10 +51,15 @@ constexpr memory_bytes host_device_memory(std::size_t host, std::size_t device) 
 {
     return {host, 0, device};
 }
+inline constexpr std::size_t default_host_residency_bytes = bytes_per_gibibyte;
+inline constexpr std::size_t default_pinned_residency_bytes = 128U * bytes_per_mebibyte;
+inline constexpr std::size_t default_device_residency_bytes = bytes_per_gibibyte;
+inline constexpr std::size_t default_maximum_resident_tiles = 1'000'000;
 struct residency_policy
 {
-    memory_bytes limits{bytes_per_gibibyte, 128U * bytes_per_mebibyte, bytes_per_gibibyte};
-    std::size_t maximum_tiles{1000000};
+    memory_bytes limits{default_host_residency_bytes, default_pinned_residency_bytes,
+        default_device_residency_bytes};
+    std::size_t maximum_tiles{default_maximum_resident_tiles};
 };
 struct budget_snapshot
 {

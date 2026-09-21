@@ -124,7 +124,7 @@ struct store_statistics
 template<storage::layout l, storage::schema es = storage::schema::esdf> class map_store
 {
     std::unordered_map<std::uint64_t, map_entry<l, es>> maps_;
-    std::size_t maximum_tiles_{1000000};
+    std::size_t maximum_tiles_{default_maximum_resident_tiles};
     std::shared_ptr<memory_budget> budget_;
     template<storage::schema s> operation_result<std::shared_ptr<field_pool<s, l>>> allocate_field(std::size_t count)
     {
@@ -161,7 +161,8 @@ template<storage::layout l, storage::schema es = storage::schema::esdf> class ma
         return target;
     }
 public:
-    explicit map_store(std::size_t maximum_tiles = 1000000, std::shared_ptr<memory_budget> budget = {})
+    explicit map_store(std::size_t maximum_tiles = default_maximum_resident_tiles,
+        std::shared_ptr<memory_budget> budget = {})
         : maximum_tiles_(maximum_tiles), budget_(budget ? std::move(budget) : std::make_shared<memory_budget>(residency_policy{}.limits)) {}
     budget_snapshot memory() const { return budget_->snapshot(); }
     template<storage::schema s> operation_status initialize_topology(std::uint64_t id,
