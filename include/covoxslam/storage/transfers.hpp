@@ -19,14 +19,16 @@
 
 namespace covoxslam::storage
 {
-struct packing_options { std::size_t batch_records{32}; };
+inline constexpr std::size_t default_packing_batch_records = 32;
+inline constexpr std::size_t maximum_packing_batch_records = 4096;
+struct packing_options { std::size_t batch_records{default_packing_batch_records}; };
 template<std::size_t count> constexpr packing_options fixed_packing()
 {
     return {count};
 }
 inline operation_status validate_packing(const packing_options& options)
 {
-    if (!options.batch_records || options.batch_records > 4096)
+    if (!options.batch_records || options.batch_records > maximum_packing_batch_records)
         return std::unexpected(operation_error{"packing batch must be between 1 and 4096 records"});
     return {};
 }
