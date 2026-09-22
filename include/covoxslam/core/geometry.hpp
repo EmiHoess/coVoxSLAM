@@ -22,6 +22,8 @@ struct quaternion {
     float w{1.0F};
 };
 
+inline constexpr double unit_quaternion_tolerance = 1.0e-3;
+
 struct pose {
     vec3f translation{};
     quaternion rotation{};
@@ -62,6 +64,7 @@ constexpr vec3f cross(vec3f a, vec3f b) noexcept {
 
 float length(vec3f value) noexcept;
 vec3f normalized(vec3f value) noexcept;
+bool is_unit_quaternion(quaternion value) noexcept;
  quaternion normalized(quaternion value) noexcept;
 quaternion multiply(quaternion a, quaternion b) noexcept;
 quaternion quaternion_from_yaw(double yaw) noexcept;

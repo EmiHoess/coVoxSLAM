@@ -1,5 +1,6 @@
 #include "discovery.cuh"
 #include "detail/tile_hash.cuh"
+#include <covoxslam/core/geometry.hpp>
 #include <covoxslam/voxel/tile_shape.hpp>
 #include <cmath>
 #include <climits>
@@ -110,7 +111,8 @@ int cuda_sensor_discover(field_view source, const std::uint8_t* observed,
     const auto q = transform.rotation_xyzw;
     const double norm = std::hypot(std::hypot(double(q[0]), double(q[1])), std::hypot(double(q[2]), double(q[3])));
 
-    if (!std::isfinite(norm) || std::abs(norm - 1) > .001) return int(cudaErrorInvalidValue);
+    if (!std::isfinite(norm) || std::abs(norm - 1.0) > unit_quaternion_tolerance)
+        return int(cudaErrorInvalidValue);
 
     for (auto& value : transform.rotation_xyzw) value = float(value / norm);
 

@@ -49,9 +49,7 @@ operation_result<pose> read_pose(const json_value& value)
     pose result;
     result.translation = {components[0], components[1], components[2]};
     result.rotation = {components[3], components[4], components[5], components[6]};
-    const auto& q = result.rotation;
-    const double norm = std::hypot(std::hypot(double(q.x), double(q.y)), std::hypot(double(q.z), double(q.w)));
-    if (std::abs(norm - 1) > 0.001)
+    if (!is_unit_quaternion(result.rotation))
         return std::unexpected(operation_error{"pose quaternion is not normalized"});
     result.rotation = normalized(result.rotation);
      return result;
@@ -945,10 +943,8 @@ operation_status validate_pose_sample(const pose_sample& sample)
 {
     const auto& position = sample.pose.translation;
     const auto& rotation = sample.pose.rotation;
-    const double norm = std::hypot(std::hypot(double(rotation.x), double(rotation.y)),
-                                  std::hypot(double(rotation.z), double(rotation.w)));
     if (!std::isfinite(position.x) || !std::isfinite(position.y) || !std::isfinite(position.z) ||
-         !std::isfinite(norm) || std::abs(norm - 1) > 0.001)
+         !is_unit_quaternion(rotation))
         return std::unexpected(operation_error{"invalid trajectory pose"});
     return {};
 }

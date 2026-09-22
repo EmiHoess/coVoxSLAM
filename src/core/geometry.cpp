@@ -4,6 +4,15 @@
 #include <numbers>
 
 namespace covoxslam {
+namespace
+{
+double quaternion_magnitude(quaternion value) noexcept
+{
+    return std::hypot(
+        std::hypot(static_cast<double>(value.x), static_cast<double>(value.y)),
+        std::hypot(static_cast<double>(value.z), static_cast<double>(value.w)));
+}
+}
 
 float length(vec3f value) noexcept {
     return std::hypot(value.x, value.y, value.z);
@@ -19,10 +28,13 @@ vec3f normalized(vec3f value) noexcept {
             static_cast<float>(value.z / magnitude)};
 }
 
+bool is_unit_quaternion(quaternion value) noexcept {
+    const auto magnitude = quaternion_magnitude(value);
+    return std::isfinite(magnitude) && std::abs(magnitude - 1.0) <= unit_quaternion_tolerance;
+}
+
 quaternion normalized(quaternion value) noexcept {
-    const double magnitude = std::hypot(
-        std::hypot(static_cast<double>(value.x), static_cast<double>(value.y)),
-         std::hypot(static_cast<double>(value.z), static_cast<double>(value.w)));
+    const auto magnitude = quaternion_magnitude(value);
     if (!(magnitude > 0.0) || !std::isfinite(magnitude)) return {};
     return {static_cast<float>(value.x / magnitude),
             static_cast<float>(value.y / magnitude),
