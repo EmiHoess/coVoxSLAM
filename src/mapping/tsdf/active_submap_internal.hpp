@@ -6,7 +6,6 @@
 #include "mapping/tsdf/discovery.cuh"
 #include "mapping/tsdf/allocation.cuh"
 #include <cuda_runtime_api.h>
-#include <array>
 #if defined(covoxslam_has_urd)
 #include <covoxslam/storage/device_buffer.hpp>
 #endif
@@ -33,9 +32,10 @@ struct gpu_map::implementation
     std::vector<int3> indices;
     std::unordered_map<int3, std::uint32_t, int3_hash> index;
     cudaStream_t stream{};
-    std::array<cudaEvent_t, 8> events{};
-    std::array<void*, 20> allocations{};
-    std::size_t allocated{};
+    cudaEvent_t mask_start{}, mask_end{};
+    cudaEvent_t fusion_start{}, fusion_end{};
+    cudaEvent_t allocation_start{}, allocation_end{};
+    cudaEvent_t discovery_start{}, discovery_end{};
     bool selected{}, failed{};
     operation_result<transfer_times> integrate_resident(field_view source,
         detail::cuda_projective_pose transform, interpolation mode);
@@ -48,9 +48,7 @@ struct gpu_map::implementation
     }
     template<class value_type>
     operation_status allocate(value_type*& pointer, std::size_t count) {
-        const auto result = check(cudaMalloc(reinterpret_cast<void**>(&pointer), count * sizeof(value_type)));
-        if (pointer) allocations[allocated++] = pointer;
-        return result;
+        return check(cudaMalloc(reinterpret_cast<void**>(&pointer), count * sizeof(value_type)));
     }
     operation_status wait(operation_status status)
     {
@@ -70,10 +68,26 @@ struct gpu_map::implementation
         cudaSetDevice(device);
         if (stream) cudaStreamSynchronize(stream);
 
-        for (auto event : events)
-            if (event) cudaEventDestroy(event);
-
-        for (std::size_t i = 0; i < allocated; ++i) cudaFree(allocations[i]);
+        if (mask_start) cudaEventDestroy(mask_start);
+        if (mask_end) cudaEventDestroy(mask_end);
+        if (fusion_start) cudaEventDestroy(fusion_start);
+        if (fusion_end) cudaEventDestroy(fusion_end);
+        if (allocation_start) cudaEventDestroy(allocation_start);
+        if (allocation_end) cudaEventDestroy(allocation_end);
+        if (discovery_start) cudaEventDestroy(discovery_start);
+        if (discovery_end) cudaEventDestroy(discovery_end);
+        if (keys) cudaFree(keys);
+        if (slots) cudaFree(slots);
+        if (mask) cudaFree(mask);
+        if (updates) cudaFree(updates);
+        if (discovery.hash) cudaFree(discovery.hash);
+        if (discovery.keys) cudaFree(discovery.keys);
+        if (discovery.state) cudaFree(discovery.state);
+        if (resident.hash) cudaFree(resident.hash);
+        if (resident.scratch_keys) cudaFree(resident.scratch_keys);
+        if (resident.offsets) cudaFree(resident.offsets);
+        if (resident.sums) cudaFree(resident.sums);
+        if (resident.missing) cudaFree(resident.missing);
         if (stream) cudaStreamDestroy(stream);
     }
 };

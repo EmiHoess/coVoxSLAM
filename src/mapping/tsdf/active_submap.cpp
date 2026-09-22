@@ -68,8 +68,14 @@ operation_result<std::unique_ptr<gpu_map>> gpu_map::create(const lookup& table,
     if (status) status = data.allocate(data.resident.sums, detail::scan_block_count(capacity));
     if (status) status = data.allocate(data.resident.missing, capacity);
 
-    for (auto& event : data.events)
-        if (status) status = data.check(cudaEventCreate(&event));
+    if (status) status = data.check(cudaEventCreate(&data.mask_start));
+    if (status) status = data.check(cudaEventCreate(&data.mask_end));
+    if (status) status = data.check(cudaEventCreate(&data.fusion_start));
+    if (status) status = data.check(cudaEventCreate(&data.fusion_end));
+    if (status) status = data.check(cudaEventCreate(&data.allocation_start));
+    if (status) status = data.check(cudaEventCreate(&data.allocation_end));
+    if (status) status = data.check(cudaEventCreate(&data.discovery_start));
+    if (status) status = data.check(cudaEventCreate(&data.discovery_end));
     if (status) status = data.reset_payload();
     status = data.wait(status);
     if (!status) return std::unexpected(status.error());

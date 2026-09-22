@@ -10,30 +10,30 @@ operation_result<transfer_times> gpu_map::implementation::integrate_resident(fie
     transfer_times result;
     discovery_state counters{};
     std::vector<detail::cuda_tile_coordinate> staging(capacity);
-    auto status = check(cudaEventRecord(events[6], stream));
+    auto status = check(cudaEventRecord(discovery_start, stream));
     if (status) status = check(cuda_sensor_discover(source, mask, transform, discovery, stream));
-    if (status) status = check(cudaEventRecord(events[7], stream));
-    if (status) status = check(cudaEventRecord(events[4], stream));
+    if (status) status = check(cudaEventRecord(discovery_end, stream));
+    if (status) status = check(cudaEventRecord(allocation_start, stream));
     if (status) status = check(cuda_sensor_allocate_tiles(resident, stream));
-    if (status) status = check(cudaEventRecord(events[5], stream));
+    if (status) status = check(cudaEventRecord(allocation_end, stream));
     if (status) status = check(cudaMemsetAsync(updates, 0, sizeof(*updates), stream));
-    if (status) status = check(cudaEventRecord(events[2], stream));
+    if (status) status = check(cudaEventRecord(fusion_start, stream));
     if (status) {
         auto descriptor = soa->descriptor();
         if (!descriptor) status = std::unexpected(descriptor.error());
         else status = check(cuda_sensor_resident_soa(source, resident, *descriptor, transform,
             settings.voxel_size, settings.maximum_weight, settings.voxel_size, updates, stream));
     }
-    if (status) status = check(cudaEventRecord(events[3], stream));
+    if (status) status = check(cudaEventRecord(fusion_end, stream));
     if (status) status = check(cudaMemcpyAsync(
         &result.updates, updates, sizeof(result.updates), cudaMemcpyDeviceToHost, stream));
     if (status) status = check(cudaMemcpyAsync(&counters, discovery.state, sizeof(counters), cudaMemcpyDeviceToHost, stream));
     if (status) status = check(cudaMemcpyAsync(staging.data(), keys, staging.size() * sizeof(*keys), cudaMemcpyDeviceToHost, stream));
     status = wait(status);
-    if (status) status = check(cudaEventElapsedTime(&result.mask_ms, events[0], events[1]));
-    if (status) status = check(cudaEventElapsedTime(&result.gpu_discovery_ms, events[6], events[7]));
-    if (status) status = check(cudaEventElapsedTime(&result.gpu_allocation_ms, events[4], events[5]));
-    if (status) status = check(cudaEventElapsedTime(&result.fusion_ms, events[2], events[3]));
+    if (status) status = check(cudaEventElapsedTime(&result.mask_ms, mask_start, mask_end));
+    if (status) status = check(cudaEventElapsedTime(&result.gpu_discovery_ms, discovery_start, discovery_end));
+    if (status) status = check(cudaEventElapsedTime(&result.gpu_allocation_ms, allocation_start, allocation_end));
+    if (status) status = check(cudaEventElapsedTime(&result.fusion_ms, fusion_start, fusion_end));
 
     if (!status) return std::unexpected(status.error());
     if (counters.error || counters.tile_count > capacity || counters.tile_count < indices.size() || counters.count > capacity) {
