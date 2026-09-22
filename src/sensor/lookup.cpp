@@ -9,6 +9,27 @@ namespace covoxslam::sensor_grid
 namespace
 {
 using unit_direction = std::array<double, 3>;
+inline constexpr std::uint64_t voxel_storage_allowance_bytes = 24;
+inline constexpr std::uint64_t offset_terminal_allowance_bytes = 8;
+inline constexpr std::uint64_t ray_storage_allowance_bytes = 32;
+
+operation_result<std::uint64_t> lookup_peak_bytes(
+    std::uint64_t voxel_count, std::uint64_t ray_count, std::uint64_t intersection_count)
+{
+    std::uint64_t result = offset_terminal_allowance_bytes;
+    const auto append = [&result](std::uint64_t count, std::uint64_t width) {
+        if (count > (std::numeric_limits<std::uint64_t>::max() - result) / width)
+            return false;
+        result += count * width;
+        return true;
+    };
+    if (!append(voxel_count, voxel_storage_allowance_bytes) ||
+        !append(ray_count, ray_storage_allowance_bytes) ||
+        !append(intersection_count, sizeof(intersection)))
+        return std::unexpected(operation_error{"sensor lookup byte estimate overflows"});
+    return result;
+}
+
 inline operation_result<unit_direction> normalize(direction input)
 {
     const double norm = std::hypot(double(input.x), double(input.y), double(input.z));
@@ -103,10 +124,10 @@ operation_result<lookup> build_lookup(const config& c, std::span<const direction
 
     if (directions.empty() || directions.size() > UINT32_MAX || factor == 0)
         return std::unexpected(operation_error{"sensor lookup requires rays and a positive factor"});
-    const std::uint64_t base_bytes = std::uint64_t(grid->voxels) * 24 + 8 + directions.size() * 32;
+    const auto base_bytes = lookup_peak_bytes(grid->voxels, directions.size(), 0);
 
     if (grid->voxels > limits.maximum_voxels || directions.size() > limits.maximum_rays ||
-        base_bytes > limits.maximum_host_bytes || !limits.maximum_intersections)
+        !base_bytes || *base_bytes > limits.maximum_host_bytes || !limits.maximum_intersections)
         return std::unexpected(operation_error{"sensor lookup exceeds host storage budget"});
     std::vector<unit_direction> normalized;
     normalized.reserve(directions.size());
@@ -131,8 +152,9 @@ operation_result<lookup> build_lookup(const config& c, std::span<const direction
             [&](std::uint32_t voxel, float, float) -> operation_status {
                 if (++total > UINT32_MAX)
                     return std::unexpected(operation_error{"sensor intersections exceed CSR capacity"});
-                if (total > limits.maximum_intersections ||
-                    total * sizeof(intersection) > limits.maximum_host_bytes - base_bytes)
+                const auto peak_bytes = lookup_peak_bytes(grid->voxels, directions.size(), total);
+                if (total > limits.maximum_intersections || !peak_bytes ||
+                    *peak_bytes > limits.maximum_host_bytes)
                     return std::unexpected(operation_error{"sensor intersections exceed host storage budget"});
                  ++table.offsets[std::size_t(voxel) + 1];
                 return {};
