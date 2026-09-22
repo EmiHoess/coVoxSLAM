@@ -13,10 +13,12 @@ constexpr bool combined_gather(gather_backend backend) noexcept
     return backend == gather_backend::hybrid_combined;
 }
 enum class execution_mode : std::uint32_t { stream, cuda_graph };
+inline constexpr std::uint32_t combined_short_list_max = 16;
+inline constexpr std::uint32_t combined_block_list_min = 1024;
 struct gather_options
 {
     gather_backend backend{gather_backend::hybrid_combined};
-    std::uint32_t short_list_max{16}, block_list_min{1024};
+    std::uint32_t short_list_max{combined_short_list_max}, block_list_min{combined_block_list_min};
     execution_mode execution{execution_mode::stream};
 };
 struct prepared_ray { float range{}, end{}; std::uint32_t flags{}; };
@@ -69,8 +71,8 @@ static_assert(offsetof(gather_options, short_list_max) == 4);
 static_assert(offsetof(gather_options, block_list_min) == 8);
 static_assert(offsetof(gather_options, execution) == 12);
 static_assert(gather_options{}.backend == gather_backend::hybrid_combined);
-static_assert(gather_options{}.short_list_max == 16);
-static_assert(gather_options{}.block_list_min == 1024);
+static_assert(gather_options{}.short_list_max == combined_short_list_max);
+static_assert(gather_options{}.block_list_min == combined_block_list_min);
 static_assert(gather_options{}.execution == execution_mode::stream);
 
 static_assert(std::is_aggregate_v<prepared_ray>);

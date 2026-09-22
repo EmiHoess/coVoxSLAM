@@ -11,7 +11,8 @@ bool matches_combined_nearest(const mapping_preset& options) noexcept
         options.mapping.voxel_size == .2f && options.mapping.truncation_distance == .6f &&
         options.mapping.maximum_ray_length_m == 16.f && options.mapping.maximum_weight == 10000.f &&
         options.gather.backend == gather_backend::hybrid_combined &&
-        options.gather.short_list_max == 16 && options.gather.block_list_min == 1024 &&
+        options.gather.short_list_max == combined_short_list_max &&
+        options.gather.block_list_min == combined_block_list_min &&
         options.gather.execution == execution_mode::stream &&
         options.transfer.discovery == discovery_mode::gpu_resident &&
         options.transfer.arithmetic == transfer_arithmetic::fp64 &&
@@ -27,7 +28,8 @@ operation_result<mapping_preset> combined_nearest_preset()
      result.mapping.truncation_distance = .6f;
     result.mapping.maximum_ray_length_m = 16.f;
     result.mapping.maximum_weight = 10000.f;
-    result.gather = {gather_backend::hybrid_combined, 16, 1024, execution_mode::stream};
+    result.gather = {gather_backend::hybrid_combined, combined_short_list_max,
+        combined_block_list_min, execution_mode::stream};
     result.transfer.discovery = discovery_mode::gpu_resident;
     result.transfer.arithmetic = transfer_arithmetic::fp64;
     result.transfer.candidates = candidate_mode::whole_tiles;

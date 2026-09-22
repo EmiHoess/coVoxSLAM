@@ -13,7 +13,7 @@ constexpr bool accepts_uncapped_policy(gather_policy policy) noexcept
 }
 struct combined_schedule
 {
-    std::uint32_t short_list_max{16}, block_list_min{1024};
+    std::uint32_t short_list_max{combined_short_list_max}, block_list_min{combined_block_list_min};
     std::uint32_t ray_index_bits{32};
     execution_mode execution{execution_mode::stream};
 };
