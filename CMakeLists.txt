@@ -21,7 +21,11 @@ target_sources(covoxslam_core PRIVATE src/sensor/lookup.cpp)
 target_sources(covoxslam_core PRIVATE src/sensor/prepared_layout.cpp)
 target_sources(covoxslam_core PRIVATE src/mapping/tsdf/integrator.cpp)
 set(covoxslam_sensor_accumulation_bits "32" CACHE STRING "coVoxSLAM sensor accumulation precision")
-set_property(CACHE covoxslam_sensor_accumulation_bits PROPERTY STRINGS 32)
+set_property(CACHE covoxslam_sensor_accumulation_bits PROPERTY STRINGS 32 64)
+if(NOT covoxslam_sensor_accumulation_bits STREQUAL "32" AND
+   NOT covoxslam_sensor_accumulation_bits STREQUAL "64")
+    message(FATAL_ERROR "covoxslam_sensor_accumulation_bits must be 32 or 64")
+endif()
 target_compile_definitions(covoxslam_core PUBLIC
     covoxslam_sensor_accumulation_bits=${covoxslam_sensor_accumulation_bits})
 file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/covoxslam_sensor_precision.txt"
