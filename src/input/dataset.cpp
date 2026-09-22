@@ -2,7 +2,7 @@
 #include "json_reader.hpp"
 #include "dataset_metadata.hpp"
 #include "dataset_format.hpp"
-#include <covoxslam/core/byte_units.hpp>
+#include "input_limits.hpp"
 #include <covoxslam/core/hash.hpp>
 
 #include <algorithm>
@@ -120,9 +120,8 @@ operation_status assign_pose_member(
 
 operation_result<std::size_t> frame_beam_count(const frame_descriptor& frame)
 {
-    constexpr std::size_t maximum = 16U * 1024U * 1024U;
     if (frame.rows == 0 || frame.columns == 0 ||
-        frame.rows > maximum / frame.columns)
+        frame.rows > detail::maximum_frame_beams / frame.columns)
         return std::unexpected(operation_error{"frame dimensions exceed the supported bounds"});
     const auto count = frame.rows * frame.columns;
     if (frame.beam_count != count || frame.end_stamp_ns <= frame.start_stamp_ns)
@@ -175,8 +174,8 @@ operation_result<frame_descriptor> read_frame_descriptor(
     if (!(assigned = assign_unsigned_member(value, "dropout_count", frame.dropout_count))) return std::unexpected(assigned.error());
     if (!(assigned = assign_unsigned_member(value, "invalid_count", frame.invalid_count))) return std::unexpected(assigned.error());
     if (!(assigned = assign_unsigned_member(value, "outlier_count", frame.outlier_count))) return std::unexpected(assigned.error());
-    constexpr std::size_t maximum = 16U * 1024U * 1024U;
-    if (!frame.rows || !frame.columns || frame.rows > maximum / frame.columns)
+    if (!frame.rows || !frame.columns ||
+        frame.rows > detail::maximum_frame_beams / frame.columns)
         return std::unexpected(operation_error{"frame dimensions exceed the supported bounds"});
     const auto count = frame.rows * frame.columns;
     if (frame.beam_count != count || frame.end_stamp_ns <= frame.start_stamp_ns)
@@ -388,7 +387,8 @@ operation_result<dataset> load_dataset(const std::filesystem::path& root, datase
         return std::unexpected(rings.error());
     if (const auto columns = assign_unsigned_member(calibration, "columns", sensor.columns); !columns)
         return std::unexpected(columns.error());
-    if (!sensor.rings || !sensor.columns || sensor.rings > 16777216 / sensor.columns)
+    if (!sensor.rings || !sensor.columns ||
+        sensor.rings > detail::maximum_calibration_beam_product / sensor.columns)
         return std::unexpected(operation_error{"invalid sensor dimensions"});
     std::uint64_t beam_count{};
     if (const auto count = assign_unsigned_member(calibration, "beam_count", beam_count); !count)
@@ -596,8 +596,8 @@ operation_result<std::vector<vec3f>> read_frame_xyz(
 operation_result<std::size_t> organized_frame::flat_index(
     std::size_t ring, std::size_t column) const
 {
-    constexpr std::size_t maximum = 16U * 1024U * 1024U;
-    if (!descriptor.rows || !descriptor.columns || descriptor.rows > maximum / descriptor.columns)
+    if (!descriptor.rows || !descriptor.columns ||
+        descriptor.rows > detail::maximum_frame_beams / descriptor.columns)
         return std::unexpected(operation_error{"frame dimensions exceed the supported bounds"});
     if (descriptor.beam_count != descriptor.rows * descriptor.columns ||
         descriptor.end_stamp_ns <= descriptor.start_stamp_ns)
@@ -661,8 +661,8 @@ operation_result<std::size_t> validate_frame_payload_bounds(
 {
     if (options.max_payload_bytes == 0)
         return std::unexpected(operation_error{"frame payload byte limit must be positive"});
-    constexpr std::size_t maximum = 16U * 1024U * 1024U;
-    if (!frame.rows || !frame.columns || frame.rows > maximum / frame.columns)
+    if (!frame.rows || !frame.columns ||
+        frame.rows > detail::maximum_frame_beams / frame.columns)
         return std::unexpected(operation_error{"frame dimensions exceed the supported bounds"});
     const auto count = frame.rows * frame.columns;
     if (frame.beam_count != count || frame.end_stamp_ns <= frame.start_stamp_ns)
@@ -803,9 +803,6 @@ namespace covoxslam
 namespace
 {
 constexpr std::uint64_t hash_basis = fnv1a_offset_basis;
-constexpr std::size_t maximum_cache_bytes = bytes_per_gibibyte;
-constexpr std::size_t maximum_trajectory_line_bytes = bytes_per_mebibyte;
- constexpr std::size_t maximum_trajectory_samples = 16U * 1024U * 1024U;
 
 std::uint64_t hash_bytes(std::span<const std::uint8_t> bytes, std::uint64_t hash = hash_basis)
 {
@@ -854,7 +851,7 @@ public:
     template<class value_type>
     operation_status append(value_type value)
     {
-        if (bytes.size() > maximum_cache_bytes - sizeof(value_type))
+        if (bytes.size() > detail::maximum_input_cache_bytes - sizeof(value_type))
             return std::unexpected(operation_error{"input cache exceeds byte limit"});
         const auto* first = reinterpret_cast<const std::uint8_t*>(&value);
          bytes.insert(bytes.end(), first, first + sizeof(value_type));
@@ -880,7 +877,8 @@ operation_result<cache_buffer> read_cache_bytes(const std::filesystem::path& pat
 {
     std::error_code error;
     const auto size = std::filesystem::file_size(path, error);
-    if (error || size < dataset_wire::cache_minimum_prefix_bytes || size > maximum_cache_bytes)
+    if (error || size < dataset_wire::cache_minimum_prefix_bytes ||
+        size > detail::maximum_input_cache_bytes)
         return std::unexpected(operation_error{"invalid input cache length"});
     cache_buffer result;
      result.bytes.resize(static_cast<std::size_t>(size));
@@ -970,14 +968,15 @@ operation_result<std::vector<pose_sample>> read_trajectory(
     std::ifstream file(path, std::ios::binary);
     if (!file) return std::unexpected(operation_error{"cannot open trajectory"});
     std::vector<pose_sample> result;
-    std::vector<char> line(maximum_trajectory_line_bytes + 2);
+    std::vector<char> line(detail::maximum_trajectory_line_bytes + 2);
     std::size_t line_number{};
     while (file.getline(line.data(), static_cast<std::streamsize>(line.size())))
     {
         ++line_number;
         const auto count = static_cast<std::size_t>(file.gcount()) - (file.eof() ? 0 : 1);
         if (count == 0 || (count == 1 && line[0] == '\r')) continue;
-        if (count > maximum_trajectory_line_bytes || result.size() >= maximum_trajectory_samples)
+        if (count > detail::maximum_trajectory_line_bytes ||
+            result.size() >= detail::maximum_trajectory_samples)
             return std::unexpected(trajectory_record_error(path, line_number,
                 operation_error{"trajectory exceeds its line or sample limit"}));
         auto parsed = detail::parse_json(std::string_view(line.data(), count));
@@ -1297,7 +1296,7 @@ operation_status verify_frame_bytes(const dataset& input, const std::filesystem:
 
 operation_status append_cached_trajectory(cache_buffer& buffer, std::span<const pose_sample> trajectory)
 {
-    if (trajectory.size() > maximum_trajectory_samples)
+    if (trajectory.size() > detail::maximum_trajectory_samples)
         return std::unexpected(operation_error{"trajectory cache exceeds sample limit"});
     auto appended = buffer.append(static_cast<std::uint64_t>(trajectory.size()));
     if (!appended) return std::unexpected(appended.error());
@@ -1354,7 +1353,7 @@ operation_result<std::vector<pose_sample>> read_cached_trajectory(cache_buffer& 
 {
     const auto count = buffer.take<std::uint64_t>();
     if (!count) return std::unexpected(count.error());
-    if (*count > maximum_trajectory_samples ||
+    if (*count > detail::maximum_trajectory_samples ||
         *count > buffer.remaining() / dataset_wire::cached_trajectory_record_width)
         return std::unexpected(operation_error{"invalid trajectory cache sample count"});
     std::vector<pose_sample> result;

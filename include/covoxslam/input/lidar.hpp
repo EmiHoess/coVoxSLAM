@@ -34,8 +34,9 @@ struct dataset; struct frame_descriptor {
 };
 enum class beam_status : std::uint8_t { invalid_no_return = 0, valid_hit = 1, synthetic_dropout = 2, valid_outlier = 3 };
 enum class point_source { raw, deskewed };
+inline constexpr std::size_t default_frame_payload_budget_bytes = 256U * bytes_per_mebibyte;
 struct frame_load_options { bool raw_xyz{true}, deskewed_xyz{false}, range{true}, status{true}, time_offset_ns{true};
-    std::size_t max_payload_bytes{256U * bytes_per_mebibyte}; };
+    std::size_t max_payload_bytes{default_frame_payload_budget_bytes}; };
 struct organized_frame {
     frame_descriptor descriptor;
     input_timing timing;
