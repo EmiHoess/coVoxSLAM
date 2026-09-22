@@ -7,9 +7,37 @@
 #include <array>
 #include <algorithm>
 #include <chrono>
+#include <limits>
 
 namespace covoxslam::sensor_grid
 {
+namespace
+{
+operation_result<std::size_t> dense_field_device_bytes(
+    const lookup& table, const prepared_layout& layout, const row_plan& plan)
+{
+    if (layout.ray_ids.size() > maximum_prepared_intersections ||
+        (!layout.ray_ids16.empty() && layout.ray_ids16.size() != layout.ray_ids.size()))
+        return std::unexpected(operation_error{"prepared sensor layout exceeds capacity"});
+    std::size_t total{};
+    const auto append = [&total](std::size_t count, std::size_t width) {
+        if (count > (std::numeric_limits<std::size_t>::max() - total) / width)
+            return false;
+        total += count * width;
+        return true;
+    };
+    const auto entry_width = layout.ray_ids16.empty() ?
+        sizeof(std::uint32_t) + 2 * sizeof(float) : sizeof(std::uint16_t) + 2 * sizeof(float);
+    if (!append(table.ray_count, sizeof(float) + sizeof(compact_ray)) ||
+        !append(table.grid.voxels, sizeof(voxel)) ||
+        !append(layout.cells.size(), 3 * sizeof(std::uint32_t)) ||
+        !append(layout.ray_ids.size(), entry_width) ||
+        !append(plan.rows.size(), sizeof(std::uint32_t)))
+        return std::unexpected(operation_error{"sensor field device byte count overflows"});
+    return total;
+}
+}
+
 struct gpu_grid::implementation
 {
     int device{};
@@ -153,9 +181,9 @@ operation_result<std::unique_ptr<gpu_grid>> gpu_grid::create(const lookup& table
     auto classified = classify_blocks(layout.lengths, options.short_list_max, options.block_list_min);
     if (!classified) return std::unexpected(classified.error());
     const auto plan = std::move(*classified);
-    const std::size_t bytes = std::size_t(table.ray_count) * (4 + sizeof(compact_ray)) +
-        std::size_t(table.grid.voxels) * sizeof(voxel) + layout.cells.size() * 12 +
-        layout.ray_ids.size() * 12 - layout.ray_ids16.size() * 2 + plan.rows.size() * 4;
+    const auto required_bytes = dense_field_device_bytes(table, layout, plan);
+    if (!required_bytes) return std::unexpected(required_bytes.error());
+    const auto bytes = *required_bytes;
 
     if (device < 0 || bytes > maximum_bytes)
         return std::unexpected(operation_error{"sensor field exceeds device storage budget"});
