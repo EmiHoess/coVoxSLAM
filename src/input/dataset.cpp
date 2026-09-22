@@ -1,6 +1,7 @@
 #include <covoxslam/input/dataset.hpp>
 #include "json_reader.hpp"
 #include "dataset_metadata.hpp"
+#include "dataset_format.hpp"
 #include <covoxslam/core/byte_units.hpp>
 #include <covoxslam/core/hash.hpp>
 
@@ -14,6 +15,8 @@
 
 namespace covoxslam
 {
+namespace dataset_wire = detail::dataset_format;
+
 namespace detail
 {
 operation_result<pose> read_pose(const json_value& value)
@@ -141,9 +144,9 @@ operation_result<frame_descriptor> read_frame_descriptor(
     const auto parsed = detail::read_metadata(frame.metadata_path);
     if (!parsed) return std::unexpected(parsed.error());
     const auto& value = *parsed;
-    if (const auto checked = expect_string_member(value, "schema_version", "covox.spinning_lidar.v2", "unsupported frame schema"); !checked)
+    if (const auto checked = expect_string_member(value, "schema_version", dataset_wire::schema, "unsupported frame schema"); !checked)
         return std::unexpected(checked.error());
-    if (const auto checked = expect_string_member(value, "document_type", "spinning_lidar_frame", "unexpected frame document type"); !checked)
+    if (const auto checked = expect_string_member(value, "document_type", dataset_wire::frame_document, "unexpected frame document type"); !checked)
         return std::unexpected(checked.error());
     const auto id_member = value.member("frame_id");
     if (!id_member) return std::unexpected(id_member.error());
@@ -297,9 +300,9 @@ operation_result<dataset> load_dataset(const std::filesystem::path& root, datase
     if (path_error) return std::unexpected(operation_error{"cannot inspect dataset path"});
     result.root = directory ? selected : selected.parent_path();
     if (directory) {
-        const bool json_exists = std::filesystem::exists(selected / "dataset.json", path_error);
+        const bool json_exists = std::filesystem::exists(selected / dataset_wire::json_manifest, path_error);
         if (path_error) return std::unexpected(operation_error{"cannot select dataset manifest"});
-        selected /= json_exists ? "dataset.json" : "dataset.toml";
+        selected /= json_exists ? dataset_wire::json_manifest : dataset_wire::toml_manifest;
     }
     result.manifest_path = selected;
     auto parsed = read_metadata(selected);
@@ -308,7 +311,8 @@ operation_result<dataset> load_dataset(const std::filesystem::path& root, datase
     const auto manifest_source = hash_file(selected);
     if (!manifest_source) return std::unexpected(manifest_source.error());
     const auto manifest_hash = manifest_source->content_hash;
-    const auto encoding = selected.extension() == ".toml" ? "toml" : "json";
+    const auto encoding = selected.extension() == dataset_wire::toml_extension ?
+        dataset_wire::toml_encoding : dataset_wire::json_encoding;
     if (metadata.members.contains("metadata_format")) {
         const auto format = expect_string_member(metadata, "metadata_format", encoding,
                                                   "metadata format disagrees with extension");
@@ -316,9 +320,9 @@ operation_result<dataset> load_dataset(const std::filesystem::path& root, datase
     }
     if (const auto schema = assign_string_member(metadata, "schema_version", result.schema_version); !schema)
         return std::unexpected(schema.error());
-    if (result.schema_version != "covox.spinning_lidar.v2")
+    if (result.schema_version != dataset_wire::schema)
         return std::unexpected(operation_error{"unsupported dataset schema"});
-    if (const auto document = expect_string_member(metadata, "document_type", "spinning_lidar_dataset",
+    if (const auto document = expect_string_member(metadata, "document_type", dataset_wire::dataset_document,
                                                     "unsupported dataset schema"); !document)
         return std::unexpected(document.error());
     if (const auto name = assign_string_member(metadata, "name", result.name); !name)
@@ -349,7 +353,7 @@ operation_result<dataset> load_dataset(const std::filesystem::path& root, datase
     if (const auto schema = expect_string_member(calibration, "schema_version", result.schema_version,
                                                   "unsupported sensor schema"); !schema)
         return std::unexpected(schema.error());
-    if (const auto document = expect_string_member(calibration, "document_type", "spinning_lidar_sensor",
+    if (const auto document = expect_string_member(calibration, "document_type", dataset_wire::sensor_document,
                                                     "unsupported sensor schema"); !document)
         return std::unexpected(document.error());
     const auto convention_member = metadata.member("frame_convention");
@@ -552,7 +556,7 @@ std::uint32_t decode_frame_u32(const std::uint8_t* bytes)
 operation_result<std::vector<std::uint32_t>> read_frame_u32(
     const dataset& input, const std::filesystem::path& path, std::size_t count, input_timing& timing)
 {
-    auto bytes = read_frame_bytes(input, path, count, 4, timing);
+    auto bytes = read_frame_bytes(input, path, count, dataset_wire::uint32_width, timing);
     if (!bytes) return std::unexpected(bytes.error());
     const auto started = std::chrono::steady_clock::now();
     std::vector<std::uint32_t> result(count);
@@ -564,21 +568,22 @@ operation_result<std::vector<std::uint32_t>> read_frame_u32(
 operation_result<std::vector<vec3f>> read_frame_xyz(
     const dataset& input, const std::filesystem::path& path, std::size_t count, input_timing& timing)
 {
-    auto bytes = read_frame_bytes(input, path, count, 12, timing);
+    auto bytes = read_frame_bytes(input, path, count, dataset_wire::xyz_width, timing);
     if (!bytes) return std::unexpected(bytes.error());
     const auto started = std::chrono::steady_clock::now();
      std::vector<vec3f> result(count);
-    constexpr bool native = sizeof(vec3f) == 12 &&
-        std::is_trivially_copyable_v<vec3f> && offsetof(vec3f, y) == 4 && offsetof(vec3f, z) == 8;
+    constexpr bool native = sizeof(vec3f) == dataset_wire::xyz_width &&
+        std::is_trivially_copyable_v<vec3f> && offsetof(vec3f, y) == dataset_wire::float32_width &&
+        offsetof(vec3f, z) == 2 * dataset_wire::float32_width;
     if constexpr (native)
         if (!bytes->empty()) std::memcpy(result.data(), bytes->data(), bytes->size());
 
     for (std::size_t index = 0; index < count; ++index) {
-        const auto* data = bytes->data() + index * 12;
+        const auto* data = bytes->data() + index * dataset_wire::xyz_width;
         const vec3f point = native ? result[index] : vec3f{
             std::bit_cast<float>(decode_frame_u32(data)),
-            std::bit_cast<float>(decode_frame_u32(data + 4)),
-            std::bit_cast<float>(decode_frame_u32(data + 8))};
+            std::bit_cast<float>(decode_frame_u32(data + dataset_wire::float32_width)),
+            std::bit_cast<float>(decode_frame_u32(data + 2 * dataset_wire::float32_width))};
         if (!std::isfinite(point.x) || !std::isfinite(point.y) || !std::isfinite(point.z))
             return std::unexpected(operation_error{"frame buffer contains a non-finite coordinate"});
         result[index] = point;
@@ -663,11 +668,11 @@ operation_result<std::size_t> validate_frame_payload_bounds(
     if (frame.beam_count != count || frame.end_stamp_ns <= frame.start_stamp_ns)
         return std::unexpected(operation_error{"invalid frame beam count or scan interval"});
     const std::array<frame_buffer_request, 5> requests{{
-        {&frame.raw_xyz_path, count, 12, options.raw_xyz},
-        {&frame.deskewed_xyz_path, count, 12, options.deskewed_xyz},
-        {&frame.range_path, count, 4, options.range},
-         {&frame.status_path, count, 1, options.status},
-        {&frame.time_offset_ns_path, frame.columns, 4, options.time_offset_ns}}};
+        {&frame.raw_xyz_path, count, dataset_wire::xyz_width, options.raw_xyz},
+        {&frame.deskewed_xyz_path, count, dataset_wire::xyz_width, options.deskewed_xyz},
+        {&frame.range_path, count, dataset_wire::range_width, options.range},
+         {&frame.status_path, count, dataset_wire::status_width, options.status},
+        {&frame.time_offset_ns_path, frame.columns, dataset_wire::time_offset_width, options.time_offset_ns}}};
     std::size_t total{};
     for (const auto& request : requests)
     {
@@ -749,7 +754,8 @@ operation_result<organized_frame> load_frame(
         frame.range_mm = std::move(*loaded);
     }
     if (options.status) {
-        auto loaded = read_frame_bytes(input, frame.descriptor.status_path, *count, 1, frame.timing);
+        auto loaded = read_frame_bytes(
+            input, frame.descriptor.status_path, *count, dataset_wire::status_width, frame.timing);
         if (!loaded) return std::unexpected(loaded.error());
         frame.status = std::move(*loaded);
     }
@@ -797,7 +803,6 @@ namespace covoxslam
 namespace
 {
 constexpr std::uint64_t hash_basis = fnv1a_offset_basis;
-constexpr std::uint64_t cache_magic = 0x31584449434f5658ULL;
 constexpr std::size_t maximum_cache_bytes = bytes_per_gibibyte;
 constexpr std::size_t maximum_trajectory_line_bytes = bytes_per_mebibyte;
  constexpr std::size_t maximum_trajectory_samples = 16U * 1024U * 1024U;
@@ -828,7 +833,7 @@ operation_result<payload_cache_descriptor> hash_file(const std::filesystem::path
     if (!before) return std::unexpected(before.error());
     std::ifstream file(path, std::ios::binary);
     if (!file) return std::unexpected(operation_error{"cannot open recording input"});
-    std::array<std::uint8_t, 65536> bytes;
+    std::array<std::uint8_t, dataset_wire::hash_chunk_bytes> bytes;
     std::uint64_t hash = hash_basis, count{};
     while (file) {
         file.read(reinterpret_cast<char*>(bytes.data()), bytes.size());
@@ -875,7 +880,7 @@ operation_result<cache_buffer> read_cache_bytes(const std::filesystem::path& pat
 {
     std::error_code error;
     const auto size = std::filesystem::file_size(path, error);
-    if (error || size < 16 || size > maximum_cache_bytes)
+    if (error || size < dataset_wire::cache_minimum_prefix_bytes || size > maximum_cache_bytes)
         return std::unexpected(operation_error{"invalid input cache length"});
     cache_buffer result;
      result.bytes.resize(static_cast<std::size_t>(size));
@@ -889,7 +894,7 @@ operation_result<cache_buffer> read_cache_bytes(const std::filesystem::path& pat
     if (hash_bytes(result.bytes) != checksum)
         return std::unexpected(operation_error{"input cache checksum or native format mismatch"});
     const auto magic = result.take<std::uint64_t>();
-    if (!magic || *magic != cache_magic)
+    if (!magic || *magic != dataset_wire::cache_magic)
         return std::unexpected(operation_error{"input cache checksum or native format mismatch"});
     return result;
 }
@@ -898,14 +903,14 @@ operation_status write_cache_bytes(const std::filesystem::path& root, cache_buff
 {
     const auto checksum = buffer.append(hash_bytes(buffer.bytes));
     if (!checksum) return std::unexpected(checksum.error());
-    const auto directory = detail::dataset_path(root, ".covox_input_cache_write");
+    const auto directory = detail::dataset_path(root, dataset_wire::cache_staging_directory);
     if (!directory) return std::unexpected(directory.error());
-    const auto destination = detail::dataset_path(root, ".covox_input_cache_v1.bin");
+    const auto destination = detail::dataset_path(root, dataset_wire::cache_destination_filename);
     if (!destination) return std::unexpected(destination.error());
     std::error_code error;
     if (!std::filesystem::create_directory(*directory, error))
         return std::unexpected(operation_error{"cannot create input cache staging directory"});
-    const auto temporary = *directory / "input.bin";
+    const auto temporary = *directory / dataset_wire::cache_staging_filename;
     operation_status result;
     std::ofstream file(temporary, std::ios::binary);
     if (!file) result = std::unexpected(operation_error{"cannot open input cache staging file"});
@@ -978,10 +983,10 @@ operation_result<std::vector<pose_sample>> read_trajectory(
         auto parsed = detail::parse_json(std::string_view(line.data(), count));
         if (!parsed) return std::unexpected(trajectory_record_error(path, line_number, parsed.error()));
         const auto& value = *parsed;
-        const auto schema = expect_string_member(value, "schema_version", "covox.spinning_lidar.v2",
+        const auto schema = expect_string_member(value, "schema_version", dataset_wire::schema,
                                                   "unsupported trajectory record schema");
         if (!schema) return std::unexpected(trajectory_record_error(path, line_number, schema.error()));
-        const auto document = expect_string_member(value, "document_type", "spinning_lidar_trajectory_record",
+        const auto document = expect_string_member(value, "document_type", dataset_wire::trajectory_record_document,
                                                     "unsupported trajectory record schema");
         if (!document) return std::unexpected(trajectory_record_error(path, line_number, document.error()));
         const auto checked_kind = expect_string_member(
@@ -1019,7 +1024,7 @@ operation_result<std::vector<pose_sample>> read_trajectory(
 
 operation_status load_json_trajectories(dataset& input, const detail::json_value& metadata)
 {
-    if (input.type != "recorded_spinning_lidar" && input.type != "synthetic_spinning_lidar")
+    if (input.type != dataset_wire::recorded_type && input.type != dataset_wire::synthetic_type)
         return std::unexpected(operation_error{"unsupported spinning lidar dataset type"});
     const auto convention_member = metadata.member("frame_convention");
     if (!convention_member) return std::unexpected(convention_member.error());
@@ -1044,7 +1049,7 @@ operation_status load_json_trajectories(dataset& input, const detail::json_value
         if (!loaded) return std::unexpected(loaded.error());
         ground_truth = std::move(*loaded);
     }
-    else if (input.type != "recorded_spinning_lidar")
+    else if (input.type != dataset_wire::recorded_type)
         return std::unexpected(operation_error{"synthetic recording requires a ground truth trajectory"});
 
     std::string relative_odometry;
@@ -1071,7 +1076,7 @@ operation_status validate_trajectory_coverage(const dataset& input)
     }
     for (const auto* trajectory : {&input.ground_truth, &input.odometry})
     {
-        if (trajectory->empty() && trajectory == &input.ground_truth && input.type == "recorded_spinning_lidar") continue;
+        if (trajectory->empty() && trajectory == &input.ground_truth && input.type == dataset_wire::recorded_type) continue;
         if (trajectory->empty() || trajectory->front().stamp_ns > minimum_stamp || trajectory->back().stamp_ns < end)
             return std::unexpected(operation_error{"trajectory does not cover every scan"});
     }
@@ -1208,9 +1213,11 @@ operation_status prepare_payload_index(dataset& input)
         const auto count = frame_beam_count(frame);
         if (!count) return std::unexpected(count.error());
         const std::array<std::pair<std::filesystem::path, std::uint64_t>, 5> payloads{{
-            {frame.raw_xyz_path, *count * 12ULL}, {frame.deskewed_xyz_path, *count * 12ULL},
-             {frame.range_path, *count * 4ULL}, {frame.status_path, *count},
-            {frame.time_offset_ns_path, frame.columns * 4ULL}}};
+            {frame.raw_xyz_path, *count * dataset_wire::xyz_width},
+            {frame.deskewed_xyz_path, *count * dataset_wire::xyz_width},
+             {frame.range_path, *count * dataset_wire::range_width},
+            {frame.status_path, *count * dataset_wire::status_width},
+            {frame.time_offset_ns_path, frame.columns * dataset_wire::time_offset_width}}};
         for (const auto& [path, size] : payloads) {
             if (path.empty()) continue;
             const auto resolved = detail::dataset_path(input.root, path.lexically_relative(input.root));
@@ -1248,10 +1255,10 @@ void update_content_fingerprint(dataset& input, std::uint64_t structure_hash)
             for (const float value : {p.x, p.y, p.z, q.x, q.y, q.z, q.w}) append(value);
         }
     }
-    std::array<char, 16> hexadecimal;
+    std::array<char, dataset_wire::fingerprint_digit_capacity> hexadecimal;
     const auto result = std::to_chars(hexadecimal.data(), hexadecimal.data() + hexadecimal.size(),
-                                     hash, 16);
-    input.content_fingerprint = "dataset-native-v1-" + std::string(hexadecimal.data(), result.ptr);
+                                     hash, dataset_wire::fingerprint_base);
+    input.content_fingerprint = dataset_wire::fingerprint_prefix + std::string(hexadecimal.data(), result.ptr);
 }
 
 operation_status index_dataset_payloads(dataset& input, std::uint64_t structure_hash)
@@ -1312,7 +1319,7 @@ operation_status append_cached_trajectory(cache_buffer& buffer, std::span<const 
 operation_status write_input_cache(const dataset& input, std::uint64_t structure_hash)
 {
     cache_buffer buffer;
-    auto appended = buffer.append(cache_magic);
+    auto appended = buffer.append(dataset_wire::cache_magic);
     if (!appended) return std::unexpected(appended.error());
     appended = buffer.append(structure_hash);
     if (!appended) return std::unexpected(appended.error());
@@ -1347,7 +1354,8 @@ operation_result<std::vector<pose_sample>> read_cached_trajectory(cache_buffer& 
 {
     const auto count = buffer.take<std::uint64_t>();
     if (!count) return std::unexpected(count.error());
-    if (*count > maximum_trajectory_samples || *count > buffer.remaining() / 36)
+    if (*count > maximum_trajectory_samples ||
+        *count > buffer.remaining() / dataset_wire::cached_trajectory_record_width)
         return std::unexpected(operation_error{"invalid trajectory cache sample count"});
     std::vector<pose_sample> result;
      result.reserve(static_cast<std::size_t>(*count));
@@ -1376,7 +1384,7 @@ operation_result<std::vector<pose_sample>> read_cached_trajectory(cache_buffer& 
 operation_result<bool> read_input_cache(
     dataset& input, std::uint64_t structure_hash, bool ground_truth_expected)
 {
-    const auto path = detail::dataset_path(input.root, ".covox_input_cache_v1.bin");
+    const auto path = detail::dataset_path(input.root, dataset_wire::cache_destination_filename);
     if (!path) return std::unexpected(path.error());
     auto buffer = read_cache_bytes(*path);
     if (!buffer) return std::unexpected(buffer.error());
