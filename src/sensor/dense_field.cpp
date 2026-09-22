@@ -4,7 +4,6 @@
 #include <covoxslam/sensor/prepared_layout.hpp>
 #include "mapping/tsdf/gather.cuh"
 #include <cuda_runtime_api.h>
-#include <array>
 #include <algorithm>
 #include <chrono>
 #include <limits>
@@ -49,9 +48,8 @@ struct gpu_grid::implementation
     float* ranges{};
      voxel* output{};
     cudaStream_t stream{};
-    std::array<cudaEvent_t, 3> events{};
-    std::array<void*, 14> allocations{};
-    std::size_t count{}, bytes{};
+    cudaEvent_t upload_start{}, upload_end{}, gather_end{};
+    std::size_t bytes{};
     bool selected{}, failed{}, ready{};
     execution_statistics execution_stats{};
     int launch(gather_policy policy)
@@ -70,10 +68,7 @@ struct gpu_grid::implementation
     template<class value_type>
     operation_status allocate(value_type*& pointer, std::size_t size)
     {
-        const auto status = check(cudaMalloc(reinterpret_cast<void**>(&pointer), size * sizeof(value_type)));
-
-        if (pointer) allocations[count++] = pointer;
-        return status;
+        return check(cudaMalloc(reinterpret_cast<void**>(&pointer), size * sizeof(value_type)));
     }
     template<class value_type>
     operation_status upload(const std::vector<value_type>& source, const value_type*& target)
@@ -90,12 +85,20 @@ struct gpu_grid::implementation
         cudaSetDevice(device);
         if (stream) cudaStreamSynchronize(stream);
 
-
-        for (auto event : events)
-            if (event) cudaEventDestroy(event);
-
-
-        for (std::size_t i = 0; i < count; ++i) cudaFree(allocations[i]);
+        if (upload_start) cudaEventDestroy(upload_start);
+        if (upload_end) cudaEventDestroy(upload_end);
+        if (gather_end) cudaEventDestroy(gather_end);
+        if (ranges) cudaFree(ranges);
+        if (output) cudaFree(output);
+        if (compact) cudaFree(compact);
+        if (layout.starts) cudaFree(const_cast<std::uint32_t*>(layout.starts));
+        if (layout.lengths) cudaFree(const_cast<std::uint32_t*>(layout.lengths));
+        if (layout.cells) cudaFree(const_cast<std::uint32_t*>(layout.cells));
+        if (layout.ray_ids) cudaFree(const_cast<std::uint32_t*>(layout.ray_ids));
+        else if (layout.ray_ids16) cudaFree(const_cast<std::uint16_t*>(layout.ray_ids16));
+        if (layout.entry_t) cudaFree(const_cast<float*>(layout.entry_t));
+        if (layout.projected) cudaFree(const_cast<float*>(layout.projected));
+        if (layout.row_ids) cudaFree(const_cast<std::uint32_t*>(layout.row_ids));
         if (stream) cudaStreamDestroy(stream);
     }
 };
@@ -129,16 +132,16 @@ operation_result<update_times> gpu_grid::update(std::span<const float> ranges, g
     data.ready = false;
     auto status = data.check(cudaSetDevice(data.device));
     if (!status) return std::unexpected(status.error());
-    if (status) status = data.check(cudaEventRecord(data.events[0], data.stream));
+    if (status) status = data.check(cudaEventRecord(data.upload_start, data.stream));
     if (status) status = data.check(cudaMemcpyAsync(data.ranges, ranges.data(), ranges.size_bytes(), cudaMemcpyHostToDevice, data.stream));
-    if (status) status = data.check(cudaEventRecord(data.events[1], data.stream));
+    if (status) status = data.check(cudaEventRecord(data.upload_end, data.stream));
     if (status) status = data.check(data.launch(policy));
-    if (status) status = data.check(cudaEventRecord(data.events[2], data.stream));
+    if (status) status = data.check(cudaEventRecord(data.gather_end, data.stream));
     const auto waited = data.check(cudaStreamSynchronize(data.stream));
     if (status) status = waited;
     update_times result;
-    if (status) status = data.check(cudaEventElapsedTime(&result.upload_ms, data.events[0], data.events[1]));
-    if (status) status = data.check(cudaEventElapsedTime(&result.gather_ms, data.events[1], data.events[2]));
+    if (status) status = data.check(cudaEventElapsedTime(&result.upload_ms, data.upload_start, data.upload_end));
+    if (status) status = data.check(cudaEventElapsedTime(&result.gather_ms, data.upload_end, data.gather_end));
     if (!status) return std::unexpected(status.error());
      data.ready = true;
     return result;
@@ -217,8 +220,9 @@ operation_result<std::unique_ptr<gpu_grid>> gpu_grid::create(const lookup& table
 
     if (status) status = data.upload(plan.rows, data.layout.row_ids);
 
-    for (auto& event : data.events)
-        if (status) status = data.check(cudaEventCreate(&event));
+    if (status) status = data.check(cudaEventCreate(&data.upload_start));
+    if (status) status = data.check(cudaEventCreate(&data.upload_end));
+    if (status) status = data.check(cudaEventCreate(&data.gather_end));
     if (status) status = data.check(cudaMemsetAsync(data.output, 0, std::size_t(table.grid.voxels) * sizeof(voxel), data.stream));
     if (status) status = data.check(cudaStreamSynchronize(data.stream));
     if (!status) return std::unexpected(status.error());
