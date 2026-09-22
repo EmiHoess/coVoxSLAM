@@ -1,5 +1,6 @@
 #include <covoxslam/sensor/detail/gather_layout.hpp>
 #include <covoxslam/sensor/detail/precision.hpp>
+#include <covoxslam/sensor/limits.hpp>
 #include <cuda_runtime.h>
 
 namespace covoxslam::sensor_grid
@@ -342,7 +343,8 @@ namespace covoxslam::sensor_grid
 int cuda_sensor_combined(layout_view view, const float* ranges, compact_ray* prepared, voxel* output,
     config settings, std::uint32_t ray_count, gather_policy policy, void* opaque_stream)
 {
-    if (!view.rows || view.rows > 16777216 || view.rows > view.entries || !ray_count || ray_count > 1048576 ||
+    if (!view.rows || view.rows > maximum_dense_voxels || view.rows > view.entries ||
+        !ray_count || ray_count > maximum_sensor_rays ||
         !view.starts || !view.lengths || !view.cells || !view.row_ids ||
         (!view.ray_ids && !view.ray_ids16) || (view.ray_ids16 && ray_count > 65536) ||
         !view.entry_t || !view.projected || !ranges || !prepared || !output ||

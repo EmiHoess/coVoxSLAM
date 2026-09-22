@@ -1,4 +1,5 @@
 #include <covoxslam/sensor/prepared_layout.hpp>
+#include <covoxslam/sensor/limits.hpp>
 #include <algorithm>
 #include <covoxslam/sensor/detail/precision.hpp>
 
@@ -7,7 +8,7 @@ namespace covoxslam::sensor_grid
 operation_status validate_row_plan(std::span<const std::uint32_t> lengths, const row_plan& plan,
     std::uint32_t short_max, std::uint32_t block_min)
 {
-    if (lengths.empty() || lengths.size() > 16777216 || plan.rows.size() != lengths.size() ||
+    if (lengths.empty() || lengths.size() > maximum_dense_voxels || plan.rows.size() != lengths.size() ||
         plan.short_rows > plan.rows.size() || plan.block_rows > plan.rows.size() - plan.short_rows ||
         !short_max || block_min <= short_max)
         return std::unexpected(operation_error{"invalid row partition dimensions"});

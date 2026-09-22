@@ -1,8 +1,10 @@
 #pragma once
 
+#include <covoxslam/core/byte_units.hpp>
 #include <covoxslam/core/result.hpp>
 #include <covoxslam/input/calibration.hpp>
 #include <covoxslam/sensor/detail/types.hpp>
+#include <covoxslam/sensor/limits.hpp>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -21,11 +23,12 @@ struct lookup
     std::vector<intersection> intersections;
 };
 operation_result<geometry> make_geometry(const config& settings);
+inline constexpr std::uint64_t default_lookup_host_bytes = 512U * bytes_per_mebibyte;
 struct lookup_limits
 {
-    std::uint32_t maximum_voxels{16777216}, maximum_rays{1048576};
-     std::uint32_t maximum_intersections{67108864};
-    std::uint64_t maximum_host_bytes{536870912};
+    std::uint32_t maximum_voxels{maximum_lookup_voxels}, maximum_rays{maximum_sensor_rays};
+     std::uint32_t maximum_intersections{maximum_prepared_intersections};
+    std::uint64_t maximum_host_bytes{default_lookup_host_bytes};
 };
 static_assert(std::is_aggregate_v<lookup>);
 static_assert(std::is_aggregate_v<lookup_limits>);
@@ -36,10 +39,10 @@ static_assert(offsetof(lookup_limits, maximum_voxels) == 0);
 static_assert(offsetof(lookup_limits, maximum_rays) == 4);
 static_assert(offsetof(lookup_limits, maximum_intersections) == 8);
 static_assert(offsetof(lookup_limits, maximum_host_bytes) == 16);
-static_assert(lookup_limits{}.maximum_voxels == 16777216);
-static_assert(lookup_limits{}.maximum_rays == 1048576);
-static_assert(lookup_limits{}.maximum_intersections == 67108864);
-static_assert(lookup_limits{}.maximum_host_bytes == 536870912);
+static_assert(lookup_limits{}.maximum_voxels == maximum_lookup_voxels);
+static_assert(lookup_limits{}.maximum_rays == maximum_sensor_rays);
+static_assert(lookup_limits{}.maximum_intersections == maximum_prepared_intersections);
+static_assert(lookup_limits{}.maximum_host_bytes == default_lookup_host_bytes);
 operation_result<lookup> build_lookup(const config& settings,
     std::span<const direction> directions, std::uint32_t reduction_factor = 1,
     lookup_limits limits = {});
@@ -57,7 +60,7 @@ inline operation_result<std::vector<direction>> calibrated_directions(const sens
     const float coverage = static_cast<float>(model.azimuth_coverage_rad);
 
     if (!std::isfinite(start) || !std::isfinite(coverage) || coverage <= 0 ||
-        !model.rings || !model.columns || model.rings > 1048576 / model.columns ||
+        !model.rings || !model.columns || model.rings > maximum_sensor_rays / model.columns ||
         model.vertical_angles_rad.size() != model.rings)
         return std::unexpected(operation_error{"invalid sensor calibration"});
     std::vector<direction> result;

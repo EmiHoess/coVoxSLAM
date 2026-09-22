@@ -2,6 +2,7 @@
 #include <covoxslam/core/result.hpp>
 #include <covoxslam/sensor/lookup.hpp>
 #include <covoxslam/sensor/detail/gather_layout.hpp>
+#include <covoxslam/sensor/limits.hpp>
 #include <type_traits>
 
 namespace covoxslam::sensor_grid
@@ -22,7 +23,7 @@ struct prepared_layout
 };
 static_assert(std::is_aggregate_v<prepared_layout>);
 operation_result<prepared_layout> build_prepared_layout(const lookup& table, bool interleaved,
-    std::size_t maximum_entries = 67108864);
+    std::size_t maximum_entries = maximum_prepared_intersections);
 struct row_plan { std::vector<std::uint32_t> rows; std::uint32_t short_rows{}, block_rows{}; };
 static_assert(std::is_aggregate_v<row_plan>);
 operation_result<row_plan> classify_rows(std::span<const std::uint32_t> lengths, std::uint32_t threshold);

@@ -1,5 +1,6 @@
 #include <covoxslam/sensor/dense_field.hpp>
 #include <covoxslam/sensor/detail/precision.hpp>
+#include <covoxslam/sensor/limits.hpp>
 #include <covoxslam/sensor/prepared_layout.hpp>
 #include "mapping/tsdf/gather.cuh"
 #include <cuda_runtime_api.h>
@@ -139,7 +140,8 @@ operation_result<std::unique_ptr<gpu_grid>> gpu_grid::create(const lookup& table
     if (options.backend != gather_backend::hybrid_combined || options.execution != execution_mode::stream ||
         options.short_list_max != 16 || options.block_list_min != 1024)
         return std::unexpected(operation_error{"coVoxSLAM requires combined stream gathering with thresholds 16 and 1024"});
-    auto built = build_prepared_layout(table, false, std::min<std::size_t>(67108864, maximum_bytes / 12));
+    auto built = build_prepared_layout(table, false,
+        std::min<std::size_t>(maximum_prepared_intersections, maximum_bytes / 12));
     if (!built) return std::unexpected(built.error());
     auto layout = std::move(*built);
 
