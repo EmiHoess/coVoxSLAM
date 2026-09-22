@@ -22,6 +22,8 @@ namespace covoxslam
 {
 enum class stored_pgo_fields { copied, borrowed, resident };
 const char* stored_pgo_fields_name(stored_pgo_fields value) noexcept;
+inline constexpr std::size_t default_store_pipeline_cpu_bytes = bytes_per_gibibyte;
+inline constexpr std::size_t default_store_pipeline_gpu_bytes = bytes_per_gibibyte;
 
 struct store_pipeline_options
 {
@@ -33,7 +35,8 @@ struct store_pipeline_options
     storage::layout layout{storage::layout::pool_soa};
     stored_pgo_fields fields{stored_pgo_fields::copied};
     std::filesystem::path checkpoint_root;
-    std::size_t cpu_bytes{bytes_per_gibibyte}, gpu_bytes{bytes_per_gibibyte};
+    std::size_t cpu_bytes{default_store_pipeline_cpu_bytes};
+    std::size_t gpu_bytes{default_store_pipeline_gpu_bytes};
 };
 
 struct stored_pipeline_result
@@ -79,7 +82,7 @@ struct mapping_session_options
     sensor_grid::interpolation sampling{sensor_grid::interpolation::nearest};
     store_pipeline_options store;
     pgo::options solver;
-    std::size_t maximum_device_bytes{2U * bytes_per_gibibyte};
+    std::size_t maximum_device_bytes{default_mapping_device_bytes};
     bool shadow{};
 };
 

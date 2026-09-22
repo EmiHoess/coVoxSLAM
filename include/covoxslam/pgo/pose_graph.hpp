@@ -13,6 +13,7 @@
 namespace covoxslam::pgo
 {
 enum class backend { native_cpu, cuda_cold };
+inline constexpr std::uint64_t default_solver_memory_bytes = bytes_per_gibibyte;
 struct options
 {
     bool enabled{};
@@ -20,7 +21,7 @@ struct options
     std::size_t maximum_iterations{50};
     double maximum_seconds{30};
     int device{};
-    std::uint64_t memory_budget_bytes{bytes_per_gibibyte};
+    std::uint64_t memory_budget_bytes{default_solver_memory_bytes};
 };
 struct graph_node
 {

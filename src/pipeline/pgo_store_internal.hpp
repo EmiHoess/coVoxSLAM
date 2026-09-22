@@ -273,13 +273,14 @@ inline operation_result<ceronoceres::SolveResult> solve_prepared_fields(const ca
 }
 class preparation_cache
 {
+    static constexpr std::size_t default_maximum_key_bytes = 64U * bytes_per_mebibyte;
     mutable std::mutex mutex_;
     std::optional<preparation_key> key_;
     ceronoceres::PreparedProblem problem_;
     preparation_metrics metrics_;
     std::size_t maximum_key_bytes_;
 public:
-    explicit preparation_cache(std::size_t maximum_key_bytes = 64U * bytes_per_mebibyte)
+    explicit preparation_cache(std::size_t maximum_key_bytes = default_maximum_key_bytes)
         : maximum_key_bytes_(maximum_key_bytes) {}
     preparation_metrics metrics() const
     {

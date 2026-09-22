@@ -1,5 +1,6 @@
 #pragma once
 
+#include <covoxslam/core/byte_units.hpp>
 #include <cstddef>
 #include <type_traits>
 
@@ -14,6 +15,7 @@ enum class esdf_backend {
 };
 
 const char* esdf_backend_name(esdf_backend value) noexcept;
+inline constexpr std::size_t default_mapping_device_bytes = 2U * bytes_per_gibibyte;
 
 struct mapping_config
 {
