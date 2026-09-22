@@ -1,4 +1,5 @@
 #include "json_reader.hpp"
+#include "input_limits.hpp"
 
 #include <charconv>
 #include <cmath>
@@ -97,7 +98,7 @@ class json_cursor
     }
     operation_result<json_value> parse_value(unsigned depth)
     {
-        if (depth > 64) return std::unexpected(error("JSON nesting limit exceeded"));
+        if (depth > maximum_json_nesting) return std::unexpected(error("JSON nesting limit exceeded"));
         json_value value;
         const char token = peek();
         if (token == '"') {
@@ -232,7 +233,7 @@ operation_result<json_value> read_json(const std::filesystem::path& path)
     const auto bytes = std::filesystem::file_size(path, error);
     if (error) return std::unexpected(operation_error{
         "cannot inspect metadata " + path.string() + ": " + error.message()});
-     if (bytes > 16 * 1024 * 1024)
+     if (bytes > maximum_metadata_bytes)
         return std::unexpected(operation_error{"metadata exceeds size limit " + path.string()});
     std::ifstream input(path, std::ios::binary);
     std::string text(static_cast<std::size_t>(bytes), '\0');

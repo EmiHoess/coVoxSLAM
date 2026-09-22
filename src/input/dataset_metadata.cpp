@@ -1,4 +1,5 @@
 #include "dataset_metadata.hpp"
+#include "input_limits.hpp"
 #include <fstream>
 
 namespace covoxslam::detail
@@ -10,7 +11,7 @@ operation_result<json_value> read_metadata(const std::filesystem::path& path)
     std::error_code error;
     const auto size = std::filesystem::file_size(path, error);
 
-    if (error || size > 16 * 1024 * 1024)
+    if (error || size > maximum_metadata_bytes)
         return std::unexpected(operation_error{"cannot read bounded metadata " + path.string()});
     std::ifstream file(path, std::ios::binary);
     std::string text(static_cast<std::size_t>(size), '\0');

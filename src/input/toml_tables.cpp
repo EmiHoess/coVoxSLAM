@@ -1,4 +1,5 @@
 #include "dataset_metadata.hpp"
+#include "input_limits.hpp"
 #include <charconv>
 #include <cmath>
 
@@ -71,7 +72,7 @@ operation_result<std::vector<std::string>> toml_cursor::keys()
     std::vector<std::string> result;
     do {
         space();
-        if (result.size() >= 64) return std::unexpected(error("key path exceeds limit"));
+        if (result.size() >= maximum_toml_key_components) return std::unexpected(error("key path exceeds limit"));
         if (peek() == '\"' || peek() == '\'') {
             auto key = string();
             if (!key) return std::unexpected(key.error());
@@ -197,7 +198,7 @@ operation_status toml_cursor::assign(json_value& parent, const std::vector<std::
 }
 operation_result<json_value> toml_cursor::value(unsigned depth)
 {
-    if (depth > 64) return std::unexpected(error("metadata nesting exceeds limit"));
+    if (depth > maximum_toml_nesting) return std::unexpected(error("metadata nesting exceeds limit"));
     space();
     json_value result;
     if (peek() == '\"' || peek() == '\'') {
@@ -244,7 +245,7 @@ operation_result<json_value> toml_cursor::value(unsigned depth)
 }
 operation_result<json_value> toml_cursor::parse()
 {
-    if (input.size() > 16 * 1024 * 1024 || input.find('\0') != std::string_view::npos)
+    if (input.size() > maximum_metadata_bytes || input.find('\0') != std::string_view::npos)
         return std::unexpected(error("invalid metadata size or null byte"));
     for (std::size_t offset = 0; offset < input.size();) {
         const auto leading = static_cast<unsigned char>(input[offset++]);
