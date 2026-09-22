@@ -43,7 +43,7 @@ operation_result<row_plan> classify_blocks(std::span<const std::uint32_t> length
 }
 operation_result<std::vector<std::uint16_t>> pack_ray_ids(std::span<const std::uint32_t> ids)
 {
-    if (std::any_of(ids.begin(), ids.end(), [](auto id) { return id > UINT16_MAX; }))
+    if (std::any_of(ids.begin(), ids.end(), [](auto id) { return id >= narrow_ray_capacity; }))
         return std::unexpected(operation_error{"sensor ray identifier exceeds sixteen bits"});
     std::vector<std::uint16_t> result(ids.size());
 
@@ -73,7 +73,7 @@ operation_result<prepared_layout> build_prepared_layout(const lookup& table, boo
     if (!valid) return std::unexpected(valid.error());
     prepared_layout result;
     result.cells = table.active_voxels;
-    result.stride = interleaved ? 32 : 1;
+    result.stride = interleaved ? prepared_layout_interleave_width : 1;
     const auto length = [&](std::uint32_t cell) { return table.offsets[cell + 1] - table.offsets[cell]; };
 
     if (interleaved) std::stable_sort(result.cells.begin(), result.cells.end(),

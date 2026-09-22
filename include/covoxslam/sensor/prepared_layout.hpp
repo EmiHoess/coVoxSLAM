@@ -34,10 +34,10 @@ operation_status validate_row_plan(std::span<const std::uint32_t> lengths, const
 operation_result<std::vector<std::uint16_t>> pack_ray_ids(std::span<const std::uint32_t> ids);
 constexpr bool ray_ids_fit_u16(std::uint32_t original_ray_count) noexcept
 {
-    return original_ray_count > 0 && original_ray_count <= 65536;
+    return original_ray_count > 0 && original_ray_count <= narrow_ray_capacity;
 }
 static_assert(!ray_ids_fit_u16(0));
 static_assert(ray_ids_fit_u16(1));
-static_assert(ray_ids_fit_u16(65536));
-static_assert(!ray_ids_fit_u16(65537));
+static_assert(ray_ids_fit_u16(static_cast<std::uint32_t>(narrow_ray_capacity)));
+static_assert(!ray_ids_fit_u16(static_cast<std::uint32_t>(narrow_ray_capacity + 1)));
 }

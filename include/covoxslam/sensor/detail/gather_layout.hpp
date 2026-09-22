@@ -15,6 +15,10 @@ constexpr bool combined_gather(gather_backend backend) noexcept
 enum class execution_mode : std::uint32_t { stream, cuda_graph };
 inline constexpr std::uint32_t combined_short_list_max = 16;
 inline constexpr std::uint32_t combined_block_list_min = 1024;
+inline constexpr std::uint32_t prepared_layout_interleave_width = 32;
+inline constexpr std::uint32_t narrow_ray_index_bits = 16;
+inline constexpr std::uint32_t wide_ray_index_bits = 32;
+inline constexpr std::uint64_t narrow_ray_capacity = std::uint64_t(UINT16_MAX) + 1;
 struct gather_options
 {
     gather_backend backend{gather_backend::hybrid_combined};

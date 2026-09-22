@@ -346,7 +346,7 @@ int cuda_sensor_combined(layout_view view, const float* ranges, compact_ray* pre
     if (!view.rows || view.rows > maximum_dense_voxels || view.rows > view.entries ||
         !ray_count || ray_count > maximum_sensor_rays ||
         !view.starts || !view.lengths || !view.cells || !view.row_ids ||
-        (!view.ray_ids && !view.ray_ids16) || (view.ray_ids16 && ray_count > 65536) ||
+        (!view.ray_ids && !view.ray_ids16) || (view.ray_ids16 && ray_count > narrow_ray_capacity) ||
         !view.entry_t || !view.projected || !ranges || !prepared || !output ||
         view.stride != 1 || view.short_rows > view.rows || view.block_rows > view.rows - view.short_rows ||
         !valid_gather_policy(policy) || !safe_accumulation(settings, ray_count) ||
