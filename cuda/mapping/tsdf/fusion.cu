@@ -1,6 +1,7 @@
 #include "fusion.cuh"
 #include "allocation.cuh"
 #include <covoxslam/storage/views.hpp>
+#include <covoxslam/voxel/flags.hpp>
 #include <covoxslam/voxel/tile_shape.hpp>
 #include "detail/geometry.cuh"
 
@@ -48,13 +49,13 @@ __global__ void transfer_cells(field_view source, const std::uint32_t* slots,
     if (measured.valid)
     {
         auto value = storage::gather_record(tiles[slot].voxels[local]);
-        const float old = value.flags & 1U ? value.weight : 0.f;
+        const float old = value.flags & observed_flag ? value.weight : 0.f;
         const double total = double(old) + measured.weight;
         value.distance = static_cast<float>((double(old) * (old > 0 ? value.distance : 0.f) +
             double(measured.weight) * measured.distance) / total);
         value.weight = static_cast<float>(fmin(double(maximum_weight), total));
 
-        value.flags = 1U | (fabsf(value.distance) <= band ? 2U : 0U);
+        value.flags = observed_flag | (fabsf(value.distance) <= band ? near_surface_flag : 0U);
         if (value.sample_count != UINT32_MAX) ++value.sample_count;
          storage::scatter_record(tiles[slot].voxels[local], value);
         updated = true;

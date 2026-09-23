@@ -8,10 +8,11 @@ namespace covoxslam::sensor_grid
 __device__ inline bool prepared_contribution(prepared_ray ray, float entry, float projected,
     config settings, float& weight, float& clipped)
 {
-    if (!(ray.flags & 1U)) return false;
+    if (!(ray.flags & prepared_ray_valid_flag)) return false;
     const float distance = ray.range - projected;
 
-    if (!(entry <= ray.end) || !(projected >= 0) || (!(ray.flags & 2U) && distance < -settings.truncation)) return false;
+    if (!(entry <= ray.end) || !(projected >= 0) ||
+        (!(ray.flags & prepared_ray_outside_flag) && distance < -settings.truncation)) return false;
     weight = 1;
     if (settings.weight_dropoff && distance < -settings.voxel_size)
         weight = fmaxf((settings.truncation + distance) / (settings.truncation - settings.voxel_size), 0.f);
@@ -57,7 +58,8 @@ __device__ inline bool compact_contribution(compact_ray ray, float entry, float 
     config settings, float& weight, float& clipped)
 {
     if (!(ray.range > 0) || !isfinite(ray.range) || !isfinite(ray.end)) return false;
-    const prepared_ray expanded{ray.range, ray.end, ray.range > 0 ? (ray.range > settings.radius ? 3U : 1U) : 0U};
+    const prepared_ray expanded{ray.range, ray.end, ray.range > 0 ? prepared_ray_valid_flag |
+        (ray.range > settings.radius ? prepared_ray_outside_flag : 0U) : 0U};
     return prepared_contribution(expanded, entry, projected, settings, weight, clipped);
 }
 

@@ -46,7 +46,7 @@ __global__ void sweep_band_axis(const detail::cuda_tile_coordinate* keys, unsign
             }
         }
     }
-    if (modified) atomicExch(&status->changed, 1U);
+    if (modified) atomicExch(&status->changed, band_changed_mask);
 }
 __global__ void relax_band_neighbors(const detail::cuda_tile_coordinate* keys, unsigned count,
     band_work_view output, float maximum_squared, int parity, band_status* status)
@@ -85,7 +85,7 @@ __global__ void relax_band_neighbors(const detail::cuda_tile_coordinate* keys, u
     if (modified)
     {
         band_store(output, tile, unsigned(local), value);
-        atomicExch(&status->changed, 1U);
+        atomicExch(&status->changed, band_changed_mask);
     }
 }
 }

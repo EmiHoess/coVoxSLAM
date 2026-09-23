@@ -25,6 +25,8 @@ struct gather_options
     std::uint32_t short_list_max{combined_short_list_max}, block_list_min{combined_block_list_min};
     execution_mode execution{execution_mode::stream};
 };
+inline constexpr std::uint32_t prepared_ray_valid_flag = 1U;
+inline constexpr std::uint32_t prepared_ray_outside_flag = 2U;
 struct prepared_ray { float range{}, end{}; std::uint32_t flags{}; };
 struct alignas(8) compact_ray { float range{}, end{}; };
 struct row_range { std::uint32_t start{}, count{}; };
@@ -78,6 +80,9 @@ static_assert(gather_options{}.backend == gather_backend::hybrid_combined);
 static_assert(gather_options{}.short_list_max == combined_short_list_max);
 static_assert(gather_options{}.block_list_min == combined_block_list_min);
 static_assert(gather_options{}.execution == execution_mode::stream);
+static_assert(prepared_ray_valid_flag == 1U);
+static_assert(prepared_ray_outside_flag == 2U);
+static_assert((prepared_ray_valid_flag & prepared_ray_outside_flag) == 0);
 
 static_assert(std::is_aggregate_v<prepared_ray>);
 static_assert(std::is_standard_layout_v<prepared_ray>);

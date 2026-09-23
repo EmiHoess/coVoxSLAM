@@ -2,6 +2,7 @@
 #include "detail/index.cuh"
 #include "detail/distance.cuh"
 #include <covoxslam/mapping/esdf/band_esdf.hpp>
+#include <covoxslam/voxel/flags.hpp>
 
 namespace covoxslam::store
 {
@@ -18,19 +19,20 @@ __global__ void initialize_band_fields(band_tsdf_view input, band_work_view outp
     int position[3];
 
     if (!detail::site_coordinate(coordinates[tile], int(local), position)) {
-        atomicOr(&status->invalid, 1U);
+        atomicOr(&status->invalid, band_invalid_geometry_mask);
         return;
     }
     const auto source = input[slots[tile].source].voxels[local];
     if (!isfinite(source.distance) || fabsf(source.distance) > parameters.truncation_distance ||
-        !isfinite(source.weight) || source.weight < 0 || (source.flags & ~3U))
+        !isfinite(source.weight) || source.weight < 0 ||
+        (source.flags & ~(observed_flag | near_surface_flag)))
     {
-        atomicOr(&status->invalid, 2U);
+        atomicOr(&status->invalid, band_invalid_value_mask);
         return;
     }
     detail::cuda_site_esdf_voxel value{maximum_squared, {position[0], position[1], position[2]}, 0};
 
-    if ((source.flags & 1U) && source.weight >= parameters.minimum_weight) {
+    if ((source.flags & observed_flag) && source.weight >= parameters.minimum_weight) {
         value.flags = detail::cuda_esdf_observed;
          if (source.distance <= 0) value.flags |= detail::cuda_esdf_inside;
         const bool surface = source.distance <= 0 && fabsf(source.distance) <= parameters.site_band_m;

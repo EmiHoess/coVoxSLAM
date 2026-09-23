@@ -57,7 +57,7 @@ int run_band_esdf(storage::device_descriptor source, device_index_view source_in
     error = timer.read(&status->invalid, invalid, stream, *metrics);
      if (error || invalid) return int(error ? error : cudaErrorInvalidValue);
     metrics->rounds = 0;
-    unsigned changed{1};
+    unsigned changed{band_changed_mask};
     const auto propagation_started = std::chrono::steady_clock::now();
 
     while (changed && metrics->rounds < options.maximum_rounds)

@@ -58,7 +58,7 @@ __global__ void publish_band_fields(band_work_view input, band_output_view outpu
         result.signed_distance_m = copysignf(maximum, result.signed_distance_m);
         result.parent_dx = result.parent_dy = result.parent_dz = 0;
     }
-    if (!valid) { atomicOr(&status->invalid, 2U); return; }
+    if (!valid) { atomicOr(&status->invalid, band_invalid_value_mask); return; }
     storage::scatter_record<storage::schema::esdf>(output[slots[tile].target].voxels[local], result);
 }
 }

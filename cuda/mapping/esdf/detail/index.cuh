@@ -43,7 +43,7 @@ __global__ void index_band_tiles(const block_key* keys, unsigned count,
     }
     if (!valid)
     {
-        atomicOr(&status->invalid, 1U);
+        atomicOr(&status->invalid, band_invalid_geometry_mask);
         return;
     }
     coordinates[i] = coordinate;
