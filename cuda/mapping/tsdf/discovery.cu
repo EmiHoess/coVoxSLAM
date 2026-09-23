@@ -1,9 +1,9 @@
 #include "discovery.cuh"
 #include "detail/tile_hash.cuh"
+#include "detail/tile_key.cuh"
 #include <covoxslam/core/geometry.hpp>
 #include <covoxslam/voxel/tile_shape.hpp>
 #include <cmath>
-#include <climits>
 #include <math_constants.h>
 
 namespace covoxslam::sensor_grid
@@ -29,17 +29,18 @@ __device__ float3 discovery_point(detail::cuda_projective_pose pose, float3 poin
 }
 __device__ void discover_key(discovery_view view, detail::cuda_tile_coordinate coordinate)
 {
-    const auto key = detail::resident_key({coordinate.z, coordinate.y, coordinate.x});
+    const auto key = detail::encode_tile_key(coordinate);
 
-    if (key == UINT64_MAX) { atomicOr(&view.state->error, discovery_coordinate); return; }
+    if (key == detail::invalid_tile_key) { atomicOr(&view.state->error, discovery_coordinate); return; }
     auto bucket = std::uint32_t(detail::resident_hash(key) & (view.hash_capacity - 1));
 
     for (std::uint32_t probe = 0; probe < view.hash_capacity; ++probe)
     {
-        const auto old = atomicCAS(reinterpret_cast<unsigned long long*>(view.hash + bucket), UINT64_MAX, key);
+        const auto old = atomicCAS(reinterpret_cast<unsigned long long*>(view.hash + bucket),
+            detail::invalid_tile_key, key);
 
         if (old == key) return;
-        if (old == UINT64_MAX) {
+        if (old == detail::invalid_tile_key) {
             const auto position = atomicAdd(&view.state->count, 1U);
 
             if (position < view.capacity) view.keys[position] = key;
@@ -83,7 +84,8 @@ __global__ void discover_sensor_tiles(field_view source, const std::uint8_t* obs
         const double first = floor(__ddiv_rn(lo[a], double(source.voxel_size) * tile_edge));
         const double last = floor(__ddiv_rn(hi[a], double(source.voxel_size) * tile_edge));
 
-        if (!isfinite(first) || !isfinite(last) || first < -1048576 || last >= 1048576 || last < first) {
+        if (!isfinite(first) || !isfinite(last) || first < -detail::tile_key_coordinate_bias ||
+            last >= detail::tile_key_coordinate_bias || last < first) {
             atomicOr(&view.state->error, discovery_coordinate); return;
         }
         lower[a] = int(first); upper[a] = int(last);

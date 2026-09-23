@@ -13,7 +13,7 @@ __device__ unsigned find_resident_key(resident_discovery_view view, std::uint64_
     for (unsigned probe = 0; probe < view.scan.hash_capacity; ++probe) {
 
         if (view.hash[bucket].key == key) return view.hash[bucket].slot;
-        if (view.hash[bucket].key == UINT64_MAX) return UINT32_MAX;
+        if (view.hash[bucket].key == detail::invalid_tile_key) return UINT32_MAX;
         bucket = (bucket + 1) & (view.scan.hash_capacity - 1);
     }
     return UINT32_MAX;
@@ -23,9 +23,10 @@ __device__ void insert_resident_key(resident_discovery_view view, std::uint64_t 
     auto bucket = unsigned(detail::resident_hash(key) & (view.scan.hash_capacity - 1));
 
     for (unsigned probe = 0; probe < view.scan.hash_capacity; ++probe) {
-        const auto old = atomicCAS(reinterpret_cast<unsigned long long*>(&view.hash[bucket].key), UINT64_MAX, key);
+        const auto old = atomicCAS(reinterpret_cast<unsigned long long*>(&view.hash[bucket].key),
+            detail::invalid_tile_key, key);
 
-        if (old == UINT64_MAX) { view.hash[bucket].slot = slot; return; }
+        if (old == detail::invalid_tile_key) { view.hash[bucket].slot = slot; return; }
         if (old == key) { atomicOr(&view.scan.state->error, discovery_ownership); return; }
         bucket = (bucket + 1) & (view.scan.hash_capacity - 1);
     }
@@ -41,7 +42,7 @@ __global__ void classify_resident_keys(resident_discovery_view view)
     if (i >= view.scan.state->count || atomicAdd(&view.scan.state->error, 0U)) return;
     const auto key = view.scan.keys[i];
 
-    if (key == UINT64_MAX || (i && view.scan.keys[i - 1] >= key)) {
+    if (key == detail::invalid_tile_key || (i && view.scan.keys[i - 1] >= key)) {
         atomicOr(&view.scan.state->error, discovery_ownership); return;
     }
     const auto slot = find_resident_key(view, key);
@@ -71,8 +72,7 @@ __global__ void commit_resident_keys(resident_discovery_view view)
     if (atomicAdd(&view.scan.state->error, 0U) || i >= view.scan.state->count || !view.missing[i]) return;
     const auto key = view.scan.keys[i];
     const auto slot = view.scan.state->tile_count + unsigned(view.offsets[i]);
-    constexpr int bias = 1 << 20;
-    view.keys[slot] = {int(key & 2097151) - bias, int((key >> 21) & 2097151) - bias, int(key >> 42) - bias};
+    view.keys[slot] = detail::decode_tile_key(key);
     view.slots[i] = slot;
     insert_resident_key(view, key, slot);
 }
@@ -90,9 +90,9 @@ __global__ void seed_resident_keys(resident_discovery_view view, unsigned count)
 
     if (slot >= count) return;
     const auto coordinate = view.keys[slot];
-    const auto key = detail::resident_key({coordinate.z, coordinate.y, coordinate.x});
+    const auto key = detail::encode_tile_key(coordinate);
 
-    if (key == UINT64_MAX) { atomicOr(&view.scan.state->error, discovery_coordinate); return; }
+    if (key == detail::invalid_tile_key) { atomicOr(&view.scan.state->error, discovery_coordinate); return; }
     insert_resident_key(view, key, unsigned(slot));
 }
 }
