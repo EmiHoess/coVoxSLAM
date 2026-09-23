@@ -1,4 +1,5 @@
 #include <covoxslam/pgo/solver.hpp>
+#include "contracts.hpp"
 #include <cmath>
 
 #if defined(covoxslam_has_pgo)
@@ -99,8 +100,8 @@ operation_status validate_lm(const ceronoceres::NativeLmOptions& value)
         value.maximum_translation_step_m, value.maximum_yaw_step_rad, value.pcg_tolerance};
     const double nonnegative[]{value.minimum_cost_change, value.minimum_gradient_norm, value.minimum_update_norm};
 
-    if (!value.maximum_rejected_steps || value.maximum_rejected_steps > 1000000 ||
-        !value.pcg_maximum_iterations || value.pcg_maximum_iterations > 1000000 ||
+    if (!value.maximum_rejected_steps || value.maximum_rejected_steps > maximum_solver_iterations ||
+        !value.pcg_maximum_iterations || value.pcg_maximum_iterations > maximum_solver_iterations ||
         value.initial_damping < value.minimum_damping || value.maximum_damping < value.initial_damping ||
         !std::all_of(std::begin(positive), std::end(positive), [](double x) { return std::isfinite(x) && x > 0; }) ||
         !std::all_of(std::begin(nonnegative), std::end(nonnegative), [](double x) { return std::isfinite(x) && x >= 0; }))
@@ -164,9 +165,10 @@ operation_result<residual_report> report_residuals(const ceronoceres::SolveResul
 }
 operation_status validate_linearization(const ceronoceres::LinearizationSnapshot& value, std::size_t active_nodes)
 {
-    if (active_nodes > 1048576 || value.gradient.size() != active_nodes * 4 ||
-        value.sparse_blocks.size() > std::numeric_limits<std::size_t>::max() / 16 ||
-        value.hessian_blocks.size() != value.sparse_blocks.size() * 16 || !detail::valid_cost(value.cost))
+    if (active_nodes > maximum_pose_graph_nodes || value.gradient.size() != active_nodes * pose_dimension ||
+        value.sparse_blocks.size() > std::numeric_limits<std::size_t>::max() / normal_equation_block_cardinality ||
+        value.hessian_blocks.size() != value.sparse_blocks.size() * normal_equation_block_cardinality ||
+        !detail::valid_cost(value.cost))
         return std::unexpected(operation_error{"invalid external equation dimensions or cost"});
     const auto finite = [](double x) { return std::isfinite(x); };
 
@@ -461,7 +463,7 @@ operation_status validate_options(const options& value)
 {
     if (!value.enabled) return {};
     if (!available(value.solver)) return std::unexpected(operation_error{"selected native PGO backend is unavailable"});
-    if (!value.maximum_iterations || value.maximum_iterations > 1000000 ||
+    if (!value.maximum_iterations || value.maximum_iterations > maximum_solver_iterations ||
         !std::isfinite(value.maximum_seconds) || value.maximum_seconds <= 0 || value.device < 0)
         return std::unexpected(operation_error{"invalid PGO execution limits"});
     return {};

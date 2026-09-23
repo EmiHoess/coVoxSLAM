@@ -1,4 +1,5 @@
 #include <covoxslam/pgo/pose_graph.hpp>
+#include "contracts.hpp"
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -43,7 +44,7 @@ operation_result<std::optional<graph_snapshot>> make_graph_if_enabled(
 operation_status validate_graph(const graph_snapshot& graph)
 {
     const auto& problem = graph.problem;
-    if (problem.nodes.empty() || problem.nodes.size() > 1048576 ||
+    if (problem.nodes.empty() || problem.nodes.size() > maximum_pose_graph_nodes ||
         graph.node_ids.size() != problem.nodes.size() || !problem.nodes.front().constant)
         return std::unexpected(operation_error{"invalid anchored graph shape"});
     std::set<std::uint64_t> ids;
@@ -121,7 +122,7 @@ operation_status validate_graph(const graph_snapshot& graph)
 }
 operation_result<graph_snapshot> make_graph(std::span<const graph_node> nodes)
 {
-    if (nodes.empty() || nodes.size() > 1048576)
+    if (nodes.empty() || nodes.size() > maximum_pose_graph_nodes)
         return std::unexpected(operation_error{"pose graph node count exceeds bounds"});
     graph_snapshot result;
     result.problem.nodes.reserve(nodes.size());
@@ -182,7 +183,8 @@ operation_status append_relative(graph_snapshot& graph, std::span<const relative
             unsigned(value.loss.kind) > unsigned(ceronoceres::LossKind::Cauchy) ||
             !std::all_of(value.sqrt_information.begin(), value.sqrt_information.end(),
                 [](double x) { return std::isfinite(x) &&
-                    std::abs(x) <= std::sqrt(std::numeric_limits<double>::max() / 16); }) ||
+                    std::abs(x) <= std::sqrt(std::numeric_limits<double>::max() /
+                        normal_equation_block_cardinality); }) ||
             std::none_of(value.sqrt_information.begin(), value.sqrt_information.end(),
                 [](double x) { return x != 0; }))
             return std::unexpected(operation_error{"invalid relative pose measurement"});
