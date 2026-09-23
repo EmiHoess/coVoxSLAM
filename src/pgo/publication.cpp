@@ -1,6 +1,7 @@
 #include <covoxslam/pgo/solver.hpp>
 #include <covoxslam/pgo/publication.hpp>
 #include <covoxslam/core/hash.hpp>
+#include "contracts.hpp"
 #include <algorithm>
 #include <cmath>
 
@@ -98,8 +99,7 @@ operation_result<publication_update> prepare_publication(std::span<const submap>
         const auto& node = result.snapshot.graph().problem.nodes[i];
         const auto& initial = maps[i].frame.anchor;
         const auto& proposed = (*poses)[i];
-        if (node.id != maps[i].frame.id || node.initial.x != initial.x || node.initial.y != initial.y ||
-            node.initial.z != initial.z || std::abs(ceronoceres::wrap_yaw(node.initial.yaw - initial.yaw)) > 1e-12)
+        if (node.id != maps[i].frame.id || !same_pose(node.initial, initial))
             return std::unexpected(operation_error{"publication graph does not match map anchors"});
         const auto translation = std::hypot(proposed.x - initial.x, proposed.y - initial.y, proposed.z - initial.z);
 
@@ -117,18 +117,21 @@ operation_result<publication_update> prepare_publication(std::span<const submap>
     if (!before) return std::unexpected(before.error());
     if (!after) return std::unexpected(after.error());
     const auto agrees = [](const auto& reported, const auto& measured) {
-        const auto close = [](double a, double b) { return std::abs(a - b) <= 1e-5 * std::max({1.0, std::abs(a), std::abs(b)}); };
+        const auto close = [](double a, double b) { return std::abs(a - b) <= measured_comparison_tolerance *
+            std::max({1.0, std::abs(a), std::abs(b)}); };
         return close(reported.relative, measured.relative) && close(reported.absolute, measured.absolute) &&
             close(reported.registration, measured.registration);
     };
     if (!agrees(result.solution.initial_cost, before->cost) || !agrees(result.solution.final_cost, after->cost))
         return std::unexpected(operation_error{"solver cost does not match frozen graph evaluation"});
-    if (after->cost.total() > before->cost.total() + 1e-5 * std::max(1.0, before->cost.total()))
+    if (after->cost.total() > before->cost.total() + publication_comparison_tolerance *
+        std::max(1.0, before->cost.total()))
         return std::unexpected(operation_error{"verified objective increased"});
     if (double(after->registration.accepted_rows) <
         double(before->registration.accepted_rows) * limits.minimum_registration_retention)
         return std::unexpected(operation_error{"registration support decreased beyond publication limit"});
-    if (after->cost.registration > before->cost.registration * (1 + limits.maximum_registration_growth) + 1e-10)
+    if (after->cost.registration > before->cost.registration * (1 + limits.maximum_registration_growth) +
+        registration_additive_tolerance)
         return std::unexpected(operation_error{"registration cost worsened beyond publication limit"});
     return publication_update{result.map_hash, std::move(*poses)};
 }

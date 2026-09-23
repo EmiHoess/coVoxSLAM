@@ -49,7 +49,8 @@ operation_status validate_solve_result(const ceronoceres::SolveResult& result,
 
     if (result.solution_usable && (result.poses.size() != nodes || !detail::valid_cost(result.initial_cost) ||
         !detail::valid_cost(result.final_cost) || result.final_cost.total() >
-            result.initial_cost.total() + 1.0e-10 * std::max(1.0, result.initial_cost.total())))
+            result.initial_cost.total() + objective_convergence_tolerance *
+                std::max(1.0, result.initial_cost.total())))
         return std::unexpected(operation_error{"invalid native solver pose count or objective"});
 
     for (const auto& p : result.poses)
@@ -412,8 +413,7 @@ operation_status validate_snapshot_result(const solve_snapshot& snapshot, const 
         const auto& value = result.poses[index];
         const auto& initial = node.initial;
 
-        if (value.x != initial.x || value.y != initial.y || value.z != initial.z ||
-            std::abs(ceronoceres::wrap_yaw(value.yaw - initial.yaw)) > 1.0e-12)
+        if (!same_pose(value, initial))
             return std::unexpected(operation_error{"native solver changed a fixed graph pose"});
     }
     const auto& t = result.telemetry;

@@ -7,6 +7,7 @@
 #include <covoxslam/storage/transfers.hpp>
 #include <covoxslam/pgo/pose_graph.hpp>
 #include <covoxslam/pgo/solver.hpp>
+#include "../pgo/contracts.hpp"
 #include <bit>
 #include <chrono>
 #include <mutex>
@@ -92,8 +93,7 @@ operation_status validate_pgo_bindings(const pgo::graph_snapshot& graph,
         const auto& node = graph.problem.nodes[volume.pose_node];
         auto pose = snapshot.pose(binding.submap);
         if (!pose) return std::unexpected(pose.error());
-        if (node.id != binding.submap || node.initial.x != pose->x || node.initial.y != pose->y ||
-            node.initial.z != pose->z || std::abs(ceronoceres::wrap_yaw(node.initial.yaw - pose->yaw)) > 1e-12 ||
+        if (node.id != binding.submap || !pgo::same_pose(node.initial, *pose) ||
             volume.voxel_size != double(snapshot.parameters().voxel_size) ||
             (volume.has_tsdf && !map->tsdf) || (volume.has_esdf && !map->esdf))
             return std::unexpected(operation_error{"PGO graph and field snapshot differ"});
