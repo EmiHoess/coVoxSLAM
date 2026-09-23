@@ -10,6 +10,8 @@ namespace covoxslam
 {
 namespace
 {
+inline constexpr float millimeters_to_meters = 0.001F;
+
 operation_status validate_pipeline_options(const pipeline_options& options)
 {
     if (!options.submap_duration_ns || !options.ring_stride || !options.column_stride)
@@ -108,7 +110,7 @@ operation_result<std::vector<ray>> deskew_frame(
                  !std::isfinite(endpoint.z))
                 return std::unexpected(operation_error{"deskew produced a non-finite endpoint"});
             const auto measured_range = frame.range_mm.empty() ? length(point) :
-                static_cast<float>(frame.range_mm[index]) * 0.001F;
+                static_cast<float>(frame.range_mm[index]) * millimeters_to_meters;
             result.push_back({origin, endpoint, 1.0F, stamp, descriptor.frame_id,
                               column, ring, measured_range});
         }

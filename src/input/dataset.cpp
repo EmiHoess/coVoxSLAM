@@ -12,6 +12,7 @@
 #include <chrono>
 #include <cstring>
 #include <limits>
+#include <numbers>
 
 namespace covoxslam
 {
@@ -421,7 +422,7 @@ operation_result<dataset> load_dataset(const std::filesystem::path& root, datase
     {
         const auto radians = angle.number();
         if (!radians) return std::unexpected(radians.error());
-         if (std::abs(*radians) > 1.5707963267948966)
+         if (std::abs(*radians) > std::numbers::pi_v<double> / 2.0)
             return std::unexpected(operation_error{"invalid beam elevation"});
         sensor.vertical_angles_rad.push_back(static_cast<float>(*radians));
     }
@@ -433,7 +434,7 @@ operation_result<dataset> load_dataset(const std::filesystem::path& root, datase
         return std::unexpected(range.error());
     if (minimum < 0 || maximum <= minimum || maximum > std::numeric_limits<float>::max() ||
         sensor.scan_rate_hz <= 0 || !sensor.scan_period_ns || sensor.azimuth_coverage_rad <= 0 ||
-        sensor.azimuth_coverage_rad > 6.283185307179587)
+        sensor.azimuth_coverage_rad > 2.0 * std::numbers::pi_v<double>)
         return std::unexpected(operation_error{"invalid sensor ranges or timing"});
     sensor.min_range_m = static_cast<float>(minimum);
     sensor.max_range_m = static_cast<float>(maximum);

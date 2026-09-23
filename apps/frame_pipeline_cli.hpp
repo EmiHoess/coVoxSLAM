@@ -16,6 +16,7 @@
 #include <charconv>
 #include <iomanip>
 #include <iostream>
+#include <limits>
 #include <string>
 #include <string_view>
 
@@ -249,7 +250,7 @@ inline int run_submap_cli(int argc, char** argv)
             const auto finished = exporter->finish();
             if (!finished) return report_error(finished.error().message);
         }
-        std::cout << std::setprecision(17);
+        std::cout << std::setprecision(std::numeric_limits<double>::max_digits10);
         for (const auto& submap : result->frames.submaps) {
             const auto& anchor = submap.anchor;
             const auto& initial = submap.initial_pose;

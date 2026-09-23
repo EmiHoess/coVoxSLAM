@@ -41,7 +41,7 @@ operation_result<std::ofstream> export_stream(const std::filesystem::path& path,
     std::ofstream output;
     output.open(path, std::ios::out | std::ios::trunc | (binary ? std::ios::binary : std::ios::openmode{}));
     output.imbue(std::locale::classic());
-    output << std::setprecision(17);
+    output << std::setprecision(std::numeric_limits<double>::max_digits10);
     if (!output) return std::unexpected(operation_error{std::string(diagnostic)});
     return output;
 }

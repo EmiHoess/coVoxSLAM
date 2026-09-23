@@ -243,7 +243,8 @@ operation_status write_iteration_report(std::ostream& output, const ceronoceres:
     const auto summary = summarize_solve(result);
     if (!summary) return std::unexpected(summary.error());
     std::ostringstream text;
-    text << std::setprecision(17) << "iteration accepted before after damping gradient update linear_iterations seconds linear_seconds\n";
+    text << std::setprecision(std::numeric_limits<double>::max_digits10)
+         << "iteration accepted before after damping gradient update linear_iterations seconds linear_seconds\n";
 
     for (const auto& step : result.iterations)
     {
@@ -270,7 +271,7 @@ operation_status write_solver_report(std::ostream& output, const ceronoceres::So
     if (!summary) return std::unexpected(summary.error());
     const auto& t = result.telemetry;
     std::ostringstream text;
-    text << std::setprecision(17)
+    text << std::setprecision(std::numeric_limits<double>::max_digits10)
         << "solver " << ceronoceres::backend_name(result.backend) << '\n'
         << "termination " << ceronoceres::termination_name(result.termination) << '\n'
         << "usable " << summary->usable << " converged " << summary->converged << '\n'
