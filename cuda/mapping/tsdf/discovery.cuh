@@ -1,5 +1,6 @@
 #pragma once
 #include "fusion.cuh"
+#include <covoxslam/mapping/config.hpp>
 
 namespace covoxslam::sensor_grid
 {
@@ -15,7 +16,7 @@ struct discovery_view {
 };
 inline std::uint32_t discovery_hash_size(std::uint32_t capacity) noexcept
 {
-    if (!capacity || capacity > 1048576) return 0;
+    if (!capacity || capacity > maximum_mapping_tiles) return 0;
     std::uint32_t size{2};
 
     while (size < capacity * 2) size *= 2;

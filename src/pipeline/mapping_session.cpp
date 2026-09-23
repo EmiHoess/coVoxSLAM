@@ -39,7 +39,7 @@ operation_status validate_mapping_session(const mapping_session_options& options
         options.transfer.discovery != sensor_grid::discovery_mode::gpu_resident)
         return std::unexpected(operation_error{
             "resident mapping storage requires combined nearest with resident discovery"});
-    if (!options.mapping.valid() || options.mapping.maximum_tiles > 1048576)
+    if (!options.mapping.valid() || options.mapping.maximum_tiles > maximum_mapping_tiles)
         return std::unexpected(operation_error{"invalid sensor mapping configuration"});
     return {};
 }

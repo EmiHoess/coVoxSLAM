@@ -65,7 +65,7 @@ inline operation_result<bool> parse_mapping_device(std::string_view name, std::s
         bytes = count;
         return true;
     case mapping_device_option::tiles:
-        if (!count || count > 1048576)
+        if (!count || count > maximum_mapping_tiles)
             return std::unexpected(operation_error{"mapping tile capacity is out of range"});
         config.maximum_tiles = count;
         return true;

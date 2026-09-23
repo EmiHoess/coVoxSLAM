@@ -3,6 +3,7 @@
 #include <covoxslam/core/byte_units.hpp>
 #include <covoxslam/core/geometry.hpp>
 #include <covoxslam/core/result.hpp>
+#include <covoxslam/mapping/config.hpp>
 #include <covoxslam/sensor/dense_field.hpp>
 #include <covoxslam/sensor/lookup.hpp>
 #include <covoxslam/mapping/tsdf/detail/sampling.hpp>
@@ -32,7 +33,7 @@ struct transfer_options
     transfer_arithmetic arithmetic{transfer_arithmetic::fp64};
     bool specialized{};
     candidate_mode candidates{candidate_mode::whole_tiles};
-    std::uint32_t candidate_capacity{1048576};
+    std::uint32_t candidate_capacity{maximum_mapping_tiles};
     discovery_mode discovery{discovery_mode::gpu_resident};
 };
 
@@ -81,7 +82,7 @@ static_assert(transfer_options{}.source_mask == source_mask_mode::dense);
 static_assert(transfer_options{}.arithmetic == transfer_arithmetic::fp64);
 static_assert(!transfer_options{}.specialized);
 static_assert(transfer_options{}.candidates == candidate_mode::whole_tiles);
-static_assert(transfer_options{}.candidate_capacity == 1048576);
+static_assert(transfer_options{}.candidate_capacity == maximum_mapping_tiles);
 static_assert(transfer_options{}.discovery == discovery_mode::gpu_resident);
 
 static_assert(std::is_aggregate_v<transfer_times>);

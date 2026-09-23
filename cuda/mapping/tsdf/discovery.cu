@@ -106,7 +106,8 @@ int cuda_sensor_discover(field_view source, const std::uint8_t* observed,
     detail::cuda_projective_pose transform, discovery_view view, void* opaque_stream)
 {
     if (!sampling_detail::valid_view(source) || source.side > 1624 || !observed || !view.hash || !view.keys ||
-        !view.state || !view.capacity || view.capacity > 1048576 || view.hash_capacity != discovery_hash_size(view.capacity))
+        !view.state || !view.capacity || view.capacity > maximum_mapping_tiles ||
+        view.hash_capacity != discovery_hash_size(view.capacity))
         return int(cudaErrorInvalidValue);
     const auto q = transform.rotation_xyzw;
     const double norm = std::hypot(std::hypot(double(q[0]), double(q[1])), std::hypot(double(q[2]), double(q[3])));

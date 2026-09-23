@@ -23,7 +23,7 @@ inline bool valid_resident_discovery(resident_discovery_view view) noexcept
 {
     return view.scan.hash && view.scan.keys && view.scan.state && view.hash && view.keys &&
         view.scratch_keys && view.offsets && view.sums && view.missing && view.slots &&
-        view.scan.capacity && view.scan.capacity <= 1048576 &&
+        view.scan.capacity && view.scan.capacity <= maximum_mapping_tiles &&
         view.scan.hash_capacity == discovery_hash_size(view.scan.capacity);
 }
 }
