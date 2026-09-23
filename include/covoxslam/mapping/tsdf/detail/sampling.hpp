@@ -21,7 +21,8 @@ namespace sampling_detail
 covoxslam_sample_callable inline bool finite(float value) { return value >= -FLT_MAX && value <= FLT_MAX; }
 covoxslam_sample_callable inline bool valid_view(field_view view)
 {
-    if (!view.voxels || !view.side || view.side > unsigned(INT_MAX - 1) ||
+    if (!view.voxels || !view.side || !dense_grid_volume_fits(view.side) ||
+        view.side > unsigned(INT_MAX - 1) ||
         !(view.voxel_size > 0) || !finite(view.voxel_size) || !finite(view.origin)) return false;
     const std::size_t side = view.side;
     return side <= std::size_t(-1) / side / side / sizeof(voxel);

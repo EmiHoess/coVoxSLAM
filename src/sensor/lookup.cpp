@@ -107,7 +107,7 @@ operation_result<geometry> make_geometry(const config& c)
     if (half < 1 || half > capacity / 2U)
         return std::unexpected(operation_error{"sensor grid side exceeds capacity"});
      const auto side = static_cast<std::uint64_t>(half) * 2U;
-    if (side > capacity / side || side * side > capacity / side)
+    if (!dense_grid_volume_fits(static_cast<std::uint32_t>(side)))
         return std::unexpected(operation_error{"sensor grid volume exceeds capacity"});
     const double extent = half * c.voxel_size;
 

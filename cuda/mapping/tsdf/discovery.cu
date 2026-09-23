@@ -107,7 +107,7 @@ __global__ void discover_sensor_tiles(field_view source, const std::uint8_t* obs
 int cuda_sensor_discover(field_view source, const std::uint8_t* observed,
     detail::cuda_projective_pose transform, discovery_view view, void* opaque_stream)
 {
-    if (!sampling_detail::valid_view(source) || source.side > 1624 || !observed || !view.hash || !view.keys ||
+    if (!sampling_detail::valid_view(source) || !observed || !view.hash || !view.keys ||
         !view.state || !view.capacity || view.capacity > maximum_mapping_tiles ||
         view.hash_capacity != discovery_hash_size(view.capacity))
         return int(cudaErrorInvalidValue);

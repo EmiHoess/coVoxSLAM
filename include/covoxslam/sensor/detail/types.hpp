@@ -44,4 +44,13 @@ struct field_view
     std::uint32_t side{};
     float voxel_size{}, origin{};
 };
+#ifdef __CUDACC__
+__host__ __device__
+#endif
+inline constexpr bool dense_grid_volume_fits(std::uint32_t side) noexcept
+{
+    return side <= 1 || side <= UINT32_MAX / side / side;
+}
+static_assert(dense_grid_volume_fits(1625));
+static_assert(!dense_grid_volume_fits(1626));
 }

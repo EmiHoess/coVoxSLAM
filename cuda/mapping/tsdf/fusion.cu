@@ -84,7 +84,7 @@ int cuda_sensor_resident_soa(field_view source, resident_discovery_view view,
 }
 int cuda_sensor_mask(field_view source, std::uint8_t* flags, void* stream)
 {
-    if (!source.voxels || !source.side || source.side > 1624 || !flags) return int(cudaErrorInvalidValue);
+    if (!sampling_detail::valid_view(source) || !flags) return int(cudaErrorInvalidValue);
     const auto n = (source.side + tile_edge - 1) / tile_edge;
     mask_cells<<<n * n * n, unsigned(tile_voxels), 0,
         static_cast<cudaStream_t>(stream)>>>(source, n, flags);
