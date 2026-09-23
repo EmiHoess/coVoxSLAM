@@ -5,6 +5,11 @@
 
 namespace covoxslam::storage
 {
+namespace
+{
+inline constexpr unsigned initialize_kernel_threads = 256;
+inline constexpr unsigned maximum_initialize_blocks = 65535;
+}
 template<schema s> __global__ void initialize_fields_kernel(device_descriptor descriptor)
 {
     for (std::size_t i = std::size_t(blockIdx.x) * blockDim.x + threadIdx.x;
@@ -32,13 +37,16 @@ int initialize_device_fields(device_descriptor descriptor, void* stream) noexcep
         return int(cudaErrorInvalidValue);
     if (descriptor.capacity_tiles == 0) return int(cudaSuccess);
     const auto count = descriptor.capacity_tiles * tile_voxels;
-    const unsigned blocks = unsigned(std::min<std::size_t>((count + 255) / 256, 65535));
+    const unsigned blocks = unsigned(std::min<std::size_t>(
+        (count + initialize_kernel_threads - 1) / initialize_kernel_threads, maximum_initialize_blocks));
     const auto queue = static_cast<cudaStream_t>(stream);
     switch (descriptor.record_schema)
     {
-    case schema::tsdf: initialize_fields_kernel<schema::tsdf><<<blocks, 256, 0, queue>>>(descriptor); break;
+    case schema::tsdf:
+        initialize_fields_kernel<schema::tsdf><<<blocks, initialize_kernel_threads, 0, queue>>>(descriptor); break;
     case schema::esdf:
-    case schema::projective_esdf: initialize_fields_kernel<schema::esdf><<<blocks, 256, 0, queue>>>(descriptor); break;
+    case schema::projective_esdf:
+        initialize_fields_kernel<schema::esdf><<<blocks, initialize_kernel_threads, 0, queue>>>(descriptor); break;
     default: return int(cudaErrorInvalidValue);
     }
     return int(cudaGetLastError());

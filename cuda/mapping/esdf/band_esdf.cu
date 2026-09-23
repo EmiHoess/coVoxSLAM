@@ -11,6 +11,7 @@ namespace
 inline constexpr unsigned tile_kernel_threads = 128;
 inline constexpr unsigned tile_kernel_blocks = unsigned(tile_voxels) / tile_kernel_threads;
 inline constexpr unsigned sweep_tiles_per_block = tile_kernel_threads / unsigned(tile_face_voxels);
+inline constexpr unsigned raw_index_threads = 128;
 static_assert(tile_voxels % tile_kernel_threads == 0);
 static_assert(tile_kernel_threads % tile_face_voxels == 0);
 }
@@ -38,8 +39,9 @@ int run_band_esdf(storage::device_descriptor source, device_index_view source_in
     if (timed) return int(timed);
     auto error = cudaMemsetAsync(status, 0, sizeof(*status), stream);
     if (error) return int(error);
-    index_band_tiles<<<(count + 127) / 128, 128, 0, stream>>>(keys, count, source_index,
-        target_index, source.size_tiles, target.size_tiles, coordinates, slots, status);
+    index_band_tiles<<<(count + raw_index_threads - 1) / raw_index_threads,
+        raw_index_threads, 0, stream>>>(keys, count, source_index, target_index,
+        source.size_tiles, target.size_tiles, coordinates, slots, status);
     error = cudaGetLastError();
 
     if (error) return int(error);

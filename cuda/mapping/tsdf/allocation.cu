@@ -6,6 +6,7 @@ namespace covoxslam::sensor_grid
 {
 namespace
 {
+inline constexpr unsigned allocation_kernel_threads = 128;
 __device__ unsigned find_resident_key(resident_discovery_view view, std::uint64_t key)
 {
     auto bucket = unsigned(detail::resident_hash(key) & (view.scan.hash_capacity - 1));
@@ -107,7 +108,8 @@ int cuda_sensor_restore_tiles(resident_discovery_view view, std::uint32_t count,
     error = cudaGetLastError();
 
     if (error) return int(error);
-    if (count) seed_resident_keys<<<(count + 127) / 128, 128, 0, stream>>>(view, count);
+    if (count) seed_resident_keys<<<(count + allocation_kernel_threads - 1) / allocation_kernel_threads,
+        allocation_kernel_threads, 0, stream>>>(view, count);
     error = cudaGetLastError();
 
     if (error) return int(error);
@@ -131,8 +133,8 @@ int cuda_sensor_allocate_tiles(resident_discovery_view view, void* opaque_stream
         view.offsets, view.sums, view.scan.capacity, stream);
 
     if (error) return int(error);
-    const auto blocks = (view.scan.capacity + 127) / 128;
-    classify_resident_keys<<<blocks, 128, 0, stream>>>(view);
+    const auto blocks = (view.scan.capacity + allocation_kernel_threads - 1) / allocation_kernel_threads;
+    classify_resident_keys<<<blocks, allocation_kernel_threads, 0, stream>>>(view);
     error = cudaGetLastError();
     if (!error) error = detail::scan_key_flags(view.missing, view.offsets, view.sums, view.scan.capacity, stream);
 
@@ -141,7 +143,7 @@ int cuda_sensor_allocate_tiles(resident_discovery_view view, void* opaque_stream
     error = cudaGetLastError();
 
     if (error) return int(error);
-    commit_resident_keys<<<blocks, 128, 0, stream>>>(view);
+    commit_resident_keys<<<blocks, allocation_kernel_threads, 0, stream>>>(view);
     error = cudaGetLastError();
 
     if (error) return int(error);

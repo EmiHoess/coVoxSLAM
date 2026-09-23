@@ -1,6 +1,7 @@
 #pragma once
 #include "scan.cuh"
 #include <cuda_runtime.h>
+#include <climits>
 
 namespace covoxslam::detail
 {
@@ -29,15 +30,19 @@ inline cudaError_t sort_tile_keys(std::uint64_t* keys, std::uint64_t* scratch,
 {
     if (!count || count > 1048576 || !keys || !scratch || !flags || !offsets || !sums)
         return cudaErrorInvalidValue;
+    constexpr unsigned radix_sort_kernel_threads = 256;
+    constexpr unsigned key_bit_count = unsigned(sizeof(*keys) * CHAR_BIT);
     auto input = keys, output = scratch;
 
-    for (unsigned bit = 0; bit < 64; ++bit) {
-        key_sort_flags<<<(count + 255) / 256, 256, 0, stream>>>(input, flags, count, bit);
+    for (unsigned bit = 0; bit < key_bit_count; ++bit) {
+        key_sort_flags<<<(count + radix_sort_kernel_threads - 1) / radix_sort_kernel_threads,
+            radix_sort_kernel_threads, 0, stream>>>(input, flags, count, bit);
         auto error = cudaGetLastError();
         if (!error) error = scan_key_flags(flags, offsets, sums, count, stream);
 
         if (error) return error;
-        key_sort_scatter<<<(count + 255) / 256, 256, 0, stream>>>(input, output, flags, offsets, count);
+        key_sort_scatter<<<(count + radix_sort_kernel_threads - 1) / radix_sort_kernel_threads,
+            radix_sort_kernel_threads, 0, stream>>>(input, output, flags, offsets, count);
         error = cudaGetLastError();
 
         if (error) return error;

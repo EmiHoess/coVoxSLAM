@@ -4,6 +4,10 @@
 
 namespace covoxslam::store
 {
+namespace
+{
+inline constexpr unsigned device_index_kernel_threads = 128;
+}
 __global__ void initialize_index(device_hash_entry* entries, std::size_t capacity)
 {
     const auto index = std::size_t(blockIdx.x) * blockDim.x + threadIdx.x;
@@ -56,14 +60,17 @@ int build_device_index(device_hash_entry* entries, std::size_t capacity, const d
         return int(cudaErrorInvalidValue);
     if (capacity > std::size_t(1) << 31) return int(cudaErrorInvalidValue);
     const auto queue = static_cast<cudaStream_t>(stream);
-    initialize_index<<<unsigned((capacity + 127) / 128), 128, 0, queue>>>(entries, capacity);
+    initialize_index<<<unsigned((capacity + device_index_kernel_threads - 1) / device_index_kernel_threads),
+        device_index_kernel_threads, 0, queue>>>(entries, capacity);
     auto error = cudaGetLastError();
     if (error != cudaSuccess) return int(error);
     if (!count) return int(cudaSuccess);
-    populate_index<<<unsigned((count + 127) / 128), 128, 0, queue>>>(entries, capacity, records, count, errors);
+    populate_index<<<unsigned((count + device_index_kernel_threads - 1) / device_index_kernel_threads),
+        device_index_kernel_threads, 0, queue>>>(entries, capacity, records, count, errors);
     error = cudaGetLastError();
     if (error != cudaSuccess) return int(error);
-    validate_index<<<unsigned((capacity + 127) / 128), 128, 0, queue>>>(entries, capacity, errors);
+    validate_index<<<unsigned((capacity + device_index_kernel_threads - 1) / device_index_kernel_threads),
+        device_index_kernel_threads, 0, queue>>>(entries, capacity, errors);
     return int(cudaGetLastError());
 }
 }

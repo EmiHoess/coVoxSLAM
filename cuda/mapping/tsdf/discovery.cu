@@ -10,6 +10,7 @@ namespace covoxslam::sensor_grid
 {
 namespace
 {
+inline constexpr unsigned discovery_kernel_threads = 128;
 __device__ float3 discovery_cross(float3 a, float3 b)
 {
     return {__fsub_rn(__fmul_rn(a.y, b.z), __fmul_rn(a.z, b.y)),
@@ -131,7 +132,8 @@ int cuda_sensor_discover(field_view source, const std::uint8_t* observed,
 
     if (error) return int(error);
     const unsigned n = (source.side + tile_edge - 1) / tile_edge;
-    discover_sensor_tiles<<<(n * n * n + 127) / 128, 128, 0, stream>>>(source, observed, n, transform, view);
+    discover_sensor_tiles<<<(n * n * n + discovery_kernel_threads - 1) / discovery_kernel_threads,
+        discovery_kernel_threads, 0, stream>>>(source, observed, n, transform, view);
     return int(cudaGetLastError());
 }
 }
