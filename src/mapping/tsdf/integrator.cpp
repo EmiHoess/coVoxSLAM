@@ -4,39 +4,53 @@
 
 namespace covoxslam::sensor_grid
 {
+config sensor_config_from_mapping(const mapping_config& mapping) noexcept
+{
+    config result;
+    result.voxel_size = mapping.voxel_size;
+    result.radius = mapping.maximum_ray_length_m;
+    result.truncation = mapping.truncation_distance;
+    result.minimum_range = mapping.minimum_ray_length_m;
+    result.maximum_weight = mapping.maximum_weight;
+    return result;
+}
+
+mapping_preset combined_nearest_preset(const mapping_config& mapping) noexcept
+{
+    mapping_preset result;
+    result.mapping = mapping;
+    result.gather = {gather_backend::hybrid_combined, combined_short_list_max,
+        combined_block_list_min, execution_mode::stream};
+    result.transfer = {};
+    result.sampling = interpolation::nearest;
+    result.ring_stride = result.column_stride = 1;
+    return result;
+}
+
 bool matches_combined_nearest(const mapping_preset& options) noexcept
 {
-    return accumulation_bits == 32 && options.sampling == interpolation::nearest &&
-        options.ring_stride == 1 && options.column_stride == 1 &&
-        options.mapping.voxel_size == .2f && options.mapping.truncation_distance == .6f &&
-        options.mapping.maximum_ray_length_m == 16.f && options.mapping.maximum_weight == 10000.f &&
-        options.gather.backend == gather_backend::hybrid_combined &&
-        options.gather.short_list_max == combined_short_list_max &&
-        options.gather.block_list_min == combined_block_list_min &&
-        options.gather.execution == execution_mode::stream &&
-        options.transfer.discovery == discovery_mode::gpu_resident &&
-        options.transfer.arithmetic == transfer_arithmetic::fp64 &&
-        options.transfer.candidates == candidate_mode::whole_tiles &&
-        options.transfer.source_mask == source_mask_mode::dense && !options.transfer.specialized;
+    const auto preset = combined_nearest_preset(mapping_config{});
+    return accumulation_bits == 32 && options.sampling == preset.sampling &&
+        options.ring_stride == preset.ring_stride && options.column_stride == preset.column_stride &&
+        options.mapping.voxel_size == preset.mapping.voxel_size &&
+        options.mapping.truncation_distance == preset.mapping.truncation_distance &&
+        options.mapping.maximum_ray_length_m == preset.mapping.maximum_ray_length_m &&
+        options.mapping.maximum_weight == preset.mapping.maximum_weight &&
+        options.gather.backend == preset.gather.backend &&
+        options.gather.short_list_max == preset.gather.short_list_max &&
+        options.gather.block_list_min == preset.gather.block_list_min &&
+        options.gather.execution == preset.gather.execution &&
+        options.transfer.discovery == preset.transfer.discovery &&
+        options.transfer.arithmetic == preset.transfer.arithmetic &&
+        options.transfer.candidates == preset.transfer.candidates &&
+        options.transfer.source_mask == preset.transfer.source_mask &&
+        options.transfer.specialized == preset.transfer.specialized;
 }
 operation_result<mapping_preset> combined_nearest_preset()
 {
     if constexpr (accumulation_bits != 32)
         return std::unexpected(operation_error{"combined nearest requires an FP32 sensor accumulation build"});
-    mapping_preset result;
-    result.mapping.voxel_size = .2f;
-     result.mapping.truncation_distance = .6f;
-    result.mapping.maximum_ray_length_m = 16.f;
-    result.mapping.maximum_weight = 10000.f;
-    result.gather = {gather_backend::hybrid_combined, combined_short_list_max,
-        combined_block_list_min, execution_mode::stream};
-    result.transfer.discovery = discovery_mode::gpu_resident;
-    result.transfer.arithmetic = transfer_arithmetic::fp64;
-    result.transfer.candidates = candidate_mode::whole_tiles;
-    result.transfer.source_mask = source_mask_mode::dense;
-    result.sampling = interpolation::nearest;
-    result.ring_stride = result.column_stride = 1;
-    return result;
+    return combined_nearest_preset(mapping_config{});
 }
 operation_result<std::unique_ptr<combined_map>> combined_map::create(const lookup& table,
     std::uint32_t capacity, int device, std::size_t maximum_bytes, gather_options options, transfer_options transfer,

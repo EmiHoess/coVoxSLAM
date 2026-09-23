@@ -62,13 +62,8 @@ operation_status resident_pipeline::close(sensor_grid::combined_map& mapper, sub
     state_->metrics.handoff_ms += std::chrono::duration<double, std::milli>(copied - started).count();
     state_->metrics.retained_tiles += *count;
      state_->metrics.copied_device_bytes += *count * storage::canonical_tile_bytes<storage::schema::tsdf>;
-    store::band_esdf_options settings;
-    settings.field.voxel_size = metadata.config.voxel_size;
-    settings.field.truncation_distance = metadata.config.truncation_distance;
-    settings.field.minimum_weight = metadata.config.esdf_minimum_weight;
-    settings.field.site_band_m = metadata.config.esdf_site_band_m;
-    settings.field.maximum_distance_m = metadata.config.esdf_maximum_distance_m;
-    settings.field.include_negative_truncation_band = state_->options.negative_band;
+    const auto settings = store::band_esdf_options_from_mapping(
+        metadata.config, state_->options.negative_band);
     auto generated = store::generate_band_esdf(*state_->maps, metadata.frame.id, settings);
 
     if (!generated) return std::unexpected(generated.error());

@@ -1,5 +1,6 @@
 #pragma once
 #include <covoxslam/core/byte_units.hpp>
+#include <covoxslam/mapping/config.hpp>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -44,6 +45,18 @@ struct band_esdf_options
             float(extent * extent) > 0;
     }
 };
+inline band_esdf_options band_esdf_options_from_mapping(
+    const mapping_config& mapping, bool include_negative_truncation_band) noexcept
+{
+    band_esdf_options result;
+    result.field.voxel_size = mapping.voxel_size;
+    result.field.truncation_distance = mapping.truncation_distance;
+    result.field.site_band_m = mapping.esdf_site_band_m;
+    result.field.minimum_weight = mapping.esdf_minimum_weight;
+    result.field.maximum_distance_m = mapping.esdf_maximum_distance_m;
+    result.field.include_negative_truncation_band = include_negative_truncation_band;
+    return result;
+}
 struct band_esdf_metrics {
     std::uint64_t tiles{}, scratch_bytes{}, upload_bytes{}, download_bytes{}, peak_device_bytes{};
     std::uint32_t rounds{};

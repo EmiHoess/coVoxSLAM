@@ -18,6 +18,8 @@ struct mapping_preset
     interpolation sampling{interpolation::nearest};
     std::size_t ring_stride{1}, column_stride{1};
 };
+config sensor_config_from_mapping(const mapping_config& mapping) noexcept;
+mapping_preset combined_nearest_preset(const mapping_config& mapping) noexcept;
 operation_result<mapping_preset> combined_nearest_preset();
 bool matches_combined_nearest(const mapping_preset& options) noexcept;
 struct combined_times

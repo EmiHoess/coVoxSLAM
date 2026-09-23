@@ -50,12 +50,7 @@ operation_result<pipeline_callbacks> make_mapping_callbacks(const dataset& input
 {
     auto directions = sensor_grid::calibrated_directions(input.sensor);
     if (!directions) return std::unexpected(directions.error());
-    sensor_grid::config settings;
-    settings.voxel_size = options.mapping.voxel_size;
-     settings.radius = options.mapping.maximum_ray_length_m;
-    settings.truncation = options.mapping.truncation_distance;
-    settings.minimum_range = options.mapping.minimum_ray_length_m;
-    settings.maximum_weight = options.mapping.maximum_weight;
+    const auto settings = sensor_grid::sensor_config_from_mapping(options.mapping);
     auto table = sensor_grid::build_lookup(settings, *directions);
     if (!table) return std::unexpected(table.error());
     auto combined = sensor_grid::combined_map::create(*table,
