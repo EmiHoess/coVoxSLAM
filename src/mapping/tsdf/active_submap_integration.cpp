@@ -22,11 +22,12 @@ operation_result<transfer_times> gpu_map::integrate(const gpu_grid& source, pose
     const auto rotation = transform.rotation;
     const detail::cuda_projective_pose packed{{transform.translation.x, transform.translation.y, transform.translation.z},
         {rotation.x, rotation.y, rotation.z, rotation.w}};
+    std::uint64_t kernel_launches{};
     auto status = data.check(cudaSetDevice(data.device));
     if (status) status = data.check(cudaEventRecord(data.mask_start, data.stream));
-    if (status) status = data.check(cuda_sensor_mask(field, data.mask, data.stream));
+    if (status) status = data.check(cuda_sensor_mask(field, data.mask, kernel_launches, data.stream));
     if (status) status = data.check(cudaEventRecord(data.mask_end, data.stream));
-    if (status) return data.integrate_resident(field, packed, mode);
+    if (status) return data.integrate_resident(field, packed, mode, kernel_launches);
     return std::unexpected(status.error());
 }
 }

@@ -106,7 +106,8 @@ __global__ void discover_sensor_tiles(field_view source, const std::uint8_t* obs
 }
 }
 int cuda_sensor_discover(field_view source, const std::uint8_t* observed,
-    detail::cuda_projective_pose transform, discovery_view view, void* opaque_stream)
+    detail::cuda_projective_pose transform, discovery_view view,
+    std::uint64_t& kernel_launches, void* opaque_stream)
 {
     if (!sampling_detail::valid_view(source) || !observed || !view.hash || !view.keys ||
         !view.state || !view.capacity || view.capacity > maximum_mapping_tiles ||
@@ -134,6 +135,8 @@ int cuda_sensor_discover(field_view source, const std::uint8_t* observed,
     const unsigned n = (source.side + tile_edge - 1) / tile_edge;
     discover_sensor_tiles<<<(n * n * n + discovery_kernel_threads - 1) / discovery_kernel_threads,
         discovery_kernel_threads, 0, stream>>>(source, observed, n, transform, view);
-    return int(cudaGetLastError());
+    error = cudaGetLastError();
+    if (!error) ++kernel_launches;
+    return int(error);
 }
 }

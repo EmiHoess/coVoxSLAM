@@ -5,5 +5,6 @@
 
 namespace covoxslam::sensor_grid
 {
-int cuda_sensor_mask(field_view source, std::uint8_t* flags, void* stream);
+int cuda_sensor_mask(
+    field_view source, std::uint8_t* flags, std::uint64_t& kernel_launches, void* stream);
 }

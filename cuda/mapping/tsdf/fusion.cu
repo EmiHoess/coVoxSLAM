@@ -66,7 +66,8 @@ __global__ void transfer_cells(field_view source, const std::uint32_t* slots,
 }
 int cuda_sensor_resident_soa(field_view source, resident_discovery_view view,
     storage::device_descriptor tiles, detail::cuda_projective_pose transform, float size,
-    float maximum_weight, float band, unsigned long long* updates, void* stream)
+    float maximum_weight, float band, unsigned long long* updates,
+    std::uint64_t& kernel_launches, void* stream)
 {
     if (!valid_resident_discovery(view) || !sampling_detail::valid_view(source) ||
         tiles.record_schema != storage::schema::tsdf ||
@@ -81,14 +82,19 @@ int cuda_sensor_resident_soa(field_view source, resident_discovery_view view,
     transfer_cells<<<view.scan.capacity * tile_kernel_blocks, tile_kernel_threads,
         0, static_cast<cudaStream_t>(stream)>>>(
         source, view.slots, view.keys, target, transform, size, maximum_weight, band, updates, view.scan.state);
-    return int(cudaGetLastError());
+    const auto error = cudaGetLastError();
+    if (!error) ++kernel_launches;
+    return int(error);
 }
-int cuda_sensor_mask(field_view source, std::uint8_t* flags, void* stream)
+int cuda_sensor_mask(
+    field_view source, std::uint8_t* flags, std::uint64_t& kernel_launches, void* stream)
 {
     if (!sampling_detail::valid_view(source) || !flags) return int(cudaErrorInvalidValue);
     const auto n = (source.side + tile_edge - 1) / tile_edge;
     mask_cells<<<n * n * n, unsigned(tile_voxels), 0,
         static_cast<cudaStream_t>(stream)>>>(source, n, flags);
-    return int(cudaGetLastError());
+    const auto error = cudaGetLastError();
+    if (!error) ++kernel_launches;
+    return int(error);
 }
 }

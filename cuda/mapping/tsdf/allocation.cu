@@ -125,29 +125,36 @@ int cuda_sensor_reset_soa(resident_discovery_view view, storage::device_descript
     if (!error) error = storage::initialize_device_fields(tiles, stream);
     return error;
 }
-int cuda_sensor_allocate_tiles(resident_discovery_view view, void* opaque_stream)
+int cuda_sensor_allocate_tiles(
+    resident_discovery_view view, std::uint64_t& kernel_launches, void* opaque_stream)
 {
     if (!valid_resident_discovery(view)) return int(cudaErrorInvalidValue);
     const auto stream = static_cast<cudaStream_t>(opaque_stream);
     auto error = detail::sort_tile_keys(view.scan.keys, view.scratch_keys, view.missing,
-        view.offsets, view.sums, view.scan.capacity, stream);
+        view.offsets, view.sums, view.scan.capacity, kernel_launches, stream);
 
     if (error) return int(error);
     const auto blocks = (view.scan.capacity + allocation_kernel_threads - 1) / allocation_kernel_threads;
     classify_resident_keys<<<blocks, allocation_kernel_threads, 0, stream>>>(view);
     error = cudaGetLastError();
-    if (!error) error = detail::scan_key_flags(view.missing, view.offsets, view.sums, view.scan.capacity, stream);
+    if (!error) ++kernel_launches;
+    if (!error) error = detail::scan_key_flags(
+        view.missing, view.offsets, view.sums, view.scan.capacity, kernel_launches, stream);
 
     if (error) return int(error);
     validate_resident_allocation<<<1, 1, 0, stream>>>(view);
     error = cudaGetLastError();
+    if (!error) ++kernel_launches;
 
     if (error) return int(error);
     commit_resident_keys<<<blocks, allocation_kernel_threads, 0, stream>>>(view);
     error = cudaGetLastError();
+    if (!error) ++kernel_launches;
 
     if (error) return int(error);
     publish_resident_keys<<<1, 1, 0, stream>>>(view.scan.state);
-    return int(cudaGetLastError());
+    error = cudaGetLastError();
+    if (!error) ++kernel_launches;
+    return int(error);
 }
 }

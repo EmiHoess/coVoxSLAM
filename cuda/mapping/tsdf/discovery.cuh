@@ -23,5 +23,6 @@ inline std::uint32_t discovery_hash_size(std::uint32_t capacity) noexcept
     return size;
 }
 int cuda_sensor_discover(field_view source, const std::uint8_t* observed,
-    detail::cuda_projective_pose transform, discovery_view view, void* stream);
+    detail::cuda_projective_pose transform, discovery_view view,
+    std::uint64_t& kernel_launches, void* stream);
 }

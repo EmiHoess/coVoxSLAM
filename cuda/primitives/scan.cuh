@@ -12,5 +12,6 @@ constexpr std::size_t scan_block_count(std::size_t count) noexcept
     return count / scan_block_threads + std::size_t(count % scan_block_threads != 0);
 }
 int cuda_scan_counts(const std::uint32_t* counts, std::uint64_t* offsets,
-                     std::uint64_t* block_sums, std::size_t count, void* stream) noexcept;
+    std::uint64_t* block_sums, std::size_t count, std::uint64_t& kernel_launches,
+    void* stream) noexcept;
 }

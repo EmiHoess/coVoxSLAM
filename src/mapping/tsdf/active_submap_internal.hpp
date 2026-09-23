@@ -38,7 +38,8 @@ struct gpu_map::implementation
     cudaEvent_t discovery_start{}, discovery_end{};
     bool selected{}, failed{};
     operation_result<transfer_times> integrate_resident(field_view source,
-        detail::cuda_projective_pose transform, interpolation mode);
+        detail::cuda_projective_pose transform, interpolation mode,
+        std::uint64_t kernel_launches);
     operation_result<tsdf_tiles> download_soa();
     operation_status check(int code)
     {

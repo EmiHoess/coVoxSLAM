@@ -4,17 +4,19 @@
 namespace covoxslam::sensor_grid
 {
 operation_result<transfer_times> gpu_map::implementation::integrate_resident(field_view source,
-    detail::cuda_projective_pose transform, interpolation mode)
+    detail::cuda_projective_pose transform, interpolation mode, std::uint64_t kernel_launches)
 {
     const auto start = std::chrono::steady_clock::now();
     transfer_times result;
+    result.kernel_launches = kernel_launches;
     discovery_state counters{};
     std::vector<detail::cuda_tile_coordinate> staging(capacity);
     auto status = check(cudaEventRecord(discovery_start, stream));
-    if (status) status = check(cuda_sensor_discover(source, mask, transform, discovery, stream));
+    if (status) status = check(cuda_sensor_discover(
+        source, mask, transform, discovery, result.kernel_launches, stream));
     if (status) status = check(cudaEventRecord(discovery_end, stream));
     if (status) status = check(cudaEventRecord(allocation_start, stream));
-    if (status) status = check(cuda_sensor_allocate_tiles(resident, stream));
+    if (status) status = check(cuda_sensor_allocate_tiles(resident, result.kernel_launches, stream));
     if (status) status = check(cudaEventRecord(allocation_end, stream));
     if (status) status = check(cudaMemsetAsync(updates, 0, sizeof(*updates), stream));
     if (status) status = check(cudaEventRecord(fusion_start, stream));
@@ -22,7 +24,8 @@ operation_result<transfer_times> gpu_map::implementation::integrate_resident(fie
         auto descriptor = soa->descriptor();
         if (!descriptor) status = std::unexpected(descriptor.error());
         else status = check(cuda_sensor_resident_soa(source, resident, *descriptor, transform,
-            settings.voxel_size, settings.maximum_weight, settings.voxel_size, updates, stream));
+            settings.voxel_size, settings.maximum_weight, settings.voxel_size, updates,
+            result.kernel_launches, stream));
     }
     if (status) status = check(cudaEventRecord(fusion_end, stream));
     if (status) status = check(cudaMemcpyAsync(
@@ -52,7 +55,6 @@ operation_result<transfer_times> gpu_map::implementation::integrate_resident(fie
         indices.push_back(coordinate);
     }
     result.candidate_voxels = std::uint64_t(counters.count) * tile_voxels;
-    result.kernel_launches = 330;
     result.resident_dispatch_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
     return result;
 }

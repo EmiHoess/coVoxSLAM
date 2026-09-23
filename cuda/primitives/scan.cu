@@ -39,7 +39,8 @@ __global__ void add_block_offsets(std::uint64_t* offsets, const std::uint64_t* s
 }
 
 int cuda_scan_counts(const std::uint32_t* counts, std::uint64_t* offsets,
-                     std::uint64_t* block_sums, std::size_t count, void* stream) noexcept
+    std::uint64_t* block_sums, std::size_t count, std::uint64_t& kernel_launches,
+    void* stream) noexcept
 {
     if (!count) return static_cast<int>(cudaSuccess);
     const auto blocks = static_cast<unsigned>(scan_block_count(count));
@@ -47,10 +48,14 @@ int cuda_scan_counts(const std::uint32_t* counts, std::uint64_t* offsets,
     scan_blocks<<<blocks, scan_block_threads, 0, cuda_stream>>>(counts, offsets, block_sums, count);
     auto error = cudaGetLastError();
     if (error != cudaSuccess) return static_cast<int>(error);
+    ++kernel_launches;
     scan_block_sums<<<1, 1, 0, cuda_stream>>>(block_sums, blocks);
     error = cudaGetLastError();
     if (error != cudaSuccess) return static_cast<int>(error);
+    ++kernel_launches;
     add_block_offsets<<<blocks, scan_block_threads, 0, cuda_stream>>>(offsets, block_sums, count);
-    return static_cast<int>(cudaGetLastError());
+    error = cudaGetLastError();
+    if (error == cudaSuccess) ++kernel_launches;
+    return static_cast<int>(error);
 }
 }
