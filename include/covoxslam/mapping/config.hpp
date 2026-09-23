@@ -17,6 +17,7 @@ enum class esdf_backend {
 const char* esdf_backend_name(esdf_backend value) noexcept;
 inline constexpr std::size_t default_mapping_device_bytes = 2U * bytes_per_gibibyte;
 inline constexpr std::size_t maximum_mapping_tiles = 1U << 20U;
+inline constexpr double maximum_mapping_extent_voxels = 10'000'000.0;
 
 struct mapping_config
 {

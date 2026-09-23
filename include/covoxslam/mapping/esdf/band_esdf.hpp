@@ -23,11 +23,14 @@ struct cuda_site_esdf_parameters
 
 namespace covoxslam::store
 {
+inline constexpr std::uint32_t default_band_esdf_maximum_rounds = 10'000;
+inline constexpr std::size_t default_band_esdf_scratch_bytes = 256U * bytes_per_mebibyte;
+
 struct band_esdf_options
 {
     detail::cuda_site_esdf_parameters field{};
-    std::uint32_t maximum_rounds{10000};
-     std::size_t scratch_bytes{256U * bytes_per_mebibyte};
+    std::uint32_t maximum_rounds{default_band_esdf_maximum_rounds};
+     std::size_t scratch_bytes{default_band_esdf_scratch_bytes};
 
     bool valid() const noexcept
     {
@@ -41,7 +44,7 @@ struct band_esdf_options
             std::isfinite(p.maximum_distance_m) && p.maximum_distance_m > 0 &&
             std::uint32_t(p.unobserved) <= 2 &&
             (!p.include_negative_truncation_band || p.site_band_m <= p.truncation_distance) &&
-            std::isfinite(extent) && extent < 10000000 &&
+            std::isfinite(extent) && extent < maximum_mapping_extent_voxels &&
             float(extent * extent) > 0;
     }
 };

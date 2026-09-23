@@ -16,9 +16,9 @@ bool mapping_config::valid() const noexcept
     return maximum_tiles > 0 && minimum_ray_length_m <= maximum_ray_length_m &&
         extraction_distance <= truncation_distance &&
         esdf_site_band_m <= truncation_distance && esdf_site_band_m <= esdf_maximum_distance_m &&
-        double(esdf_maximum_distance_m) / voxel_size < 10000000 &&
+        double(esdf_maximum_distance_m) / voxel_size < maximum_mapping_extent_voxels &&
         double(maximum_ray_length_m) + truncation_distance <= std::numeric_limits<float>::max() &&
-        (double(maximum_ray_length_m) + truncation_distance) / voxel_size < 10000000;
+        (double(maximum_ray_length_m) + truncation_distance) / voxel_size < maximum_mapping_extent_voxels;
 }
 
 }
