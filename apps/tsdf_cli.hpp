@@ -2,17 +2,13 @@
 #include <covoxslam/core/result.hpp>
 #include <covoxslam/mapping/tsdf/active_submap.hpp>
 #include <covoxslam/mapping/tsdf/detail/sampling.hpp>
-#include "cli_lookup.hpp"
+#include "mapping_cli.hpp"
 #include "sensor_gather_cli.hpp"
 
 #include <string_view>
 
 namespace covoxslam
 {
-enum class sensor_backend_choice { unknown, combined };
-inline constexpr cli_option_entry<sensor_backend_choice> sensor_backend_choices[]{
-    {"cuda-sensor-grid-combined", sensor_backend_choice::combined}
-};
 enum class sensor_mapping_option { unknown, backend, interpolation, gather, threshold, block_threshold, execution, source_mask, transfer_precision, transfer_kernel, candidates, candidate_capacity, discovery };
 inline constexpr cli_option_entry<sensor_mapping_option> sensor_mapping_options[]{
     {"--backend", sensor_mapping_option::backend}, {"--sensor-grid-interpolation", sensor_mapping_option::interpolation},
@@ -57,8 +53,8 @@ inline operation_result<bool> parse_sensor_mapping_option(std::string_view key, 
 {
     switch (lookup_cli_option(key, sensor_mapping_options)) {
     case sensor_mapping_option::backend:
-        switch (lookup_cli_option(value, sensor_backend_choices)) {
-        case sensor_backend_choice::combined:
+        switch (lookup_cli_option(value, mapping_backend_choices)) {
+        case mapping_backend_choice::combined:
             sensor_selected = mapping_enabled = true;
             gather.backend = sensor_grid::gather_backend::hybrid_combined;
             return true;

@@ -22,6 +22,10 @@ inline constexpr cli_option_entry<store_value> store_values[]{
     {"copied", store_value::copied}, {"borrowed", store_value::borrowed}, {"resident", store_value::resident},
     {"resident-soa", store_value::resident_soa}
 };
+enum class store_boolean_value { unknown, false_value, true_value };
+inline constexpr cli_option_entry<store_boolean_value> store_boolean_values[]{
+    {"false", store_boolean_value::false_value}, {"true", store_boolean_value::true_value}
+};
 struct store_selector_requirement
 {
     unsigned mask{};
@@ -30,8 +34,10 @@ struct store_selector_requirement
 inline store_selector_requirement required_store_selector(std::string_view key) noexcept
 {
     switch (lookup_cli_option(key, store_options)) {
-    case store_option::mapping: return {1, "resident-soa"};
-    case store_option::layout: return {2, "soa"};
+    case store_option::mapping:
+        return {1, cli_option_name(store_value::resident_soa, store_values, "invalid")};
+    case store_option::layout:
+        return {2, cli_option_name(store_value::soa, store_values, "invalid")};
     default: return {};
     }
 }
@@ -39,9 +45,12 @@ inline operation_result<bool> parse_store_option(std::string_view key, std::stri
 {
     switch (lookup_cli_option(key, store_options)) {
     case store_option::negative_band:
-        if (value != "true" && value != "false")
+        switch (lookup_cli_option(value, store_boolean_values)) {
+        case store_boolean_value::false_value: result.negative_band = false; break;
+        case store_boolean_value::true_value: result.negative_band = true; break;
+        default:
             return std::unexpected(operation_error{"store negative band must be true or false"});
-        result.negative_band = value == "true";
+        }
         return true;
     case store_option::mapping:
         switch (lookup_cli_option(value, store_values)) {

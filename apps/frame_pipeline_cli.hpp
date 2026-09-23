@@ -16,6 +16,7 @@
 #include <charconv>
 #include <iomanip>
 #include <iostream>
+#include <string>
 #include <string_view>
 
 namespace covoxslam
@@ -37,6 +38,14 @@ enum class trajectory_option { unknown, odometry, ground_truth };
 inline constexpr cli_option_entry<trajectory_option> trajectory_options[]{
     {"odometry", trajectory_option::odometry}, {"ground_truth", trajectory_option::ground_truth}
 };
+enum class pipeline_preset_value { unknown, combined_nearest };
+inline constexpr cli_option_entry<pipeline_preset_value> pipeline_preset_values[]{
+    {"combined-nearest", pipeline_preset_value::combined_nearest}
+};
+inline constexpr std::string_view combined_nearest_preset_name = cli_option_name(
+    pipeline_preset_value::combined_nearest, pipeline_preset_values, "invalid");
+static_assert(lookup_cli_option(combined_nearest_preset_name, pipeline_preset_values) ==
+    pipeline_preset_value::combined_nearest);
 
 inline int run_submap_cli(int argc, char** argv)
 {
@@ -77,7 +86,7 @@ inline int run_submap_cli(int argc, char** argv)
             auto required = required_store_selector(argv[index]);
 
             if (lookup_cli_option(argv[index], covoxslam::mapping_options) == mapping_option::esdf_generator) {
-                required = {4, "cuda-block-band-soa"};
+                required = {4, cli_option_name(esdf_value::block_band_soa, esdf_values, "invalid")};
             }
             if (required.mask)
             {
@@ -88,8 +97,10 @@ inline int run_submap_cli(int argc, char** argv)
             }
             if (lookup_cli_option(argv[index], submap_cli_options) != submap_cli_option::preset) continue;
 
-            if (preset_specified || std::string_view(argv[index + 1]) != "combined-nearest")
-                return report_error("expected one combined-nearest preset");
+            if (preset_specified || lookup_cli_option(argv[index + 1], pipeline_preset_values) !=
+                pipeline_preset_value::combined_nearest)
+                return report_error(std::string("expected one ") +
+                    std::string(combined_nearest_preset_name) + " preset");
             preset_specified = true;
         }
         for (int index = 2; index < argc; index += 2)
@@ -176,7 +187,8 @@ inline int run_submap_cli(int argc, char** argv)
          if (root.empty()) return report_error("--submaps requires --dataset directory");
         if (!sensor_selected || !sensor_grid::matches_combined_nearest({mapping_options, sensor_gather,
                 sensor_transfer, sensor_mode, options.ring_stride, options.column_stride}))
-            return report_error("explicit options conflict with combined-nearest preset");
+            return report_error(std::string("explicit options conflict with ") +
+                std::string(combined_nearest_preset_name) + " preset");
         if (!options.submap_duration_ns || !options.ring_stride || !options.column_stride)
             return report_error("duration and sampling strides must be positive");
         pgo_settings.solver.device = cuda_options.device;

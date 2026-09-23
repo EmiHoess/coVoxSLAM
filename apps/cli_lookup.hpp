@@ -23,6 +23,16 @@ constexpr option_type lookup_cli_option(std::string_view name,
 }
 
 template<class option_type, std::size_t count>
+constexpr std::string_view cli_option_name(option_type id,
+    const cli_option_entry<option_type> (&entries)[count], std::string_view fallback) noexcept
+{
+    for (const auto& entry : entries) {
+        if (entry.id == id) return entry.name;
+    }
+    return fallback;
+}
+
+template<class option_type, std::size_t count>
 constexpr bool valid_cli_options(const cli_option_entry<option_type> (&entries)[count]) noexcept
 {
     for (std::size_t index = 0; index < count; ++index)

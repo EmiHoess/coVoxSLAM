@@ -26,6 +26,11 @@ inline constexpr cli_option_entry<mapping_option> mapping_options[]{
     {"--maximum-ray-length", mapping_option::maximum_ray_length}, {"--maximum-weight", mapping_option::maximum_weight}
 };
 
+enum class mapping_backend_choice { unknown, combined };
+inline constexpr cli_option_entry<mapping_backend_choice> mapping_backend_choices[]{
+    {"cuda-sensor-grid-combined", mapping_backend_choice::combined}
+};
+
 enum class esdf_value { unknown, block_band_soa };
 inline constexpr cli_option_entry<esdf_value> esdf_values[]{
     {"cuda-block-band-soa", esdf_value::block_band_soa}
@@ -80,8 +85,7 @@ inline operation_result<bool> parse_mapping_option(std::string_view name, std::s
     switch (lookup_cli_option(name, mapping_options))
     {
     case mapping_option::backend:
-
-        if (value != "cuda-sensor-grid-combined")
+        if (lookup_cli_option(value, mapping_backend_choices) != mapping_backend_choice::combined)
             return std::unexpected(operation_error{"mapping backend is not applicable to coVoxSLAM"});
         enabled = true;
         return true;
