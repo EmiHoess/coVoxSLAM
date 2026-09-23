@@ -56,7 +56,7 @@ if(covoxslam_enable_cuda)
     set_target_properties(covoxslam_core PROPERTIES CUDA_STANDARD 20
         CUDA_STANDARD_REQUIRED ON CUDA_EXTENSIONS OFF CUDA_RUNTIME_LIBRARY Shared)
     file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/covoxslam_build_metadata.txt"
-        CONTENT "cmake=${CMAKE_VERSION}\nhost=${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}\ncuda=${CMAKE_CUDA_COMPILER_VERSION}\narchitecture=${CMAKE_CUDA_ARCHITECTURES}\nhost_standard=23\ncuda_standard=20\n")
+        CONTENT "cmake=${CMAKE_VERSION}\nhost=${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}\ncuda=${CMAKE_CUDA_COMPILER_VERSION}\narchitecture=${CMAKE_CUDA_ARCHITECTURES}\nhost_standard=$<TARGET_PROPERTY:covoxslam_core,CXX_STANDARD>\ncuda_standard=$<TARGET_PROPERTY:covoxslam_core,CUDA_STANDARD>\n")
 else()
     target_sources(covoxslam_core PRIVATE src/core/cuda_device_stub.cpp)
     target_sources(covoxslam_core PRIVATE src/sensor/dense_field_stub.cpp)
