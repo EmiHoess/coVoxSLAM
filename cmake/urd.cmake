@@ -4,6 +4,10 @@ if(covoxslam_enable_urd)
     cmake_path(ABSOLUTE_PATH covoxslam_urd_path BASE_DIRECTORY "${PROJECT_SOURCE_DIR}"
         NORMALIZE OUTPUT_VARIABLE covoxslam_urd_source)
     set(covoxslam_urd_include "${covoxslam_urd_source}/src/urd/include")
+    if(NOT EXISTS "${covoxslam_urd_include}/urd/types/struct_container.hpp" OR
+        NOT EXISTS "${covoxslam_urd_include}/urd/types/struct_container/soa_offset.hpp")
+        message(FATAL_ERROR "The selected URD revision does not provide the required struct_container headers")
+    endif()
     file(GLOB_RECURSE covoxslam_urd_headers CONFIGURE_DEPENDS RELATIVE "${covoxslam_urd_include}"
         "${covoxslam_urd_include}/*.hpp" "${covoxslam_urd_include}/*.h")
     list(SORT covoxslam_urd_headers)

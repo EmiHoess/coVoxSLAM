@@ -923,8 +923,8 @@ public:
                     return std::unexpected(operation_error{"resident snapshot requires current GPU fields"});
                 auto bytes = gpu_.retained_field(field);
                 if (!bytes) return std::unexpected(bytes.error());
-                if (bytes->bytes > budget) return std::unexpected(operation_error{"resident snapshot budget exceeded"});
-                budget -= bytes->bytes;
+                if (bytes->memory->bytes().device > budget) return std::unexpected(operation_error{"resident snapshot budget exceeded"});
+                budget -= bytes->memory->bytes().device;
                 return {};
             };
             valid = admit(selected.tsdf);
