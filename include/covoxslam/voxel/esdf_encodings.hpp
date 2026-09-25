@@ -17,7 +17,7 @@ struct projective_esdf_value
 {
     float squared_distance_voxels{};
     std::int32_t parent_x{}, parent_y{}, parent_z{};
-     std::uint32_t flags{};
+    std::uint32_t flags{};
 };
 
 static_assert(std::is_aggregate_v<blocks_esdf_value>);
@@ -45,12 +45,12 @@ static_assert(offsetof(projective_esdf_value, flags) == 16);
 
 namespace covoxslam::detail
 {
-struct cuda_site_esdf_voxel {
+struct cuda_site_esdf_voxel 
+{
     float squared_distance_voxels{};
     std::int32_t parent[3]{};
-     std::uint32_t flags{};
-}
-;
+   std::uint32_t flags{};
+};
 
 inline constexpr std::uint32_t cuda_esdf_observed = 1;
 inline constexpr std::uint32_t cuda_esdf_inside = 2;
@@ -76,4 +76,5 @@ static_assert((cuda_esdf_observed & cuda_esdf_parent_assigned) == 0);
 static_assert((cuda_esdf_inside & cuda_esdf_site) == 0);
 static_assert((cuda_esdf_inside & cuda_esdf_parent_assigned) == 0);
 static_assert((cuda_esdf_site & cuda_esdf_parent_assigned) == 0);
+
 }

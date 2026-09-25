@@ -21,17 +21,24 @@ namespace covoxslam::storage
 {
 inline constexpr std::size_t default_packing_batch_records = 32;
 inline constexpr std::size_t maximum_packing_batch_records = 4096;
-struct packing_options { std::size_t batch_records{default_packing_batch_records}; };
+
+struct packing_options
+{ 
+    std::size_t batch_records{default_packing_batch_records}; 
+};
+
 template<std::size_t count> constexpr packing_options fixed_packing()
 {
     return {count};
 }
+
 inline operation_status validate_packing(const packing_options& options)
 {
     if (!options.batch_records || options.batch_records > maximum_packing_batch_records)
         return std::unexpected(operation_error{"packing batch must be between 1 and 4096 records"});
     return {};
 }
+
 template<schema s, class accessor>
 auto source_field_segments(const map_view<s, accessor>& source, std::size_t first)
     requires requires { source.native_accessor().template field_segment<0>(first); }
@@ -41,6 +48,7 @@ auto source_field_segments(const map_view<s, accessor>& source, std::size_t firs
             source.native_accessor().template field_segment<field>(first))...};
     }(std::make_index_sequence<field_count<s>>{});
 }
+
 template<schema s, class accessor>
 auto destination_field_segments(const map_view<s, accessor>& destination, std::size_t first)
     requires (!accessor::read_only && requires { destination.native_accessor().template field_segment<0>(first); })
@@ -49,10 +57,12 @@ auto destination_field_segments(const map_view<s, accessor>& destination, std::s
         return std::tuple{destination.native_accessor().template field_segment<field>(first)...};
     }(std::make_index_sequence<field_count<s>>{});
 }
+
 template<class... segment_type> std::size_t common_segment_size(const std::tuple<segment_type...>& segments)
 {
     return std::apply([](const auto&... segment) { return std::min({segment.size()...}); }, segments);
 }
+
 template<schema s, class accessor> operation_status pack_records(const map_view<s, accessor>& source,
     std::size_t first, std::size_t count, std::span<value<s>> destination, const packing_options& options = {})
 {
@@ -284,6 +294,7 @@ operation_status update_field(const map_view<s, accessor>& destination, voxel_ra
     return {};
 }
 enum class transfer_method { fieldwise_reference, bulk_same_layout };
+
 struct transfer_endpoint
 {
     std::byte* fields[maximum_schema_fields]{};
@@ -292,17 +303,21 @@ struct transfer_endpoint
     layout storage_layout{layout::pool_soa};
     int device{-1};
 };
-struct transfer_region {
+
+struct transfer_region 
+{
     const void* source{};
     void* destination{};
     std::size_t source_pitch{}, destination_pitch{}, width{}, height{};
 };
+
 struct transfer_plan
 {
     std::vector<transfer_region> regions;
     std::size_t useful_bytes{};
     bool fallback{};
 };
+
 inline transfer_endpoint transfer_storage(const device_descriptor& source)
 {
     transfer_endpoint result;
@@ -315,7 +330,9 @@ inline transfer_endpoint transfer_storage(const device_descriptor& source)
     result.device = source.device;
     return result;
 }
-template<schema s, layout l> transfer_endpoint transfer_storage(const host_buffer<s, l>& source)
+
+template<schema s, layout l> 
+transfer_endpoint transfer_storage(const host_buffer<s, l>& source)
 {
     transfer_endpoint result;
     result.tiles = source.size();
@@ -329,6 +346,7 @@ template<schema s, layout l> transfer_endpoint transfer_storage(const host_buffe
     }(std::make_index_sequence<field_count<s>>{});
     return result;
 }
+
 inline operation_status validate_endpoint(const transfer_endpoint& value)
 {
     constexpr auto maximum = std::size_t(std::numeric_limits<std::ptrdiff_t>::max());
@@ -361,11 +379,13 @@ inline operation_status validate_endpoint(const transfer_endpoint& value)
     }
     return {};
 }
+
 inline std::byte* transfer_address(const transfer_endpoint& value, std::size_t field, std::size_t voxel)
 {
     return reinterpret_cast<std::byte*>(reinterpret_cast<std::uintptr_t>(value.fields[field]) +
         voxel / tile_voxels * value.tile_stride + voxel % tile_voxels * value.voxel_stride);
 }
+
 inline operation_status append_transfer(transfer_plan& plan, transfer_region region, std::size_t maximum_pitch)
 {
     constexpr auto maximum = std::size_t(std::numeric_limits<std::ptrdiff_t>::max());
@@ -386,14 +406,23 @@ inline operation_status append_transfer(transfer_plan& plan, transfer_region reg
     plan.regions.push_back(region);
     return {};
 }
-inline operation_result<transfer_plan> plan_transfer(const transfer_endpoint& source, std::size_t source_first,
-    const transfer_endpoint& destination, std::size_t destination_first, std::size_t count,
-    std::uint32_t fields, transfer_method method, std::size_t maximum_pitch)
+
+inline operation_result<transfer_plan> plan_transfer(   const transfer_endpoint& source, 
+                                                        std::size_t source_first,
+                                                        const transfer_endpoint& destination, 
+                                                        std::size_t destination_first, 
+                                                        std::size_t count,
+                                                        std::uint32_t fields, 
+                                                        transfer_method method, 
+                                                        std::size_t maximum_pitch
+                                                    )
 {
     auto checked = validate_endpoint(source);
     if (!checked) return std::unexpected(checked.error());
+
     checked = validate_endpoint(destination);
     if (!checked) return std::unexpected(checked.error());
+    
     const auto field_count = schema_field_count(source.record_schema);
     if (source.record_schema != destination.record_schema || fields >> field_count ||
         source_first > source.tiles * tile_voxels || count > source.tiles * tile_voxels - source_first ||
@@ -401,14 +430,18 @@ inline operation_result<transfer_plan> plan_transfer(const transfer_endpoint& so
         (source.device >= 0 && destination.device >= 0 && source.device != destination.device) ||
         (method != transfer_method::fieldwise_reference && method != transfer_method::bulk_same_layout))
         return std::unexpected(operation_error{"incompatible transfer ranges"});
-    transfer_plan result;
+    
+        transfer_plan result;
     if (!count || !fields) return result;
+    
     bool identical = source.device == destination.device && source_first == destination_first &&
         source.tile_stride == destination.tile_stride && source.voxel_stride == destination.voxel_stride;
 
     for (std::size_t f = 0; f < field_count; ++f)
         if (fields & (1U << f)) identical = identical && source.fields[f] == destination.fields[f];
-    if (identical) return result;
+    
+        if (identical) return result;
+    
     if (source.device == destination.device) {
         for (std::size_t a = 0; a < field_count; ++a)
             for (std::size_t b = 0; b < field_count; ++b) {
@@ -426,8 +459,11 @@ inline operation_result<transfer_plan> plan_transfer(const transfer_endpoint& so
     const bool matching = source.storage_layout == destination.storage_layout;
     const bool bulk = method == transfer_method::bulk_same_layout && matching;
     result.fallback = method == transfer_method::bulk_same_layout && !matching;
+    
     std::size_t copied{};
-    while (copied < count) {
+    
+    while (copied < count) 
+    {
         const auto a = source_first + copied, b = destination_first + copied;
         if (bulk && source.storage_layout == layout::pool_soa &&
             source.tile_stride == pool_soa_tile_stride_bytes &&
@@ -467,31 +503,49 @@ inline operation_result<transfer_plan> plan_transfer(const transfer_endpoint& so
     }
     return result;
 }
+
 #if defined(covoxslam_has_cuda)
+
 struct transfer_measurement
 {
     std::size_t calls{}, useful_bytes{}, waits{};
     double planning_ms{}, submission_ms{}, completion_ms{};
     bool fallback{};
 };
-inline operation_result<transfer_plan> plan_cuda_transfer(const transfer_endpoint& source, std::size_t source_first,
-    const transfer_endpoint& destination, std::size_t destination_first, std::size_t count, std::uint32_t fields,
-    transfer_method method, transfer_measurement& measurement)
+
+inline operation_result<transfer_plan> plan_cuda_transfer(
+                                                            const transfer_endpoint& source, 
+                                                            std::size_t source_first, 
+                                                            const transfer_endpoint& destination, 
+                                                            std::size_t destination_first, 
+                                                            std::size_t count, 
+                                                            std::uint32_t fields, 
+                                                            transfer_method method, 
+                                                            transfer_measurement& measurement
+                                                        )
 {
     const auto start = std::chrono::steady_clock::now();
     int device{-1}, pitch{};
     auto status = cudaGetDevice(&device);
+
     if (status == cudaSuccess) status = cudaDeviceGetAttribute(&pitch, cudaDevAttrMaxPitch, device);
     if (status != cudaSuccess) return std::unexpected(operation_error{cudaGetErrorString(status)});
+    
     if ((source.device >= 0 && source.device != device) || (destination.device >= 0 && destination.device != device))
         return std::unexpected(operation_error{"transfer requires the allocation device"});
     auto result = plan_transfer(source, source_first, destination, destination_first, count, fields, method, std::size_t(pitch));
+    
     measurement.planning_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
     if (result) { measurement.useful_bytes = result->useful_bytes; measurement.fallback = result->fallback; }
+    
     return result;
 }
-inline operation_status execute_cuda_transfer(const transfer_plan& plan, cudaMemcpyKind kind, cudaStream_t stream,
-    transfer_measurement& measurement)
+inline operation_status execute_cuda_transfer(
+                                                const transfer_plan& plan, 
+                                                cudaMemcpyKind kind, 
+                                                cudaStream_t stream, 
+                                                transfer_measurement& measurement
+                                            )
 {
     const auto start = std::chrono::steady_clock::now();
     cudaError_t submitted = cudaSuccess;
@@ -504,13 +558,17 @@ inline operation_status execute_cuda_transfer(const transfer_plan& plan, cudaMem
                 region.width, region.height, kind, stream);
         if (submitted != cudaSuccess) break;
     }
+
     const auto boundary = std::chrono::steady_clock::now();
     measurement.submission_ms = std::chrono::duration<double, std::milli>(boundary - start).count();
     const auto completed = cudaStreamSynchronize(stream);
     ++measurement.waits;
+    
     measurement.completion_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - boundary).count();
+    
     if (submitted != cudaSuccess) return std::unexpected(operation_error{cudaGetErrorString(submitted)});
     if (completed != cudaSuccess) return std::unexpected(operation_error{cudaGetErrorString(completed)});
+    
     return {};
 }
 struct completion_state
@@ -525,9 +583,12 @@ struct completion_state
         int previous{-1};
         const auto queried = cudaGetDevice(&previous);
         if (device < 0) { if (stream) cudaStreamSynchronize(stream); return; }
+
         if (cudaSetDevice(device) != cudaSuccess) return;
+        
         if (recorded) cudaEventSynchronize(event);
         else if (stream) cudaStreamSynchronize(stream);
+        
         if (event) cudaEventDestroy(event);
         if (queried == cudaSuccess && previous != device) cudaSetDevice(previous);
     }
@@ -536,6 +597,7 @@ class completion_ticket
 {
     std::shared_ptr<completion_state> state_;
     explicit completion_ticket(std::shared_ptr<completion_state> state) : state_(std::move(state)) {}
+    
 public:
     completion_ticket() = default;
     completion_ticket(const completion_ticket&) = delete;

@@ -152,6 +152,7 @@ operation_status device_buffer<s, l>::initialize(std::size_t count)
     descriptor.tile_stride = traits::tile_stride;
     descriptor.voxel_stride = traits::voxel_stride;
     descriptor.generation = 1;
+
     for (std::size_t i = 0; i < arrays && count != 0; ++i) {
         checked = cuda_storage_status(cudaMalloc(reinterpret_cast<void**>(&replacement->allocations[i]), count * traits::tile_stride));
         if (!checked) return checked;
@@ -163,10 +164,13 @@ operation_status device_buffer<s, l>::initialize(std::size_t count)
     }
     checked = cuda_storage_status(static_cast<cudaError_t>(initialize_device_fields(descriptor, replacement->stream)));
     if (!checked) return checked;
+    
     checked = cuda_storage_status(cudaStreamSynchronize(replacement->stream));
     if (!checked) return checked;
+
     replacement->ready = true;
     state_ = std::move(replacement);
+
     return {};
 }
 template<schema s, layout l> operation_result<device_map_view<s>> device_buffer<s, l>::view()

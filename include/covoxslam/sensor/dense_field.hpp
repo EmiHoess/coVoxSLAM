@@ -13,12 +13,19 @@
 
 namespace covoxslam::sensor_grid
 {
-struct update_times { float upload_ms{}, gather_ms{}, prepare_ms{}, bin_ms[4]{}; double graph_setup_ms{}; bool graph_reused{}; };
+struct update_times
+{   
+    float upload_ms{}, gather_ms{}, prepare_ms{}, bin_ms[4]{}; 
+    double graph_setup_ms{}; 
+    bool graph_reused{}; 
+};
+
 struct execution_statistics
 {
     std::uint64_t graph_builds{}, graph_hits{}, invalidations{};
     double setup_ms{}, invalidation_ms{};
 };
+
 struct gather_statistics { std::uint32_t short_rows{}, warp_rows{}, block_rows{}, logical_entries{}, stored_entries{}; };
 static_assert(std::is_aggregate_v<update_times>);
 static_assert(std::is_standard_layout_v<update_times>);
@@ -52,6 +59,8 @@ static_assert(offsetof(gather_statistics, warp_rows) == 4);
 static_assert(offsetof(gather_statistics, block_rows) == 8);
 static_assert(offsetof(gather_statistics, logical_entries) == 12);
 static_assert(offsetof(gather_statistics, stored_entries) == 16);
+
+
 class gpu_grid
 {
     struct implementation;
@@ -72,6 +81,7 @@ public:
     operation_result<update_times> update(std::span<const float> ranges, gather_policy policy = {});
     operation_result<std::vector<voxel>> download();
 };
+
 static_assert(sizeof(gpu_grid) == sizeof(void*));
 static_assert(alignof(gpu_grid) == alignof(void*));
 static_assert(!std::is_copy_constructible_v<gpu_grid>);

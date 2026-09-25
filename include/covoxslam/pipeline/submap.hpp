@@ -17,7 +17,7 @@ struct submap_frame
     std::size_t id{};
     std::uint64_t start_stamp_ns{};
     std::uint64_t end_stamp_ns{};
-     pose4 anchor{};
+    pose4 anchor{};
     pose initial_pose{};
     std::vector<int> frame_ids;
     input_timing timing;
@@ -28,7 +28,7 @@ struct mapping_statistics {
     std::uint64_t rays_integrated{};
     std::uint64_t rays_rejected{};
     std::uint64_t voxel_updates{};
-     std::uint64_t allocated_tiles{};
+    std::uint64_t allocated_tiles{};
     double integration_ms{};
     double esdf_ms{};
     std::uint64_t cuda_uploaded_bytes{};
@@ -50,7 +50,7 @@ struct submap
     submap_frame frame;
     pose4 optimized_world_pose{};
     tsdf_tiles tsdf;
-     esdf_tiles esdf;
+    esdf_tiles esdf;
     mapping_config config;
     mapping_statistics statistics;
 };

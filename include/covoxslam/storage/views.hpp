@@ -25,12 +25,27 @@ namespace covoxslam::storage
 template<schema s, class t> auto scalar_fields(t& record) noexcept
 {
     if constexpr (s == schema::tsdf)
-        return std::tie(record.distance, record.weight, record.sample_count, record.flags);
+        return std::tie(record.distance, 
+                        record.weight, 
+                        record.sample_count, 
+                        record.flags);
     else if constexpr (s == schema::esdf)
-        return std::tie(record.signed_distance_m, record.parent_dx, record.parent_dy, record.parent_dz, record.flags);
+        return std::tie(record.signed_distance_m, 
+                        record.parent_dx, 
+                        record.parent_dy, 
+                        record.parent_dz, 
+                        record.flags);
     else if constexpr (s == schema::blocks_esdf)
-        return std::tie(record.distance_m, record.parent_dx, record.parent_dy, record.parent_dz, record.flags);
-    else return std::tie(record.squared_distance_voxels, record.parent_x, record.parent_y, record.parent_z, record.flags);
+        return std::tie(record.distance_m, 
+                        record.parent_dx, 
+                        record.parent_dy, 
+                        record.parent_dz, 
+                        record.flags);
+    else return std::tie(record.squared_distance_voxels, 
+                        record.parent_x, 
+                        record.parent_y, 
+                        record.parent_z, 
+                        record.flags);
 }
 template<bool read_only, class t> using scalar_reference = std::conditional_t<read_only, const t&, t&>;
 template<schema s, bool read_only> struct voxel_reference;
@@ -198,6 +213,7 @@ public:
     }
 #endif
 };
+
 struct device_descriptor
 {
     std::byte* fields[maximum_schema_fields]{};
@@ -235,13 +251,17 @@ template<schema s, bool constant = false> struct device_accessor
     }
 #endif
 };
+
 template<schema s, bool constant = false> using device_map_view = device_collection<s, device_accessor<s, constant>>;
 int initialize_device_fields(device_descriptor descriptor, void* stream) noexcept;
+
 #if !defined(__CUDACC__)
+
 template<schema s, class accessor>
 operation_result<tile_view<s, accessor>> checked_at(const map_view<s, accessor>& view, std::size_t tile)
 {
     if (!view.valid()) return std::unexpected(operation_error{"storage view is stale"});
+    
     if (tile >= view.size()) return std::unexpected(operation_error{"tile index is outside collection"});
     return view[tile];
 }
@@ -252,6 +272,7 @@ operation_result<voxel_reference<s, accessor::read_only>> checked_at(
     auto selected = checked_at(view, tile);
 
     if (!selected) return std::unexpected(selected.error());
+    
     if (voxel >= tile_voxels) return std::unexpected(operation_error{"voxel index is outside tile"});
     return selected->voxels[voxel];
 }
@@ -263,12 +284,15 @@ template<class t> void copy_scalar_bits(t& destination, const t& source) noexcep
 template<schema s, class accessor> operation_status validate_range(const map_view<s, accessor>& source, voxel_range range)
 {
     if (!source.valid()) return std::unexpected(operation_error{"range source view is stale"});
+
     if (source.size() > std::numeric_limits<std::size_t>::max() / tile_voxels)
         return std::unexpected(operation_error{"range extent overflows"});
-    const auto extent = source.size() * tile_voxels;
+    
+        const auto extent = source.size() * tile_voxels;
     if (range.first > extent || range.count > extent - range.first)
         return std::unexpected(operation_error{"voxel range exceeds collection"});
-    return {};
+    
+        return {};
 }
 inline std::size_t tile_segment_size(std::size_t first, std::size_t remaining) noexcept
 {

@@ -19,7 +19,7 @@ struct lookup
     config settings{};
     geometry grid{};
     std::uint32_t ray_count{}, selected_rays{}, reduction_factor{1};
-     std::vector<std::uint32_t> offsets, active_voxels;
+    std::vector<std::uint32_t> offsets, active_voxels;
     std::vector<intersection> intersections;
 };
 operation_result<geometry> make_geometry(const config& settings);
@@ -27,7 +27,7 @@ inline constexpr std::uint64_t default_lookup_host_bytes = 512U * bytes_per_mebi
 struct lookup_limits
 {
     std::uint32_t maximum_voxels{maximum_lookup_voxels}, maximum_rays{maximum_sensor_rays};
-     std::uint32_t maximum_intersections{maximum_prepared_intersections};
+    std::uint32_t maximum_intersections{maximum_prepared_intersections};
     std::uint64_t maximum_host_bytes{default_lookup_host_bytes};
 };
 static_assert(std::is_aggregate_v<lookup>);

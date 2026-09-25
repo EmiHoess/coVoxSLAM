@@ -8,6 +8,10 @@ namespace covoxslam::sensor_grid
 enum class gather_backend : std::uint32_t { csr, warp_soa_prepared, thread_interleaved_prepared, warp_soa_hybrid_prepared,
     warp_soa_subwarp_prepared, hybrid_short_interleaved, hybrid_aligned, hybrid_ray16, hybrid_compact,
     hybrid_pipelined, hybrid_block_long, hybrid_combined, hybrid_combined_uncapped };
+
+
+
+
 constexpr bool combined_gather(gather_backend backend) noexcept
 {
     return backend == gather_backend::hybrid_combined;
@@ -47,6 +51,7 @@ struct layout_view
     std::uint32_t short_stride{1};
     std::uint32_t block_rows{};
 };
+
 static_assert(std::is_same_v<std::underlying_type_t<gather_backend>, std::uint32_t>);
 static_assert(static_cast<std::uint32_t>(gather_backend::csr) == 0);
 static_assert(static_cast<std::uint32_t>(gather_backend::warp_soa_prepared) == 1);

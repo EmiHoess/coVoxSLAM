@@ -14,14 +14,14 @@ struct tsdf_record
     std::uint32_t flags{};
 };
 
-struct esdf_record {
+struct esdf_record 
+{
     float signed_distance_m{};
     std::int32_t parent_dx{};
     std::int32_t parent_dy{};
     std::int32_t parent_dz{};
-     std::uint32_t flags{};
-}
-;
+    std::uint32_t flags{};
+};
 
 using tsdf_voxel = tsdf_record;
 using esdf_voxel = esdf_record;
@@ -47,4 +47,5 @@ static_assert(offsetof(esdf_record, parent_dx) == 4);
 static_assert(offsetof(esdf_record, parent_dy) == 8);
 static_assert(offsetof(esdf_record, parent_dz) == 12);
 static_assert(offsetof(esdf_record, flags) == 16);
+
 }
