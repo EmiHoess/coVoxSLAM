@@ -18,10 +18,12 @@ struct mapping_preset
     interpolation sampling{interpolation::nearest};
     std::size_t ring_stride{1}, column_stride{1};
 };
+
 config sensor_config_from_mapping(const mapping_config& mapping) noexcept;
 mapping_preset combined_nearest_preset(const mapping_config& mapping) noexcept;
 operation_result<mapping_preset> combined_nearest_preset();
 bool matches_combined_nearest(const mapping_preset& options) noexcept;
+
 struct combined_times
 {
     update_times gather{};
@@ -29,6 +31,7 @@ struct combined_times
     double integration_ms{}, readback_ms{};
     std::uint64_t completed_scans{}, kernel_launches{};
 };
+
 class combined_map
 {
     std::unique_ptr<gpu_grid> grid;
@@ -43,13 +46,19 @@ public:
         bool resident_soa = true);
     operation_result<combined_times> integrate(std::span<const float> ranges, pose local_from_sensor,
         interpolation mode = interpolation::nearest, gather_policy policy = {});
+
     operation_result<tsdf_tiles> download();
     operation_result<std::size_t> retain(
         store::coordinated_store<storage::layout::pool_soa, storage::schema::esdf>& destination,
         std::uint64_t id, pose4 anchor);
+
     operation_status reset();
     combined_times statistics() const noexcept { return totals; }
-    execution_statistics graph_statistics() const noexcept { return grid->execution_statistics_value(); }
+    execution_statistics graph_statistics() const noexcept 
+    { 
+        return grid->execution_statistics_value(); 
+    }
+
     combined_map(const combined_map&) = delete;
     combined_map& operator=(const combined_map&) = delete;
 };

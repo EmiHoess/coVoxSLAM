@@ -13,7 +13,7 @@ struct cuda_site_esdf_parameters
 {
     float voxel_size{0.20F};
     float truncation_distance{0.60F};
-     float site_band_m{0.20F};
+    float site_band_m{0.20F};
     float minimum_weight{1.0F};
     float maximum_distance_m{8.0F};
     cuda_esdf_unobserved unobserved{cuda_esdf_unobserved::unknown};
@@ -48,6 +48,7 @@ struct band_esdf_options
             float(extent * extent) > 0;
     }
 };
+
 inline band_esdf_options band_esdf_options_from_mapping(
     const mapping_config& mapping, bool include_negative_truncation_band) noexcept
 {
@@ -60,10 +61,13 @@ inline band_esdf_options band_esdf_options_from_mapping(
     result.field.include_negative_truncation_band = include_negative_truncation_band;
     return result;
 }
-struct band_esdf_metrics {
+
+struct band_esdf_metrics 
+{
     std::uint64_t tiles{}, scratch_bytes{}, upload_bytes{}, download_bytes{}, peak_device_bytes{};
     std::uint32_t rounds{};
     double allocation_ms{}, upload_ms{}, propagation_ms{}, publication_ms{}, readback_ms{};
     double gpu_ms{}, wait_ms{}, total_ms{};
 };
+
 }

@@ -11,9 +11,12 @@ struct block_key
     std::int32_t x{}, y{}, z{};
     bool operator==(const block_key&) const = default;
 };
+
+
 #if defined(__CUDACC__)
 __host__ __device__
 #endif
+
 inline std::uint64_t block_key_hash(const block_key& key) noexcept
 {
     auto hash = key.submap ^ UINT64_C(0x9e3779b97f4a7c15);
@@ -27,7 +30,10 @@ inline std::uint64_t block_key_hash(const block_key& key) noexcept
     hash *= UINT64_C(0x94d049bb133111eb);
      return hash ^ (hash >> 31);
 }
+
+
 struct key_hash {
     std::size_t operator()(const block_key& key) const noexcept { return std::size_t(block_key_hash(key)); }
 };
+
 }

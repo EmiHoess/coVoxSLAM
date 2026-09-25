@@ -5,12 +5,15 @@
 
 namespace covoxslam::store
 {
-struct device_hash_entry
+
+    struct device_hash_entry
 {
     block_key key;
     std::uint64_t reuse_generation{};
     std::uint32_t slot{}, state{};
 };
+
+
 struct device_index_view
 {
     const device_hash_entry* entries{};
@@ -19,11 +22,14 @@ struct device_index_view
     std::uint32_t field{};
     int device{-1};
 };
+
 struct device_lookup
 {
     std::uint32_t slot{}, found{};
     std::uint64_t reuse_generation{};
 };
+
+
 #if defined(__CUDACC__)
 __device__ inline std::uint64_t device_key_hash(block_key key)
 {
@@ -47,6 +53,7 @@ __device__ inline device_lookup find_block(device_index_view view, block_key key
     return {};
 }
 #endif
+
 int build_device_index(device_hash_entry* entries, std::size_t capacity, const device_hash_entry* records,
     std::size_t count, unsigned* errors, void* stream) noexcept;
 }

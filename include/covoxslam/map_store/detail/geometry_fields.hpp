@@ -30,14 +30,17 @@ template<storage::schema s> operation_result<esdf_voxel> geometry_esdf(storage::
     else {
         const auto squared = source.squared_distance_voxels;
         const float maximum = parameters.distance_limit / parameters.voxel_size;
+
         constexpr auto valid_flags = detail::cuda_esdf_observed | detail::cuda_esdf_inside |
             detail::cuda_esdf_site | detail::cuda_esdf_parent_assigned;
         if (!std::isfinite(squared) || squared < 0 || (source.flags & ~valid_flags) ||
             !std::isfinite(maximum * maximum))
             return std::unexpected(operation_error{"invalid squared ESDF value"});
-        const bool assigned = source.flags & detail::cuda_esdf_parent_assigned;
+        
+            const bool assigned = source.flags & detail::cuda_esdf_parent_assigned;
         const bool site = source.flags & detail::cuda_esdf_site;
         const bool clipped = squared >= maximum * maximum;
+        
         if ((site && (!assigned || !(source.flags & detail::cuda_esdf_inside) || squared != 0)) ||
             (!assigned && !clipped))
             return std::unexpected(operation_error{"invalid squared ESDF parent"});
@@ -45,6 +48,7 @@ template<storage::schema s> operation_result<esdf_voxel> geometry_esdf(storage::
         result.signed_distance_m = std::copysign(
             distance, source.flags & detail::cuda_esdf_inside ? -1.f : 1.f);
         result.flags = source.flags & (observed_flag | esdf_site_flag);
+        
         if (assigned && !clipped) {
             const std::int64_t delta[]{std::int64_t(source.parent_x) - position.x,
                 std::int64_t(source.parent_y) - position.y, std::int64_t(source.parent_z) - position.z};
@@ -72,9 +76,13 @@ operation_result<std::optional<float>> query_distance(const geometry_snapshot<l,
     auto index = source.local_index(id, x, y, z);
     if (!index) return std::unexpected(index.error());
     auto value = source.template voxel<s>(id, *index);
+
     if (!value) return std::unexpected(value.error());
+    
     if (!*value || !(**value).flags) return std::optional<float>{};
+    
     if (!((**value).flags & observed_flag)) return std::optional<float>{};
+    
     if constexpr (s == storage::schema::tsdf) {
         if (!std::isfinite((**value).distance) || !std::isfinite((**value).weight) || (**value).weight <= 0)
             return std::unexpected(operation_error{"invalid TSDF geometry value"});

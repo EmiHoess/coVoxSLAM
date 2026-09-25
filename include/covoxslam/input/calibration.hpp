@@ -11,6 +11,7 @@ namespace covoxslam { struct sensor {
     std::uint64_t scan_period_ns{};
     double azimuth_start_rad{}, azimuth_coverage_rad{};
     bool counter_clockwise{true};
+    
     std::vector<float> vertical_angles_rad;
     float min_range_m{}, max_range_m{};
     pose body_from_lidar{};

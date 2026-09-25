@@ -54,35 +54,49 @@ template<storage::layout l, storage::schema es = storage::schema::esdf> class gp
         }
         constexpr auto stride = storage::payload_tile_bytes<s, l>;
         std::size_t buckets{2};
+        
         if (source->index.size() > std::size_t(std::numeric_limits<std::uint32_t>::max()) / 2 ||
             source->payload.size() > std::numeric_limits<std::size_t>::max() / stride)
             return std::unexpected(operation_error{"resident capacity is unsupported"});
-        while (buckets / 2 < source->index.size()) buckets *= 2;
+        
+            while (buckets / 2 < source->index.size()) buckets *= 2;
         const auto index_bytes = buckets * sizeof(device_hash_entry);
         auto bytes = add_memory(device_memory(source->payload.size() * stride), device_memory(index_bytes));
+        
         if (!bytes) return std::unexpected(bytes.error());
         auto retained = budget_->reserve(*bytes);
+        
         if (!retained) return std::unexpected(retained.error());
         const auto input_bytes = source->index.size() * sizeof(device_hash_entry);
+        
         auto transient = budget_->reserve(host_device_memory(input_bytes, input_bytes + sizeof(unsigned)));
+        
         if (!transient) return std::unexpected(transient.error());
+        
         auto field = std::make_shared<gpu_field<s, l>>();
         field->memory = std::move(*retained);
+        
         auto checked = field->payload.initialize(source->payload.size());
+        
         if (!checked) return std::unexpected(checked.error());
         storage::transfer_measurement measured;
+        
         if (copy_values) checked = field->payload.upload_range(source->payload, 0, 0,
             source->payload.size() * tile_voxels,
             storage::all_field_mask<s>, storage::transfer_method::bulk_same_layout, measured);
-        if (device_source)
+        
+            if (device_source)
             checked = field->payload.copy_from(*device_source, 0, 0, source->payload.size() * tile_voxels,
                 storage::all_field_mask<s>, storage::transfer_method::bulk_same_layout, measured);
-        if (!checked) return std::unexpected(checked.error());
+        
+                if (!checked) return std::unexpected(checked.error());
         checked = field->index.initialize(source->index, generation);
+        
         if (!checked) return std::unexpected(checked.error());
         field->content_epoch = source->content_epoch;
         field->allocation_generation = generation;
         field->source_identity = source;
+        
         return field;
     }
     operation_result<std::vector<retired_allocation>> prepare_retirement(std::uint64_t id) const

@@ -59,10 +59,13 @@ public:
         error = cudaMemsetAsync(candidate->errors, 0, sizeof(unsigned), candidate->stream);
         if (error == cudaSuccess && !records.empty()) error = cudaMemcpyAsync(candidate->input, records.data(),
             records.size() * sizeof(device_hash_entry), cudaMemcpyHostToDevice, candidate->stream);
+
         if (error == cudaSuccess) error = cudaError_t(build_device_index(candidate->entries, capacity,
             candidate->input, records.size(), candidate->errors, candidate->stream));
-        unsigned failures{};
-        if (error == cudaSuccess) error = cudaMemcpyAsync(&failures, candidate->errors, sizeof(failures), cudaMemcpyDeviceToHost, candidate->stream);
+        
+            unsigned failures{};
+        
+            if (error == cudaSuccess) error = cudaMemcpyAsync(&failures, candidate->errors, sizeof(failures), cudaMemcpyDeviceToHost, candidate->stream);
         const auto completion = cudaStreamSynchronize(candidate->stream);
         if (error != cudaSuccess) return storage::cuda_storage_status(error);
         if (completion != cudaSuccess) return storage::cuda_storage_status(completion);
@@ -74,6 +77,7 @@ public:
         }
         auto* errors = std::exchange(candidate->errors, nullptr);
         error = cudaFree(errors);
+        
         if (error != cudaSuccess) return storage::cuda_storage_status(error);
         candidate->descriptor.entries = candidate->entries;
         candidate->descriptor.capacity = capacity;
@@ -86,9 +90,13 @@ public:
     operation_result<device_index_view> view() const
     {
         if (!state_) return std::unexpected(operation_error{"GPU index is not initialized"});
+        
         int device{-1};
+        
         const auto checked = storage::cuda_storage_status(cudaGetDevice(&device));
+        
         if (!checked) return std::unexpected(checked.error());
+        
         if (device != state_->descriptor.device) return std::unexpected(operation_error{"GPU index requires its device"});
         return state_->descriptor;
     }

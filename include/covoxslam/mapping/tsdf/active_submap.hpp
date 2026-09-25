@@ -44,6 +44,8 @@ struct transfer_times
     std::uint64_t updates{}, candidate_voxels{}, kernel_launches{};
     std::uint64_t candidate_overflows{};
 };
+
+//
 static_assert(sizeof(float) == 4);
 static_assert(sizeof(double) == 8);
 static_assert(std::is_same_v<std::underlying_type_t<transfer_arithmetic>, std::uint32_t>);
@@ -98,6 +100,8 @@ static_assert(offsetof(transfer_times, updates) == 40);
 static_assert(offsetof(transfer_times, candidate_voxels) == 48);
 static_assert(offsetof(transfer_times, kernel_launches) == 56);
 static_assert(offsetof(transfer_times, candidate_overflows) == 64);
+
+
 class gpu_map
 {
     struct implementation;

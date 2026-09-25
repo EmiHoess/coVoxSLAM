@@ -7,32 +7,41 @@
 
 namespace covoxslam::store
 {
+
 enum class field_kind : std::uint32_t { tsdf, esdf };
 enum class field_mask : std::uint32_t { none, tsdf = 1, esdf = 2, all = 3 };
+
 static_assert(static_cast<std::uint32_t>(field_kind::tsdf) == 0 &&
     static_cast<std::uint32_t>(field_kind::esdf) == 1);
+
 static_assert(static_cast<std::uint32_t>(field_mask::none) == 0 &&
     static_cast<std::uint32_t>(field_mask::tsdf) == 1 &&
     static_cast<std::uint32_t>(field_mask::esdf) == 2 &&
     static_cast<std::uint32_t>(field_mask::all) == 3);
-constexpr std::uint32_t field_mask_value(field_mask fields) noexcept
+
+    constexpr std::uint32_t field_mask_value(field_mask fields) noexcept
 {
     return static_cast<std::uint32_t>(fields);
 }
+
 constexpr bool valid_field_mask(field_mask fields) noexcept
 {
     return !(field_mask_value(fields) & ~field_mask_value(field_mask::all));
 }
+
 constexpr bool any_field(field_mask fields) noexcept
 {
     return field_mask_value(fields) != 0;
 }
+
 constexpr field_mask field_mask_for(field_kind field) noexcept
 {
     if (field == field_kind::tsdf) return field_mask::tsdf;
     if (field == field_kind::esdf) return field_mask::esdf;
+
     return field_mask::none;
 }
+
 constexpr bool has_field(field_mask fields, field_kind field) noexcept
 {
     return (field_mask_value(fields) & field_mask_value(field_mask_for(field))) != 0;
@@ -42,31 +51,38 @@ constexpr field_mask make_field_mask(bool tsdf, bool esdf) noexcept
     return static_cast<field_mask>((tsdf ? field_mask_value(field_mask::tsdf) : 0) |
         (esdf ? field_mask_value(field_mask::esdf) : 0));
 }
+
 enum class lifecycle : std::uint32_t { active, finalized, retired };
 enum class residency : std::uint32_t { absent, resident, evicting, evicted, restoring };
 enum class writer_kind : std::uint32_t { none, cpu, gpu };
+
 struct tile_handle
 {
     std::uint64_t submap{};
     field_kind field{};
     std::uint32_t slot{std::numeric_limits<std::uint32_t>::max()};
-     std::uint64_t reuse_generation{};
+    std::uint64_t reuse_generation{};
     bool operator==(const tile_handle&) const = default;
 };
+
 struct epochs {
     std::uint64_t descriptor{1}, allocation{1}, tsdf{}, esdf{}, esdf_source{}, pose{1};
 };
+
 struct field_versions
 {
     std::uint64_t tsdf{}, esdf{};
     bool operator==(const field_versions&) const = default;
 };
+
 struct pose_record
 {
     double x{}, y{}, z{}, yaw{};
     bool operator==(const pose_record&) const = default;
 };
+
 struct submap_record {
+
     std::uint64_t id{};
     lifecycle state{lifecycle::active};
     residency cpu{residency::absent}, gpu{residency::absent};
@@ -100,6 +116,7 @@ inline operation_status require_current_esdf(const authority_snapshot& state, fi
         return std::unexpected(operation_error{"ESDF requires regeneration from the current TSDF"});
     return {};
 }
+
 class mirror_ticket
 {
     std::shared_ptr<authority_state> state_;
@@ -115,7 +132,9 @@ public:
     mirror_ticket& operator=(const mirror_ticket&) = delete;
     mirror_ticket(mirror_ticket&&) noexcept = default;
     mirror_ticket& operator=(mirror_ticket&&) noexcept = default;
+
     const auto& versions() const noexcept { return versions_; }
+    
     template<class function> operation_status acknowledge(function&& commit)
     {
         if (!state_ || complete_) return std::unexpected(operation_error{"mirror completion is not pending"});
@@ -137,6 +156,7 @@ public:
         return {};
     }
 };
+
 class writer_lease
 {
     std::shared_ptr<authority_state> state_;
@@ -144,6 +164,7 @@ class writer_lease
     field_mask fields_{field_mask::none};
     std::uint64_t generation_{};
     friend class map_authority;
+
     writer_lease(std::shared_ptr<authority_state> state, writer_kind side, field_mask fields, std::uint64_t generation) :
         state_(std::move(state)), side_(side), fields_(fields), generation_(generation) {}
     void release() noexcept
@@ -152,10 +173,12 @@ class writer_lease
         std::lock_guard lock(state_->mutex);
         if (state_->current.lease_generation == generation_) state_->current.writer = writer_kind::none;
     }
+
 public:
     writer_lease(const writer_lease&) = delete;
     writer_lease& operator=(const writer_lease&) = delete;
     writer_lease(writer_lease&& other) noexcept : state_(std::move(other.state_)), side_(other.side_), fields_(other.fields_), generation_(other.generation_) {}
+    
     writer_lease& operator=(writer_lease&& other) noexcept
     {
         if (this != &other) {
@@ -290,12 +313,14 @@ public:
         if (state_->current.writer != writer_kind::none || state_->current.state == lifecycle::retired)
             return std::unexpected(operation_error{"retirement conflicts"});
         state_->current.state = lifecycle::retired;
+        
         return {};
     }
     template<class function> operation_status evict(writer_kind side, function&& remove)
     {
         std::lock_guard lock(state_->mutex);
         auto& current = state_->current;
+        
         if ((side != writer_kind::cpu && side != writer_kind::gpu) || current.state != lifecycle::finalized ||
             current.writer != writer_kind::none)
             return std::unexpected(operation_error{"eviction requires finalized quiescent storage"});
@@ -305,6 +330,7 @@ public:
             (current.content.esdf && alternate.esdf != current.content.esdf))
             return std::unexpected(operation_error{"eviction requires a complete recoverable replica"});
         auto checked = remove();
+
         if (!checked) return checked;
         (side == writer_kind::cpu ? current.cpu : current.gpu) = {};
         return {};
