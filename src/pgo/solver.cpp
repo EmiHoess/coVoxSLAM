@@ -4,7 +4,7 @@
 
 #if defined(covoxslam_has_pgo)
 #include "solver_internal.hpp"
-#include <ceronoceres/field_views.hpp>
+#include <abseil/field_views.hpp>
 #include <algorithm>
 #include <iomanip>
 #include <limits>
@@ -13,8 +13,8 @@
 
 namespace covoxslam::pgo
 {
-operation_result<ceronoceres::NativeLmOptions> configure_linear(
-    linear_options linear, ceronoceres::NativeLmOptions lm)
+operation_result<abseil::native_lm_options> configure_linear(
+    linear_options linear, abseil::native_lm_options lm)
 {
     lm.pcg_maximum_iterations = linear.maximum_iterations;
     lm.pcg_tolerance = linear.tolerance;
@@ -23,25 +23,23 @@ operation_result<ceronoceres::NativeLmOptions> configure_linear(
     if (!valid) return std::unexpected(valid.error());
     return lm;
 }
-operation_status validate_solve_result(const ceronoceres::SolveResult& result,
-    std::size_t nodes, ceronoceres::Backend expected_backend)
+operation_status validate_solve_result(const abseil::solve_result& result,
+    std::size_t nodes, abseil::backend expected_backend)
 {
-    if (result.backend != expected_backend ||
-        unsigned(result.termination) > unsigned(ceronoceres::Termination::BackendFailure))
+    if (result.selected_backend != expected_backend ||
+        unsigned(result.stop) > unsigned(abseil::termination::numerical_breakdown))
         return std::unexpected(operation_error{"unexpected native solver result identity"});
     bool eligible{};
-    switch (result.termination) {
-    case ceronoceres::Termination::ConvergedCost:
-    case ceronoceres::Termination::ConvergedGradient:
-    case ceronoceres::Termination::ConvergedUpdate:
-    case ceronoceres::Termination::MaximumIterations: eligible = true; break;
-    case ceronoceres::Termination::NoFreeNodes:
-    case ceronoceres::Termination::MaximumTime:
-    case ceronoceres::Termination::RejectionLimit:
-    case ceronoceres::Termination::SingularGraph:
-    case ceronoceres::Termination::InvalidProblem:
-    case ceronoceres::Termination::BackendUnavailable:
-    case ceronoceres::Termination::BackendFailure: break;
+    switch (result.stop) {
+    case abseil::termination::converged_cost:
+    case abseil::termination::converged_gradient:
+    case abseil::termination::converged_update:
+    case abseil::termination::maximum_iterations: eligible = true; break;
+    case abseil::termination::no_free_nodes:
+    case abseil::termination::maximum_time:
+    case abseil::termination::rejection_limit:
+    case abseil::termination::singular_graph:
+    case abseil::termination::numerical_breakdown: break;
     }
 
     if (result.solution_usable && !eligible)
@@ -58,9 +56,9 @@ operation_status validate_solve_result(const ceronoceres::SolveResult& result,
             return std::unexpected(operation_error{"native solver returned a nonfinite pose"});
     return {};
 }
-operation_result<std::vector<pose4>> solution_poses(const ceronoceres::SolveResult& result, std::size_t nodes)
+operation_result<std::vector<pose4>> solution_poses(const abseil::solve_result& result, std::size_t nodes)
 {
-    const auto valid = validate_solve_result(result, nodes, result.backend);
+    const auto valid = validate_solve_result(result, nodes, result.selected_backend);
     if (!valid) return std::unexpected(valid.error());
 
     if (!result.solution_usable)
@@ -68,22 +66,22 @@ operation_result<std::vector<pose4>> solution_poses(const ceronoceres::SolveResu
     std::vector<pose4> poses;
      poses.reserve(nodes);
 
-    for (const auto& p : result.poses) poses.push_back({p.x, p.y, p.z, ceronoceres::wrap_yaw(p.yaw)});
+    for (const auto& p : result.poses) poses.push_back({p.x, p.y, p.z, abseil::wrap_yaw(p.yaw)});
     return poses;
 }
-operation_result<solve_statistics> summarize_solve(const ceronoceres::SolveResult& result)
+operation_result<solve_statistics> summarize_solve(const abseil::solve_result& result)
 {
-    const auto valid = validate_solve_result(result, result.poses.size(), result.backend);
+    const auto valid = validate_solve_result(result, result.poses.size(), result.selected_backend);
     if (!valid) return std::unexpected(valid.error());
     solve_statistics report;
-    report.termination = result.termination;
+    report.termination = result.stop;
     report.usable = result.solution_usable;
     report.initial_cost = result.initial_cost;
     report.final_cost = result.final_cost;
-    switch (result.termination) {
-    case ceronoceres::Termination::ConvergedCost:
-    case ceronoceres::Termination::ConvergedGradient:
-    case ceronoceres::Termination::ConvergedUpdate: report.converged = true; break;
+    switch (result.stop) {
+    case abseil::termination::converged_cost:
+    case abseil::termination::converged_gradient:
+    case abseil::termination::converged_update: report.converged = true; break;
     default: break;
     }
 
@@ -95,7 +93,7 @@ operation_result<solve_statistics> summarize_solve(const ceronoceres::SolveResul
     }
     return report;
 }
-operation_status validate_lm(const ceronoceres::NativeLmOptions& value)
+operation_status validate_lm(const abseil::native_lm_options& value)
 {
     const double positive[]{value.initial_damping, value.minimum_damping, value.maximum_damping,
         value.maximum_translation_step_m, value.maximum_yaw_step_rad, value.pcg_tolerance};
@@ -109,8 +107,8 @@ operation_status validate_lm(const ceronoceres::NativeLmOptions& value)
         return std::unexpected(operation_error{"invalid native LM settings"});
     return {};
 }
-operation_result<ceronoceres::SolveOptions> cpu_solve_options(
-    const options& options, const ceronoceres::NativeLmOptions& lm)
+operation_result<abseil::solve_options> cpu_solve_options(
+    const options& options, const abseil::native_lm_options& lm)
 {
     const auto valid = validate_options(options);
     if (!valid) return std::unexpected(valid.error());
@@ -119,23 +117,24 @@ operation_result<ceronoceres::SolveOptions> cpu_solve_options(
 
     if (!options.enabled || options.solver != backend::native_cpu)
         return std::unexpected(operation_error{"native CPU solve requires enabled CPU settings"});
-    ceronoceres::SolveOptions result;
-    result.backend = ceronoceres::Backend::NativeCpu;
+    abseil::solve_options result;
+    result.selected_backend = abseil::backend::native_cpu;
     result.common = {options.maximum_iterations, options.maximum_seconds};
-    result.backend_options = ceronoceres::NativeCpuOptions{lm};
+    result.specific = abseil::native_cpu_options{lm};
     return result;
 }
-operation_result<ceronoceres::SolveResult> solve_cpu(const ceronoceres::PreparedProblem& problem,
-    const options& options, const ceronoceres::NativeLmOptions& lm)
+operation_result<abseil::solve_result> solve_cpu(const abseil::prepared_problem& problem,
+    const options& options, const abseil::native_lm_options& lm)
 {
     auto configured = cpu_solve_options(options, lm);
     if (!configured) return std::unexpected(configured.error());
 
     if (problem.empty()) return std::unexpected(operation_error{"cannot solve an empty prepared graph"});
-    auto result = ceronoceres::solve(problem, *configured);
-    const auto valid = validate_solve_result(result, problem.node_count(), configured->backend);
+    auto result = abseil::solve(problem, *configured);
+    if (!result) return std::unexpected(operation_error{result.error().message});
+    const auto valid = validate_solve_result(*result, problem.node_count(), configured->selected_backend);
     if (!valid) return std::unexpected(valid.error());
-    return result;
+    return std::move(*result);
 }
 }
 
@@ -143,7 +142,7 @@ namespace covoxslam::pgo
 {
 operation_result<residual_comparison> compare_residuals(const residual_report& cpu, const residual_report& cuda)
 {
-    if (cpu.solver != ceronoceres::Backend::NativeCpu || cuda.solver != ceronoceres::Backend::NativeCudaCold ||
+    if (cpu.solver != abseil::backend::native_cpu || cuda.solver != abseil::backend::native_cuda_cold ||
         !detail::valid_cost(cpu.final) || !detail::valid_cost(cuda.final))
         return std::unexpected(operation_error{"residual comparison requires CPU and CUDA native reports"});
     residual_comparison result;
@@ -153,18 +152,18 @@ operation_result<residual_comparison> compare_residuals(const residual_report& c
         cpu.registration.rejections == cuda.registration.rejections;
     return result;
 }
-operation_result<residual_report> report_residuals(const ceronoceres::SolveResult& result)
+operation_result<residual_report> report_residuals(const abseil::solve_result& result)
 {
-    const auto valid = validate_solve_result(result, result.poses.size(), result.backend);
+    const auto valid = validate_solve_result(result, result.poses.size(), result.selected_backend);
     if (!valid) return std::unexpected(valid.error());
 
-    if ((result.backend != ceronoceres::Backend::NativeCpu && result.backend != ceronoceres::Backend::NativeCudaCold) ||
+    if ((result.selected_backend != abseil::backend::native_cpu && result.selected_backend != abseil::backend::native_cuda_cold) ||
         !detail::valid_cost(result.initial_cost) || !detail::valid_cost(result.final_cost))
         return std::unexpected(operation_error{"invalid native residual report"});
-    return residual_report{result.backend, result.initial_cost, result.final_cost,
+    return residual_report{result.selected_backend, result.initial_cost, result.final_cost,
         result.registration, result.solution_usable};
 }
-operation_status validate_linearization(const ceronoceres::LinearizationSnapshot& value, std::size_t active_nodes)
+operation_status validate_linearization(const abseil::linearization_snapshot& value, std::size_t active_nodes)
 {
     if (active_nodes > maximum_pose_graph_nodes || value.gradient.size() != active_nodes * pose_dimension ||
         value.sparse_blocks.size() > std::numeric_limits<std::size_t>::max() / normal_equation_block_cardinality ||
@@ -193,7 +192,7 @@ operation_status validate_linearization(const ceronoceres::LinearizationSnapshot
     return {};
 }
 operation_result<equation_statistics> summarize_linearization(
-    const ceronoceres::LinearizationSnapshot& snapshot, std::size_t active_nodes)
+    const abseil::linearization_snapshot& snapshot, std::size_t active_nodes)
 {
     const auto valid = validate_linearization(snapshot, active_nodes);
     if (!valid) return std::unexpected(valid.error());
@@ -208,37 +207,39 @@ operation_result<equation_statistics> summarize_linearization(
         result.maximum_absolute_gradient = std::max(result.maximum_absolute_gradient, std::abs(value));
     return result;
 }
-operation_result<ceronoceres::LinearizationSnapshot> linearize_graph(
-    const ceronoceres::PreparedProblem& problem, std::span<const pose4> poses)
+operation_result<abseil::linearization_snapshot> linearize_graph(
+    const abseil::prepared_problem& problem, std::span<const pose4> poses)
 {
-    if (!ceronoceres::cpu_fields_accessible(problem))
+    if (!abseil::cpu_fields_accessible(problem))
         return std::unexpected(operation_error{"host linearization requires host field allocations"});
     auto values = detail::checked_poses(problem, poses);
 
     if (!values) return std::unexpected(values.error());
-    auto result = ceronoceres::linearize(problem, *values);
-    const auto valid = validate_linearization(result, problem.active_node_count());
+    auto result = abseil::linearize(problem, *values);
+    if (!result) return std::unexpected(operation_error{result.error().message});
+    const auto valid = validate_linearization(*result, problem.active_node_count());
     if (!valid) return std::unexpected(valid.error());
-    return result;
+    return std::move(*result);
 }
-operation_result<ceronoceres::CostBreakdown> evaluate_graph(
-    const ceronoceres::PreparedProblem& problem, std::span<const pose4> poses)
+operation_result<abseil::cost_breakdown> evaluate_graph(
+    const abseil::prepared_problem& problem, std::span<const pose4> poses)
 {
-    if (!ceronoceres::cpu_fields_accessible(problem))
+    if (!abseil::cpu_fields_accessible(problem))
         return std::unexpected(operation_error{"host evaluation requires host field allocations"});
     auto values = detail::checked_poses(problem, poses);
 
     if (!values) return std::unexpected(values.error());
-    const auto result = ceronoceres::evaluate(problem, *values);
-    if (!detail::valid_cost(result))
+    const auto result = abseil::evaluate(problem, *values);
+    if (!result) return std::unexpected(operation_error{result.error().message});
+    if (!detail::valid_cost(result->cost))
         return std::unexpected(operation_error{"external graph evaluation produced an invalid cost"});
-     return result;
+    return result->cost;
 }
 }
 
 namespace covoxslam::pgo
 {
-operation_status write_iteration_report(std::ostream& output, const ceronoceres::SolveResult& result)
+operation_status write_iteration_report(std::ostream& output, const abseil::solve_result& result)
 {
     const auto summary = summarize_solve(result);
     if (!summary) return std::unexpected(summary.error());
@@ -263,7 +264,7 @@ operation_status write_iteration_report(std::ostream& output, const ceronoceres:
     if (!output) return std::unexpected(operation_error{"cannot write native iteration diagnostics"});
     return {};
 }
-operation_status write_solver_report(std::ostream& output, const ceronoceres::SolveResult& result)
+operation_status write_solver_report(std::ostream& output, const abseil::solve_result& result)
 {
     const auto residuals = report_residuals(result);
     if (!residuals) return std::unexpected(residuals.error());
@@ -272,8 +273,8 @@ operation_status write_solver_report(std::ostream& output, const ceronoceres::So
     const auto& t = result.telemetry;
     std::ostringstream text;
     text << std::setprecision(std::numeric_limits<double>::max_digits10)
-        << "solver " << ceronoceres::backend_name(result.backend) << '\n'
-        << "termination " << ceronoceres::termination_name(result.termination) << '\n'
+        << "solver " << abseil::backend_name(result.selected_backend) << '\n'
+        << "termination " << abseil::termination_name(result.stop) << '\n'
         << "usable " << summary->usable << " converged " << summary->converged << '\n'
         << "relative_cost " << residuals->initial.relative << ' ' << residuals->final.relative << '\n'
         << "absolute_cost " << residuals->initial.absolute << ' ' << residuals->final.absolute << '\n'
@@ -301,20 +302,19 @@ operation_status write_solver_report(std::ostream& output, const ceronoceres::So
 namespace covoxslam::pgo
 {
 operation_result<solve_snapshot> freeze_field_graph(graph_snapshot graph,
-    std::shared_ptr<const ceronoceres::field_snapshot> fields)
+    std::shared_ptr<const abseil::field_snapshot> fields)
 {
     auto extents = measure_snapshot(graph);
     if (!extents) return std::unexpected(extents.error());
     if (!fields || fields->device != -1)
         return std::unexpected(operation_error{"publication verification requires host fields"});
-    auto prepared = ceronoceres::prepare_fields(graph.problem, std::move(fields));
-    if (const auto* error = std::get_if<std::string>(&prepared))
-        return std::unexpected(operation_error{*error});
+    auto prepared = abseil::prepare_fields(graph.problem, std::move(fields));
+    if (!prepared) return std::unexpected(operation_error{prepared.error().message});
     return solve_snapshot{std::make_shared<const graph_snapshot>(std::move(graph)),
-        std::get<ceronoceres::PreparedProblem>(std::move(prepared)), *extents};
+        std::move(*prepared), *extents};
 }
-operation_result<ceronoceres::SolveOptions> cuda_solve_options(
-    const options& options, const ceronoceres::NativeLmOptions& lm)
+operation_result<abseil::solve_options> cuda_solve_options(
+    const options& options, const abseil::native_lm_options& lm)
 {
     const auto valid = validate_options(options);
     if (!valid) return std::unexpected(valid.error());
@@ -323,19 +323,19 @@ operation_result<ceronoceres::SolveOptions> cuda_solve_options(
 
     if (!options.enabled || options.solver != backend::cuda_cold || !options.memory_budget_bytes)
         return std::unexpected(operation_error{"cold CUDA solve requires enabled settings and a memory budget"});
-    ceronoceres::SolveOptions result;
-    result.backend = ceronoceres::Backend::NativeCudaCold;
+    abseil::solve_options result;
+    result.selected_backend = abseil::backend::native_cuda_cold;
     result.common = {options.maximum_iterations, options.maximum_seconds};
-    ceronoceres::NativeCudaColdOptions native;
+    abseil::native_cuda_cold_options native;
     native.lm = lm;
     native.device_index = options.device;
     native.memory_budget_bytes = options.memory_budget_bytes;
-    result.backend_options = native;
+    result.specific = native;
     return result;
 }
-operation_result<ceronoceres::SolverTelemetry> cuda_telemetry(const ceronoceres::SolveResult& result)
+operation_result<abseil::solver_telemetry> cuda_telemetry(const abseil::solve_result& result)
 {
-    const auto valid = validate_solve_result(result, result.poses.size(), ceronoceres::Backend::NativeCudaCold);
+    const auto valid = validate_solve_result(result, result.poses.size(), abseil::backend::native_cuda_cold);
     if (!valid) return std::unexpected(valid.error());
     return result.telemetry;
 }
@@ -353,15 +353,15 @@ operation_result<snapshot_extents> measure_snapshot(const graph_snapshot& graph)
     result.tsdf_tiles = problem.tsdf_tiles.size();
     result.esdf_tiles = problem.esdf_tiles.size();
     const std::pair<std::size_t, std::size_t> arrays[]{
-        {problem.nodes.size(), sizeof(ceronoceres::Node)},
+        {problem.nodes.size(), sizeof(abseil::node)},
         {graph.node_ids.size(), sizeof(std::uint64_t)},
-        {problem.relative_factors.size(), sizeof(ceronoceres::RelativeFactor)},
-        {problem.absolute_factors.size(), sizeof(ceronoceres::AbsoluteFactor)},
-        {problem.registration_groups.size(), sizeof(ceronoceres::RegistrationGroup)},
-        {problem.registration_samples.size(), sizeof(ceronoceres::RegistrationSample)},
-        {problem.volumes.size(), sizeof(ceronoceres::FieldVolume)},
-        {problem.tsdf_tiles.size(), sizeof(ceronoceres::TsdfTile)},
-        {problem.esdf_tiles.size(), sizeof(ceronoceres::EsdfTile)}};
+        {problem.relative_factors.size(), sizeof(abseil::relative_factor)},
+        {problem.absolute_factors.size(), sizeof(abseil::absolute_factor)},
+        {problem.registration_groups.size(), sizeof(abseil::registration_group)},
+        {problem.registration_samples.size(), sizeof(abseil::registration_sample)},
+        {problem.volumes.size(), sizeof(abseil::field_volume)},
+        {problem.tsdf_tiles.size(), sizeof(abseil::tsdf_tile)},
+        {problem.esdf_tiles.size(), sizeof(abseil::esdf_tile)}};
 
     for (const auto& [count, size] : arrays)
     {
@@ -398,12 +398,12 @@ operation_result<solve_snapshot> freeze_graph(graph_snapshot graph)
     if (!prepared) return std::unexpected(prepared.error());
     return solve_snapshot{std::make_shared<const graph_snapshot>(std::move(graph)), std::move(*prepared), *extents};
 }
-operation_status validate_snapshot_result(const solve_snapshot& snapshot, const ceronoceres::SolveResult& result)
+operation_status validate_snapshot_result(const solve_snapshot& snapshot, const abseil::solve_result& result)
 {
-    const auto valid = validate_solve_result(result, snapshot.extents().nodes, result.backend);
+    const auto valid = validate_solve_result(result, snapshot.extents().nodes, result.selected_backend);
     if (!valid) return valid;
 
-    if (result.backend != ceronoceres::Backend::NativeCpu && result.backend != ceronoceres::Backend::NativeCudaCold)
+    if (result.selected_backend != abseil::backend::native_cpu && result.selected_backend != abseil::backend::native_cuda_cold)
         return std::unexpected(operation_error{"snapshot result did not use a native solver"});
     if (!result.solution_usable) return {};
 
@@ -426,26 +426,25 @@ operation_status validate_snapshot_result(const solve_snapshot& snapshot, const 
             return std::unexpected(operation_error{"native solver returned invalid timing data"});
     return {};
 }
-operation_result<ceronoceres::SolveResult> solve_cuda(const solve_snapshot& snapshot,
-    const options& options, const ceronoceres::NativeLmOptions& lm)
+operation_result<abseil::solve_result> solve_cuda(const solve_snapshot& snapshot,
+    const options& options, const abseil::native_lm_options& lm)
 {
     const auto configured = cuda_solve_options(options, lm);
     if (!configured) return std::unexpected(configured.error());
-    auto checked = ceronoceres::solve_cuda_checked(snapshot.prepared(), configured->common,
-        std::get<ceronoceres::NativeCudaColdOptions>(configured->backend_options));
+    auto checked = abseil::solve_cuda_checked(snapshot.prepared(), configured->common,
+        std::get<abseil::native_cuda_cold_options>(configured->specific));
 
-    if (const auto* error = std::get_if<ceronoceres::cuda_solve_error>(&checked))
-        return std::unexpected(operation_error{error->message});
-    auto result = std::move(std::get<ceronoceres::SolveResult>(checked));
+    if (!checked) return std::unexpected(operation_error{checked.error().message});
+    auto result = std::move(*checked);
     const auto valid = validate_snapshot_result(snapshot, result);
 
     if (!valid) return std::unexpected(valid.error());
     return result;
 }
-operation_result<ceronoceres::SolveResult> solve_native(const solve_snapshot& snapshot,
-    const options& options, const ceronoceres::NativeLmOptions& lm)
+operation_result<abseil::solve_result> solve_native(const solve_snapshot& snapshot,
+    const options& options, const abseil::native_lm_options& lm)
 {
-    operation_result<ceronoceres::SolveResult> result = std::unexpected(operation_error{"invalid native solver selection"});
+    operation_result<abseil::solve_result> result = std::unexpected(operation_error{"invalid native solver selection"});
     switch (options.solver) {
     case backend::native_cpu: result = solve_cpu(snapshot.prepared(), options, lm); break;
     case backend::cuda_cold: result = solve_cuda(snapshot, options, lm); break;
@@ -473,8 +472,8 @@ bool available(backend solver) noexcept
 {
 #if defined(covoxslam_has_pgo)
     switch (solver) {
-    case backend::native_cpu: return ceronoceres::backend_available(ceronoceres::Backend::NativeCpu);
-    case backend::cuda_cold: return ceronoceres::backend_available(ceronoceres::Backend::NativeCudaCold);
+    case backend::native_cpu: return abseil::backend_available(abseil::backend::native_cpu);
+    case backend::cuda_cold: return abseil::backend_available(abseil::backend::native_cuda_cold);
     }
 #else
     static_cast<void>(solver);

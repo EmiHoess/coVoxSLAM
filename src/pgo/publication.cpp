@@ -104,7 +104,7 @@ operation_result<publication_update> prepare_publication(std::span<const submap>
         const auto translation = std::hypot(proposed.x - initial.x, proposed.y - initial.y, proposed.z - initial.z);
 
         if (translation > limits.maximum_translation_m ||
-            std::abs(ceronoceres::wrap_yaw(proposed.yaw - initial.yaw)) > limits.maximum_yaw_rad)
+            std::abs(abseil::wrap_yaw(proposed.yaw - initial.yaw)) > limits.maximum_yaw_rad)
             return std::unexpected(operation_error{"pose update exceeds publication limits"});
     }
     std::vector<pose4> initial_poses;

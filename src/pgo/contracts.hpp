@@ -3,7 +3,7 @@
 #include <cmath>
 #include <cstddef>
 #if defined(covoxslam_has_pgo)
-#include <ceronoceres/ceronoceres.hpp>
+#include <abseil/abseil.hpp>
 #endif
 
 namespace covoxslam::pgo
@@ -23,7 +23,7 @@ template<class left_pose, class right_pose>
 bool same_pose(const left_pose& left, const right_pose& right) noexcept
 {
     return left.x == right.x && left.y == right.y && left.z == right.z &&
-        !(std::abs(ceronoceres::wrap_yaw(left.yaw - right.yaw)) > same_pose_yaw_tolerance);
+        !(std::abs(abseil::wrap_yaw(left.yaw - right.yaw)) > same_pose_yaw_tolerance);
 }
 #endif
 }

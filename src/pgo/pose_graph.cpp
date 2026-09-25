@@ -24,12 +24,14 @@ operation_result<graph_snapshot> make_submap_graph(std::span<const submap> maps,
     if (!absolute) return std::unexpected(absolute.error());
     return graph;
 }
-operation_result<ceronoceres::PreparedProblem> prepare_graph(graph_snapshot graph)
+operation_result<abseil::prepared_problem> prepare_graph(graph_snapshot graph)
 {
     const auto valid = validate_graph(graph);
 
     if (!valid) return std::unexpected(valid.error());
-    return ceronoceres::prepare(std::move(graph.problem));
+    auto prepared = abseil::prepare(std::move(graph.problem));
+    if (!prepared) return std::unexpected(operation_error{prepared.error().message});
+    return std::move(*prepared);
 }
 operation_result<std::optional<graph_snapshot>> make_graph_if_enabled(
     std::span<const graph_node> nodes, const options& options)
@@ -48,7 +50,7 @@ operation_status validate_graph(const graph_snapshot& graph)
         graph.node_ids.size() != problem.nodes.size() || !problem.nodes.front().constant)
         return std::unexpected(operation_error{"invalid anchored graph shape"});
     std::set<std::uint64_t> ids;
-    const auto finite_pose = [](const ceronoceres::Pose4& pose) {
+    const auto finite_pose = [](const abseil::pose4& pose) {
         return std::isfinite(pose.x) && std::isfinite(pose.y) && std::isfinite(pose.z) && std::isfinite(pose.yaw);
     };
 
@@ -57,26 +59,26 @@ operation_status validate_graph(const graph_snapshot& graph)
         if (node.id != graph.node_ids[index] || !ids.insert(node.id).second || !finite_pose(node.initial))
             return std::unexpected(operation_error{"invalid or duplicate graph node"});
     }
-    const auto valid_loss = [](const ceronoceres::Loss& loss) {
-        return unsigned(loss.kind) <= unsigned(ceronoceres::LossKind::Cauchy) &&
+    const auto valid_loss = [](const abseil::loss& loss) {
+        return unsigned(loss.kind) <= unsigned(abseil::loss_kind::cauchy) &&
             std::isfinite(loss.scale) && loss.scale > 0;
     };
-    const auto valid_factor = [&](std::size_t left, std::size_t right, const ceronoceres::Pose4& measured,
-        const ceronoceres::Matrix4& information, const ceronoceres::Loss& loss) {
+    const auto valid_factor = [&](std::size_t left, std::size_t right, const abseil::pose4& measured,
+        const abseil::matrix4& information, const abseil::loss& loss) {
         return left < problem.nodes.size() && right < problem.nodes.size() && left != right &&
             finite_pose(measured) && valid_loss(loss) && std::all_of(information.begin(), information.end(),
                 [](double value) { return std::isfinite(value); });
     };
     for (const auto& factor : problem.relative_factors)
-        if (!valid_factor(factor.node_i, factor.node_j, factor.measured, factor.sqrt_information, factor.loss))
+        if (!valid_factor(factor.node_i, factor.node_j, factor.measured, factor.sqrt_information, factor.robust_loss))
             return std::unexpected(operation_error{"invalid relative graph factor"});
 
     for (const auto& factor : problem.absolute_factors)
         if (!valid_factor(factor.reference_node, factor.measured_node, factor.measured_relative,
-            factor.sqrt_information, factor.loss))
+            factor.sqrt_information, factor.robust_loss))
             return std::unexpected(operation_error{"invalid absolute graph factor"});
     const auto& model = problem.registration;
-    if (!valid_loss(model.loss) || !std::isfinite(model.minimum_tsdf_weight) || model.minimum_tsdf_weight < 0 ||
+    if (!valid_loss(model.robust_loss) || !std::isfinite(model.minimum_tsdf_weight) || model.minimum_tsdf_weight < 0 ||
         !std::isfinite(model.maximum_confidence_weight) || model.maximum_confidence_weight <= 0 ||
         !std::isfinite(model.minimum_gradient_norm) || model.minimum_gradient_norm < 0 ||
         !std::isfinite(model.maximum_absolute_residual_m) || model.maximum_absolute_residual_m < 0)
@@ -133,7 +135,7 @@ operation_result<graph_snapshot> make_graph(std::span<const graph_node> nodes)
         const auto& p = node.initial;
         if (!std::isfinite(p.x) || !std::isfinite(p.y) || !std::isfinite(p.z) || !std::isfinite(p.yaw))
             return std::unexpected(operation_error{"pose graph has a nonfinite initial pose"});
-        result.problem.nodes.push_back({node.id, {p.x, p.y, p.z, ceronoceres::wrap_yaw(p.yaw)},
+        result.problem.nodes.push_back({node.id, {p.x, p.y, p.z, abseil::wrap_yaw(p.yaw)},
             index == 0 || node.constant});
         result.node_ids.push_back(node.id);
     }
@@ -169,7 +171,7 @@ operation_status append_relative(graph_snapshot& graph, std::span<const relative
 {
     const auto valid = validate_graph(graph);
     if (!valid) return valid;
-    std::vector<ceronoceres::RelativeFactor> factors;
+    std::vector<abseil::relative_factor> factors;
      factors.reserve(measurements.size());
 
     for (const auto& value : measurements) {
@@ -180,7 +182,7 @@ operation_status append_relative(graph_snapshot& graph, std::span<const relative
         if (left == graph.node_ids.end() || right == graph.node_ids.end() || left == right ||
             !std::isfinite(p.x) || !std::isfinite(p.y) || !std::isfinite(p.z) || !std::isfinite(p.yaw) ||
             !std::isfinite(value.loss.scale) || value.loss.scale <= 0 ||
-            unsigned(value.loss.kind) > unsigned(ceronoceres::LossKind::Cauchy) ||
+            unsigned(value.loss.kind) > unsigned(abseil::loss_kind::cauchy) ||
             !std::all_of(value.sqrt_information.begin(), value.sqrt_information.end(),
                 [](double x) { return std::isfinite(x) &&
                     std::abs(x) <= std::sqrt(std::numeric_limits<double>::max() /
@@ -190,7 +192,7 @@ operation_status append_relative(graph_snapshot& graph, std::span<const relative
             return std::unexpected(operation_error{"invalid relative pose measurement"});
         factors.push_back({static_cast<std::size_t>(left - graph.node_ids.begin()),
             static_cast<std::size_t>(right - graph.node_ids.begin()),
-            {p.x, p.y, p.z, ceronoceres::wrap_yaw(p.yaw)}, value.sqrt_information, value.loss, value.diagnostic_id});
+            {p.x, p.y, p.z, abseil::wrap_yaw(p.yaw)}, value.sqrt_information, value.loss, value.diagnostic_id});
     }
     graph.problem.relative_factors.insert(graph.problem.relative_factors.end(), factors.begin(), factors.end());
     return {};
@@ -223,12 +225,12 @@ operation_status append_absolute(graph_snapshot& graph, std::uint64_t reference_
     staging.problem.nodes = graph.problem.nodes;
     const auto converted = append_relative(staging, relative);
     if (!converted) return converted;
-    std::vector<ceronoceres::AbsoluteFactor> factors;
+    std::vector<abseil::absolute_factor> factors;
     factors.reserve(relative.size());
 
     for (const auto& value : staging.problem.relative_factors)
         factors.push_back({value.node_i, value.node_j, value.measured,
-            value.sqrt_information, value.loss, value.diagnostic_id});
+            value.sqrt_information, value.robust_loss, value.diagnostic_id});
     graph.problem.absolute_factors.insert(graph.problem.absolute_factors.end(), factors.begin(), factors.end());
     return {};
 }

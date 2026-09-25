@@ -1,0 +1,18 @@
+option(covoxslam_enable_pgo "Link external native pose graph solvers" OFF)
+set(covoxslam_abseil_path "../abseil" CACHE STRING "Relative external solver source path")
+
+if(covoxslam_enable_pgo)
+    cmake_path(ABSOLUTE_PATH covoxslam_abseil_path BASE_DIRECTORY "${PROJECT_SOURCE_DIR}"
+        NORMALIZE OUTPUT_VARIABLE covoxslam_solver_source)
+    block()
+        set(BUILD_TESTING OFF)
+        set(abseil_enable_ceres OFF CACHE BOOL "Disable unselected solver" FORCE)
+        set(abseil_enable_cuda ${covoxslam_enable_cuda} CACHE BOOL "Use native CUDA solver" FORCE)
+        set(abseil_require_cuda_tests OFF CACHE BOOL "Disable dependency validation" FORCE)
+        set(abseil_build_benchmarks OFF CACHE BOOL "Disable dependency benchmarks" FORCE)
+        add_subdirectory("${covoxslam_solver_source}" "${PROJECT_BINARY_DIR}/external/abseil")
+    endblock()
+    target_link_libraries(covoxslam_core PUBLIC abseil::abseil)
+    target_compile_definitions(covoxslam_core PUBLIC covoxslam_has_pgo=1)
+    target_sources(covoxslam_core PRIVATE src/pgo/publication.cpp)
+endif()

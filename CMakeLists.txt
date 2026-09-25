@@ -63,7 +63,7 @@ else()
     target_sources(covoxslam_core PRIVATE src/mapping/tsdf/active_submap_stub.cpp)
 endif()
 target_include_directories(covoxslam_core PRIVATE src/input cuda)
-include(cmake/ceronoceres.cmake)
+include(cmake/abseil.cmake)
 if(covoxslam_enable_pgo)
     target_sources(covoxslam_core PRIVATE
         src/pgo/pose_graph.cpp

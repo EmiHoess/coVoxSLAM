@@ -13,7 +13,7 @@
 #include <mutex>
 #include <ostream>
 #if defined(covoxslam_has_pgo)
-#include <ceronoceres/field_views.hpp>
+#include <abseil/field_views.hpp>
 
 namespace covoxslam::store
 {
@@ -23,30 +23,30 @@ struct pgo_field_binding
     std::size_t volume{};
      epochs expected;
 };
-template<storage::schema s> ceronoceres::field_tile_view pgo_tile(
+template<storage::schema s> abseil::field_tile_view pgo_tile(
     storage::transfer_endpoint source, const slot_record& slot, std::size_t index,
     std::size_t volume, std::uint64_t content, std::uint64_t generation, geometry_parameters parameters)
 {
-    ceronoceres::field_tile_view tile;
+    abseil::field_tile_view tile;
     tile.volume = volume;
     tile.x = slot.key.x; tile.y = slot.key.y; tile.z = slot.key.z;
-    tile.kind = s == storage::schema::tsdf ? ceronoceres::FieldKind::Tsdf : ceronoceres::FieldKind::Esdf;
+    tile.kind = s == storage::schema::tsdf ? abseil::field_kind::tsdf : abseil::field_kind::esdf;
     tile.distance = source.fields[0] + index * source.tile_stride;
     tile.flags = source.fields[storage::field_count<s> - 1] + index * source.tile_stride;
     if constexpr (s == storage::schema::tsdf) tile.weight = source.fields[1] + index * source.tile_stride;
-    if constexpr (s == storage::schema::projective_esdf) tile.encoding = ceronoceres::field_encoding::squared_voxels;
+    if constexpr (s == storage::schema::projective_esdf) tile.encoding = abseil::field_encoding::squared_voxels;
     tile.voxel_stride = source.voxel_stride;
     tile.voxel_size = parameters.voxel_size;
     tile.maximum_distance = parameters.distance_limit;
-    tile.content_epoch = content; tile.allocation_generation = generation;
+    tile.content_generation = content; tile.allocation_generation = generation;
     tile.slot_generation = slot.generation;
     return tile;
 }
 template<storage::layout l, storage::schema es>
-operation_result<std::shared_ptr<const ceronoceres::field_snapshot>> borrow_pgo_fields(
+operation_result<std::shared_ptr<const abseil::field_snapshot>> borrow_pgo_fields(
     const geometry_snapshot<l, es>& snapshot, std::span<const pgo_field_binding> bindings)
 {
-    auto result = std::make_shared<ceronoceres::field_snapshot>();
+    auto result = std::make_shared<abseil::field_snapshot>();
     result->identity = snapshot.id();
     std::unordered_set<std::uint64_t> maps, volumes;
 
@@ -77,7 +77,7 @@ operation_result<std::shared_ptr<const ceronoceres::field_snapshot>> borrow_pgo_
         append(map->tsdf);
         append(map->esdf);
     }
-    return std::shared_ptr<const ceronoceres::field_snapshot>(std::move(result));
+    return std::shared_ptr<const abseil::field_snapshot>(std::move(result));
 }
 template<storage::layout l, storage::schema es>
 operation_status validate_pgo_bindings(const pgo::graph_snapshot& graph,
@@ -102,7 +102,7 @@ operation_status validate_pgo_bindings(const pgo::graph_snapshot& graph,
 }
 #if defined(covoxslam_has_cuda)
 template<storage::layout l, storage::schema es>
-operation_result<std::shared_ptr<const ceronoceres::field_snapshot>> resident_pgo_fields(
+operation_result<std::shared_ptr<const abseil::field_snapshot>> resident_pgo_fields(
     std::span<const resident_entry<l, es>> maps, std::span<const pgo_field_binding> bindings,
     geometry_parameters parameters)
 {
@@ -110,7 +110,7 @@ operation_result<std::shared_ptr<const ceronoceres::field_snapshot>> resident_pg
     if (!valid) return std::unexpected(valid.error());
     auto identity = allocate_snapshot_id();
     if (!identity) return std::unexpected(identity.error());
-    auto result = std::make_shared<ceronoceres::field_snapshot>();
+    auto result = std::make_shared<abseil::field_snapshot>();
     result->identity = *identity;
     std::unordered_set<std::size_t> volumes;
     std::unordered_set<std::uint64_t> ids;
@@ -155,7 +155,7 @@ operation_result<std::shared_ptr<const ceronoceres::field_snapshot>> resident_pg
         if (!valid) return std::unexpected(valid.error());
     }
     if (result->device < 0) return std::unexpected(operation_error{"resident PGO has no device fields"});
-    return std::shared_ptr<const ceronoceres::field_snapshot>(std::move(result));
+    return std::shared_ptr<const abseil::field_snapshot>(std::move(result));
 }
 #endif
 struct preparation_key
@@ -164,7 +164,7 @@ struct preparation_key
     bool operator==(const preparation_key&) const = default;
 };
 inline operation_result<preparation_key> make_preparation_key(const pgo::graph_snapshot& graph,
-    const ceronoceres::field_snapshot& fields, std::size_t budget)
+    const abseil::field_snapshot& fields, std::size_t budget)
 {
     if (!graph.problem.tsdf_tiles.empty() || !graph.problem.esdf_tiles.empty())
         return std::unexpected(operation_error{"field cache requires uncopied graph payloads"});
@@ -178,7 +178,7 @@ inline operation_result<preparation_key> make_preparation_key(const pgo::graph_s
     const auto pose = [&](const auto& p) { add(p.x); add(p.y); add(p.z); add(p.yaw); };
     const auto loss = [&](const auto& l) { add(l.kind); add(l.scale); };
     const auto& p = graph.problem;
-    add(ceronoceres::field_view_api_version);
+    add(abseil::field_view_api_version);
     add(fields.version); add(fields.device);
     add(fields.dependencies.size());
     for (auto dependency : fields.dependencies) add(dependency);
@@ -192,14 +192,14 @@ inline operation_result<preparation_key> make_preparation_key(const pgo::graph_s
     for (const auto& factor : p.relative_factors) {
         add(factor.node_i); add(factor.node_j); pose(factor.measured);
         for (auto value : factor.sqrt_information) add(value);
-        loss(factor.loss); add(factor.diagnostic_id);
+        loss(factor.robust_loss); add(factor.diagnostic_id);
     }
     add(p.absolute_factors.size());
 
     for (const auto& factor : p.absolute_factors) {
         add(factor.reference_node); add(factor.measured_node); pose(factor.measured_relative);
         for (auto value : factor.sqrt_information) add(value);
-        loss(factor.loss); add(factor.diagnostic_id);
+        loss(factor.robust_loss); add(factor.diagnostic_id);
     }
     add(p.volumes.size());
     for (const auto& volume : p.volumes) {
@@ -217,7 +217,7 @@ inline operation_result<preparation_key> make_preparation_key(const pgo::graph_s
         add(sample.reference_local_point.z); add(sample.reference_distance); add(sample.reference_tsdf_weight); add(sample.ordinal);
     }
     const auto& model = p.registration;
-    add(model.evaluator); loss(model.loss); add(model.minimum_tsdf_weight); add(model.maximum_confidence_weight);
+    add(model.profile); loss(model.robust_loss); add(model.minimum_tsdf_weight); add(model.maximum_confidence_weight);
     add(model.minimum_gradient_norm); add(model.maximum_absolute_residual_m); add(model.allow_nearest_fallback);
     add(fields.tiles.size());
 
@@ -225,7 +225,7 @@ inline operation_result<preparation_key> make_preparation_key(const pgo::graph_s
         add(tile.volume); add(tile.kind); add(tile.x); add(tile.y); add(tile.z);
         add(std::uintptr_t(tile.distance)); add(std::uintptr_t(tile.weight)); add(std::uintptr_t(tile.flags));
         add(tile.voxel_stride); add(tile.encoding); add(tile.voxel_size); add(tile.maximum_distance);
-        add(tile.content_epoch); add(tile.allocation_generation); add(tile.slot_generation);
+        add(tile.content_generation); add(tile.allocation_generation); add(tile.slot_generation);
     }
     if (overflow) return std::unexpected(operation_error{"preparation key exceeds byte budget"});
     return key;
@@ -237,11 +237,11 @@ struct preparation_metrics
 };
 struct cached_preparation
 {
-    ceronoceres::PreparedProblem problem;
+    abseil::prepared_problem problem;
     bool reused{};
 };
 inline operation_status write_preparation_metrics(std::ostream& output, const preparation_metrics& metrics,
-    const ceronoceres::SolverTelemetry& solver)
+    const abseil::solver_telemetry& solver)
 {
     output << "preparation cache hits " << metrics.hits << ", misses " << metrics.misses
         << ", invalidations " << metrics.invalidations << ", key bytes " << metrics.key_bytes
@@ -251,20 +251,19 @@ inline operation_status write_preparation_metrics(std::ostream& output, const pr
     if (!output) return std::unexpected(operation_error{"preparation report write failed"});
     return {};
 }
-inline operation_result<ceronoceres::SolveResult> solve_prepared_fields(const cached_preparation& prepared,
-    const pgo::options& execution, const ceronoceres::NativeLmOptions& lm = {})
+inline operation_result<abseil::solve_result> solve_prepared_fields(const cached_preparation& prepared,
+    const pgo::options& execution, const abseil::native_lm_options& lm = {})
 {
     switch (execution.solver) {
     case pgo::backend::native_cpu: return pgo::solve_cpu(prepared.problem, execution, lm);
     case pgo::backend::cuda_cold: {
         auto configured = pgo::cuda_solve_options(execution, lm);
         if (!configured) return std::unexpected(configured.error());
-        auto solved = ceronoceres::solve_cuda_checked(prepared.problem, configured->common,
-            std::get<ceronoceres::NativeCudaColdOptions>(configured->backend_options));
-        if (const auto* error = std::get_if<ceronoceres::cuda_solve_error>(&solved))
-            return std::unexpected(operation_error{error->message});
-        auto result = std::get<ceronoceres::SolveResult>(std::move(solved));
-        auto valid = pgo::validate_solve_result(result, prepared.problem.node_count(), ceronoceres::Backend::NativeCudaCold);
+        auto solved = abseil::solve_cuda_checked(prepared.problem, configured->common,
+            std::get<abseil::native_cuda_cold_options>(configured->specific));
+        if (!solved) return std::unexpected(operation_error{solved.error().message});
+        auto result = std::move(*solved);
+        auto valid = pgo::validate_solve_result(result, prepared.problem.node_count(), abseil::backend::native_cuda_cold);
         if (!valid) return std::unexpected(valid.error());
         return result;
     }
@@ -276,7 +275,7 @@ class preparation_cache
     static constexpr std::size_t default_maximum_key_bytes = 64U * bytes_per_mebibyte;
     mutable std::mutex mutex_;
     std::optional<preparation_key> key_;
-    ceronoceres::PreparedProblem problem_;
+    abseil::prepared_problem problem_;
     preparation_metrics metrics_;
     std::size_t maximum_key_bytes_;
 public:
@@ -296,14 +295,14 @@ public:
         ++metrics_.invalidations;
     }
     operation_result<cached_preparation> prepare(pgo::graph_snapshot graph,
-        std::shared_ptr<const ceronoceres::field_snapshot> fields)
+        std::shared_ptr<const abseil::field_snapshot> fields)
     {
         const auto started = std::chrono::steady_clock::now();
         auto checked = pgo::validate_graph(graph);
         if (!checked) return std::unexpected(checked.error());
         if (!fields) return std::unexpected(operation_error{"cache field snapshot is absent"});
-        const auto error = ceronoceres::validate_fields(graph.problem, *fields);
-        if (!error.empty()) return std::unexpected(operation_error{error});
+        const auto valid_fields = abseil::validate_fields(graph.problem, *fields);
+        if (!valid_fields) return std::unexpected(operation_error{valid_fields.error().message});
         auto key = make_preparation_key(graph, *fields, maximum_key_bytes_);
         if (!key) return std::unexpected(key.error());
         const auto generated = std::chrono::steady_clock::now();
@@ -314,10 +313,9 @@ public:
             ++metrics_.hits;
             return cached_preparation{problem_, true};
         }
-        auto prepared = ceronoceres::prepare_fields(std::move(graph.problem), std::move(fields));
-        if (const auto* failure = std::get_if<std::string>(&prepared))
-            return std::unexpected(operation_error{*failure});
-        problem_ = std::get<ceronoceres::PreparedProblem>(std::move(prepared));
+        auto prepared = abseil::prepare_fields(std::move(graph.problem), std::move(fields));
+        if (!prepared) return std::unexpected(operation_error{prepared.error().message});
+        problem_ = std::move(*prepared);
         metrics_.preparation_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - generated).count();
         ++metrics_.misses;
         metrics_.key_bytes = key->bytes.size();

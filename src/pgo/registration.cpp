@@ -112,7 +112,7 @@ operation_result<candidate_set> find_candidates(std::span<const submap> maps, ca
                     !(value.weight > 0) || value.weight < map.config.esdf_minimum_weight) continue;
                 if (!std::isfinite(value.distance) || !std::isfinite(value.weight))
                     return std::unexpected(operation_error{"nonfinite registration source voxel"});
-                const ceronoceres::Vec3d p{
+                const abseil::vector3 p{
                     size * (double(block.x) * tile_edge + local % tile_edge + 0.5),
                     size * (double(block.y) * tile_edge + (local / tile_edge) % tile_edge + 0.5),
                     size * (double(block.z) * tile_edge + local / (tile_edge * tile_edge) + 0.5)};
@@ -159,8 +159,8 @@ operation_status append_registration(graph_snapshot& graph, std::span<const subm
         return std::unexpected(operation_error{"registration fields already assigned or submap count differs"});
     auto staging = graph;
     auto& problem = staging.problem;
-    problem.registration.evaluator = ceronoceres::RegistrationModel{}.evaluator;
-    problem.registration.loss = options.loss;
+    problem.registration.profile = abseil::registration_profile::uniform_trilinear;
+    problem.registration.robust_loss = options.loss;
     problem.registration.minimum_tsdf_weight = options.minimum_weight;
     problem.registration.maximum_confidence_weight = options.maximum_weight;
     problem.registration.minimum_gradient_norm = options.minimum_gradient;
@@ -177,7 +177,7 @@ operation_status append_registration(graph_snapshot& graph, std::span<const subm
         if (!copy_fields) continue;
 
         for (const auto& entry : map.tsdf) {
-            ceronoceres::TsdfTile tile;
+            abseil::tsdf_tile tile;
             tile.volume = index;
             tile.x = entry.first.x; tile.y = entry.first.y; tile.z = entry.first.z;
 
@@ -194,7 +194,7 @@ operation_status append_registration(graph_snapshot& graph, std::span<const subm
 
         for (const auto& entry : map.esdf)
         {
-            ceronoceres::EsdfTile tile;
+            abseil::esdf_tile tile;
             tile.volume = index;
             tile.x = entry.first.x; tile.y = entry.first.y; tile.z = entry.first.z;
 
@@ -211,10 +211,10 @@ operation_status append_registration(graph_snapshot& graph, std::span<const subm
     for (const auto& direction : candidates.directions) {
         if (!problem.volumes[direction.source].has_tsdf || !problem.volumes[direction.target].has_esdf)
             return std::unexpected(operation_error{"registration direction has no supporting field"});
-        ceronoceres::RegistrationGroup group;
+        abseil::registration_group group;
         group.node_i = direction.source; group.node_j = direction.target;
         group.volume_i = direction.source; group.volume_j = direction.target;
-        group.field = ceronoceres::FieldKind::Esdf;
+        group.field = abseil::field_kind::esdf;
         group.sample_begin = problem.registration_samples.size();
         group.sample_count = direction.samples.size();
         group.diagnostic_id = direction.diagnostic_id;

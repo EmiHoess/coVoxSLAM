@@ -9,7 +9,7 @@
 #include <vector>
 
 #if defined(covoxslam_has_pgo)
-#include <ceronoceres/ceronoceres.hpp>
+#include <abseil/abseil.hpp>
 namespace covoxslam::pgo
 {
 struct surface_bounds
@@ -18,7 +18,7 @@ struct surface_bounds
     bool valid{};
 };
 struct surface_sample {
-    ceronoceres::Vec3d point;
+    abseil::vector3 point;
     double distance{}, weight{};
      std::uint64_t ordinal{};
 };
@@ -47,7 +47,7 @@ struct candidate_statistics
 operation_result<candidate_statistics> summarize_candidates(const candidate_set& candidates);
 struct registration_options
 {
-    ceronoceres::Loss loss{ceronoceres::LossKind::Huber, 0.20};
+    abseil::loss loss{abseil::loss_kind::huber, 0.20};
     double minimum_weight{1.0e-6};
     double maximum_weight{10000.0};
     double minimum_gradient{1.0e-6};

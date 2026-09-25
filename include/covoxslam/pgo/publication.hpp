@@ -17,12 +17,12 @@ struct optimization_options
     options execution;
     candidate_options candidates;
     registration_options registration;
-    ceronoceres::NativeLmOptions lm;
+    abseil::native_lm_options lm;
 };
 struct optimization_result
 {
     solve_snapshot snapshot;
-    ceronoceres::SolveResult solution;
+    abseil::solve_result solution;
     candidate_statistics candidates;
     std::uint64_t map_hash{};
 };

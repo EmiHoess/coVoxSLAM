@@ -60,7 +60,7 @@ inline operation_result<pgo_cli_result> finish_pgo(std::span<submap> maps, const
     if (!*optimized) return std::unexpected(operation_error{"enabled PGO returned no solve"});
     auto& result = **optimized;
     pgo_cli_result output;
-    output.backend = ceronoceres::backend_name(result.solution.backend);
+    output.backend = abseil::backend_name(result.solution.selected_backend);
     output.hash = result.snapshot.hash();
     output.publication = "rejected";
     std::ostringstream report;

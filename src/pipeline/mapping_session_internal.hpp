@@ -94,7 +94,7 @@ inline operation_result<stored_pipeline_result> stored_pipeline(
         << stored_pgo_fields_name(options.fields) << ", checkpoint format " << store::checkpoint_v1::version
         << ", field view API ";
 #if defined(covoxslam_has_pgo)
-    report << ceronoceres::field_view_api_version;
+    report << abseil::field_view_api_version;
 #else
     report << "unavailable";
 #endif
@@ -127,7 +127,7 @@ inline operation_result<stored_pipeline_result> stored_pipeline(
         auto frozen = options.fields == stored_pgo_fields::copied ? pgo::freeze_graph(*graph) :
             pgo::freeze_field_graph(*graph, *fields);
         if (!frozen) return std::unexpected(frozen.error());
-        operation_result<ceronoceres::SolveResult> solved = std::unexpected(operation_error{"no solver selected"});
+        operation_result<abseil::solve_result> solved = std::unexpected(operation_error{"no solver selected"});
         preparation_cache cache;
         switch (options.fields) {
         case stored_pgo_fields::copied:
@@ -159,7 +159,7 @@ inline operation_result<stored_pipeline_result> stored_pipeline(
         }
         }
         if (!solved) return std::unexpected(solved.error());
-        output.backend = ceronoceres::backend_name(solved->backend);
+        output.backend = abseil::backend_name(solved->selected_backend);
         output.hash = frozen->hash();
         output.publication = "rejected";
         checked = pgo::write_solver_report(report, *solved);
