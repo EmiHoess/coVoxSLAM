@@ -9,22 +9,37 @@
 #include <limits>
 #include <memory>
 #include <span>
+#include <tuple>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
 #if defined(covoxslam_has_urd)
-#include <urd/types/struct_container.hpp>
-#include <urd/types/struct_container/soa_offset.hpp>
+#include <urd/reflection.hpp>
 #endif
 
 namespace covoxslam::storage
 {
 template<schema s, layout l> struct storage_traits;
 #if defined(covoxslam_has_urd)
-template<schema s> using urd_pool = urd::v2::struct_container<value<s>, 0,
-    urd::v2::soa_layout, urd::v2::heap_storage>;
+template<schema s> class soa_pool
+{
+    using members = decltype(urd::tie_members(std::declval<value<s>&>()));
+    static_assert(urd::member_count_v<value<s>> == field_count<s>);
+    template<std::size_t... fields> static auto field_storage(std::index_sequence<fields...>)
+    {
+        static_assert((std::is_same_v<std::remove_cvref_t<std::tuple_element_t<fields, members>>,
+            field_type<s, fields>> && ...));
+        return std::tuple<std::vector<std::remove_cvref_t<std::tuple_element_t<fields, members>>>...>{};
+    }
+    decltype(field_storage(std::make_index_sequence<field_count<s>>{})) fields_;
+public:
+    template<std::size_t field> auto& get() noexcept { return std::get<field>(fields_); }
+    template<std::size_t field> const auto& get() const noexcept { return std::get<field>(fields_); }
+};
 template<schema s> struct storage_traits<s, layout::pool_soa>
 {
-    using type = urd_pool<s>;
+    using type = soa_pool<s>;
     static constexpr std::size_t voxel_stride = pool_soa_voxel_stride_bytes;
      static constexpr std::size_t tile_stride = pool_soa_tile_stride_bytes;
     static constexpr std::array<std::size_t, field_count<s>> offsets{};
