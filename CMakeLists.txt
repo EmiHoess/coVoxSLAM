@@ -28,8 +28,6 @@ if(NOT covoxslam_sensor_accumulation_bits STREQUAL "32" AND
 endif()
 target_compile_definitions(covoxslam_core PUBLIC
     covoxslam_sensor_accumulation_bits=${covoxslam_sensor_accumulation_bits})
-file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/covoxslam_sensor_precision.txt"
-    CONTENT "gpu_accumulation_bits=${covoxslam_sensor_accumulation_bits}\nfield_storage_bits=32\n")
 option(covoxslam_enable_cuda "Build coVoxSLAM GPU mapping and runtime support" OFF)
 if(covoxslam_enable_cuda)
     if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
@@ -55,8 +53,6 @@ if(covoxslam_enable_cuda)
     target_link_libraries(covoxslam_core PUBLIC CUDA::cudart)
     set_target_properties(covoxslam_core PROPERTIES CUDA_STANDARD 20
         CUDA_STANDARD_REQUIRED ON CUDA_EXTENSIONS OFF CUDA_RUNTIME_LIBRARY Shared)
-    file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/covoxslam_build_metadata.txt"
-        CONTENT "cmake=${CMAKE_VERSION}\nhost=${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}\ncuda=${CMAKE_CUDA_COMPILER_VERSION}\narchitecture=${CMAKE_CUDA_ARCHITECTURES}\nhost_standard=$<TARGET_PROPERTY:covoxslam_core,CXX_STANDARD>\ncuda_standard=$<TARGET_PROPERTY:covoxslam_core,CUDA_STANDARD>\n")
 else()
     target_sources(covoxslam_core PRIVATE src/core/cuda_device_stub.cpp)
     target_sources(covoxslam_core PRIVATE src/sensor/dense_field_stub.cpp)
